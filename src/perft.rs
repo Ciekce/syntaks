@@ -25,9 +25,9 @@ fn do_perft(pos: &Position, depth: i32, movelists: &mut [Vec<Move>]) -> usize {
     total
 }
 
-pub fn perft(pos: &Position, depth: i32) {
+pub fn perft(pos: &Position, depth: i32) -> usize {
     let mut movelists = vec![Vec::with_capacity(256); depth as usize];
-    println!("{}", do_perft(pos, depth, &mut movelists));
+    do_perft(pos, depth, &mut movelists)
 }
 
 pub fn split_perft(pos: &Position, depth: i32) {
