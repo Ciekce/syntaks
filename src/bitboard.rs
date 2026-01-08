@@ -9,6 +9,11 @@ pub struct Bitboard {
 impl Bitboard {
     const MASK: u64 = (1 << Square::COUNT) - 1;
 
+    pub const UPPER_EDGE: Self = Self::from_raw(0xfc0000000);
+    pub const LOWER_EDGE: Self = Self::from_raw(0x3f);
+    pub const LEFT_EDGE: Self = Self::from_raw(0x41041041);
+    pub const RIGHT_EDGE: Self = Self::from_raw(0x820820820);
+
     #[must_use]
     pub const fn empty() -> Self {
         Self { raw: 0 }
@@ -19,6 +24,21 @@ impl Bitboard {
         Self {
             raw: raw & Self::MASK,
         }
+    }
+
+    #[must_use]
+    pub const fn edge(dir: Direction) -> Self {
+        [
+            Self::UPPER_EDGE,
+            Self::LOWER_EDGE,
+            Self::LEFT_EDGE,
+            Self::RIGHT_EDGE,
+        ][dir.idx()]
+    }
+
+    #[must_use]
+    pub const fn raw(self) -> u64 {
+        self.raw
     }
 
     #[must_use]
@@ -115,11 +135,18 @@ impl Bitboard {
         }
     }
 
-    #[must_use]
     pub fn pop_lsb(&mut self) -> Option<Square> {
         let sq = self.lsb()?;
         self.raw &= self.raw - 1;
         Some(sq)
+    }
+
+    #[must_use]
+    pub fn shift(&self, dir: Direction) -> Self {
+        match dir {
+            Direction::Up | Direction::Right => self.shl(dir.offset() as u32),
+            Direction::Down | Direction::Left => self.shr(-dir.offset() as u32),
+        }
     }
 }
 
