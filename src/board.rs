@@ -569,8 +569,8 @@ fn has_road_avx2(road_occ: Bitboard) -> bool {
         let next_masks_d = _mm256_srli_epi64::<6>(masks);
         let next_masks_ud = _mm256_or_si256(next_masks_u, next_masks_d);
 
-        let next_masks_l = _mm256_andnot_si256(_mm256_slli_epi64::<1>(masks), left_edge);
-        let next_masks_r = _mm256_andnot_si256(_mm256_srli_epi64::<1>(masks), right_edge);
+        let next_masks_l = _mm256_andnot_si256(left_edge, _mm256_slli_epi64::<1>(masks));
+        let next_masks_r = _mm256_andnot_si256(right_edge, _mm256_srli_epi64::<1>(masks));
         let next_masks_lr = _mm256_or_si256(next_masks_l, next_masks_r);
 
         let next_masks = _mm256_or_si256(next_masks_ud, next_masks_lr);
@@ -579,18 +579,13 @@ fn has_road_avx2(road_occ: Bitboard) -> bool {
     };
 
     let next_masks = calc_next_masks(masks);
-    let swizzled = _mm256_permute4x64_epi64::<{ mm_shuffle(1, 0, 3, 2) }>(next_masks);
 
-    if _mm256_testz_si256(next_masks, swizzled) == 0 {
-        return true;
-    }
-
-    let new = _mm256_andnot_si256(next_masks, masks);
+    let new = _mm256_andnot_si256(masks, next_masks);
     let new = _mm256_cmpeq_epi64(new, _mm256_setzero_si256());
     let new = unsafe { std::mem::transmute::<__m256i, __m256d>(new) };
-    let bit = _mm256_movemask_pd(new);
+    let bit = _mm256_movemask_pd(new) ^ 0xF;
 
-    if (1 << (15 - bit)) & 0b1111_1000_1000_1000 == 0 {
+    if (1 << bit) & 0b1111_1000_1000_1000 == 0 {
         return false;
     }
 
@@ -598,7 +593,7 @@ fn has_road_avx2(road_occ: Bitboard) -> bool {
 
     loop {
         let next_masks = calc_next_masks(masks);
-        let swizzled = _mm256_permute4x64_epi64::<{ mm_shuffle(1, 0, 3, 2) }>(next_masks);
+        let swizzled = _mm256_shuffle_epi32::<{ mm_shuffle(1, 0, 3, 2) }>(next_masks);
 
         if _mm256_testz_si256(next_masks, swizzled) == 0 {
             return true;
