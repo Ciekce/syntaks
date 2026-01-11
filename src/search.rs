@@ -243,6 +243,8 @@ impl Searcher {
                 root_pos,
                 thread.root_depth,
                 0,
+                -SCORE_INF,
+                SCORE_INF,
             );
 
             thread.root_moves.sort_by(|a, b| b.score.cmp(&a.score));
@@ -269,6 +271,7 @@ impl Searcher {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn search<const ROOT_NODE: bool>(
         ctx: &mut SearchContext,
         thread: &mut ThreadData,
@@ -277,6 +280,8 @@ impl Searcher {
         pos: &Position,
         depth: i32,
         ply: i32,
+        mut alpha: Score,
+        beta: Score,
     ) -> Score {
         if ctx.has_stopped() {
             return 0;
@@ -305,7 +310,7 @@ impl Searcher {
 
         let mut best_score = -SCORE_INF;
 
-        for &mv in moves.iter() {
+        for (move_idx, &mv) in moves.iter().enumerate() {
             child_pvs[0].clear();
 
             let new_pos = thread.apply_move(pos, mv);
@@ -345,6 +350,8 @@ impl Searcher {
                     &new_pos,
                     depth - 1,
                     ply + 1,
+                    -beta,
+                    -alpha,
                 )
             };
 
@@ -356,18 +363,29 @@ impl Searcher {
 
             if ROOT_NODE {
                 let seldepth = thread.seldepth;
-
                 let root_move = thread.get_root_move_mut(mv);
 
-                root_move.seldepth = seldepth;
-                root_move.score = score;
+                if move_idx == 0 || score > alpha {
+                    root_move.seldepth = seldepth;
+                    root_move.score = score;
 
-                update_pv(&mut root_move.pv, mv, &child_pvs[0]);
+                    update_pv(&mut root_move.pv, mv, &child_pvs[0]);
+                } else {
+                    root_move.score = -SCORE_INF;
+                }
             }
 
             if score > best_score {
                 best_score = score;
+            }
+
+            if score > alpha {
+                alpha = score;
                 update_pv(pv, mv, &child_pvs[0]);
+            }
+
+            if score >= beta {
+                break;
             }
         }
 
