@@ -7,5 +7,5 @@ edition = "2024"
 pext = []
 
 [dependencies]
-fastrand = "2.3.0"
+arrayvec = "0.7.6"
 static_init = "1.0.4"

@@ -1,6 +1,11 @@
 use crate::board::Position;
-use crate::movegen::generate_moves;
+use crate::core::Player;
+use crate::eval::static_eval;
+use crate::limit::Limits;
 use crate::perft::{perft, split_perft};
+use crate::search;
+use crate::search::Searcher;
+use std::time::Instant;
 
 const NAME: &str = "syntaks";
 const AUTHORS: &str = "Ciekce";
@@ -8,6 +13,8 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 struct TeiHandler {
     pos: Position,
+    key_history: Vec<u64>,
+    searcher: Searcher,
 }
 
 impl TeiHandler {
@@ -15,6 +22,8 @@ impl TeiHandler {
     fn new() -> Self {
         Self {
             pos: Position::startpos(),
+            key_history: Vec::with_capacity(1024),
+            searcher: Searcher::new(),
         }
     }
 
@@ -24,6 +33,8 @@ impl TeiHandler {
             if bytes == 0 {
                 break;
             }
+
+            let start_time = Instant::now();
 
             let args: Vec<_> = line.split_ascii_whitespace().collect();
             if args.is_empty() {
@@ -39,7 +50,7 @@ impl TeiHandler {
                 "setoption" => self.handle_setoption(args),
                 "isready" => self.handle_isready(),
                 "position" => self.handle_position(args),
-                "go" => self.handle_go(args),
+                "go" => self.handle_go(args, start_time),
                 "d" => self.handle_d(),
                 "perft" => self.handle_perft(args),
                 "splitperft" => self.handle_splitperft(args),
@@ -52,9 +63,14 @@ impl TeiHandler {
     }
 
     fn handle_tei(&self) {
+        let half_komi = Position::KOMI * 2;
+
         println!("id name {} {}", NAME, VERSION);
         println!("id author {}", AUTHORS);
-        println!("option name HalfKomi type spin default 4 min 4 max 4");
+        println!(
+            "option name HalfKomi type spin default {} min {} max {}",
+            half_komi, half_komi, half_komi
+        );
         println!("teiok");
     }
 
@@ -94,7 +110,10 @@ impl TeiHandler {
         let mut next = 0;
 
         match pos_type {
-            "startpos" => self.pos = Position::startpos(),
+            "startpos" => {
+                self.pos = Position::startpos();
+                self.key_history.clear();
+            }
             "tps" => {
                 let count = args
                     .iter()
@@ -107,7 +126,10 @@ impl TeiHandler {
                 }
 
                 match Position::from_tps_parts(&args[0..count]) {
-                    Ok(pos) => self.pos = pos,
+                    Ok(pos) => {
+                        self.pos = pos;
+                        self.key_history.clear();
+                    }
                     Err(err) => {
                         eprintln!("Failed to parse TPS: {:?}", err);
                         return;
@@ -128,7 +150,10 @@ impl TeiHandler {
 
         for &move_str in &args[(next + 1)..] {
             match move_str.parse() {
-                Ok(mv) => self.pos = self.pos.apply_move(mv),
+                Ok(mv) => {
+                    self.key_history.push(self.pos.key());
+                    self.pos = self.pos.apply_move(mv);
+                }
                 Err(err) => {
                     eprintln!("Invalid move '{}': {:?}", move_str, err);
                     return;
@@ -137,19 +162,142 @@ impl TeiHandler {
         }
     }
 
-    fn handle_go(&self, _args: &[&str]) {
-        let mut moves = Vec::with_capacity(256);
-        generate_moves(&mut moves, &self.pos);
+    fn handle_go(&mut self, args: &[&str], start_time: Instant) {
+        let mut limits = Limits::new(start_time);
+        let mut max_depth = None;
 
-        let mv = moves[fastrand::usize(0..moves.len())];
+        let mut wtime = None;
+        let mut btime = None;
+        let mut winc = None;
+        let mut binc = None;
 
-        println!("info depth 1 seldepth 1 nodes 1 score cp 0 pv {}", mv);
-        println!("bestmove {}", mv);
+        let mut i = 0;
+        while i < args.len() {
+            let limit_str = args[i];
+            match limit_str {
+                "depth" => {
+                    i += 1;
+                    if i >= args.len() {
+                        eprintln!("Missing depth");
+                        return;
+                    }
+
+                    if let Ok(depth) = args[i].parse() {
+                        if max_depth.is_some() {
+                            eprintln!("Duplicate depth limits");
+                            return;
+                        }
+                        max_depth = Some(depth);
+                    } else {
+                        eprintln!("Invalid depth '{}'", args[i]);
+                        return;
+                    }
+                }
+                "nodes" => {
+                    i += 1;
+                    if i >= args.len() {
+                        eprintln!("Missing node count");
+                        return;
+                    }
+
+                    if let Ok(nodes) = args[i].parse() {
+                        if !limits.set_nodes(nodes) {
+                            eprintln!("Duplicate node limits");
+                            return;
+                        }
+                    } else {
+                        eprintln!("Invalid node count '{}'", args[i]);
+                        return;
+                    }
+                }
+                "movetime" => {
+                    i += 1;
+                    if i >= args.len() {
+                        eprintln!("Missing time");
+                        return;
+                    }
+
+                    if let Ok(movetime) = args[i].parse::<u64>() {
+                        let secs = (movetime as f64) / 1000.0;
+                        if !limits.set_movetime(secs) {
+                            eprintln!("Duplicate movetime limits");
+                            return;
+                        }
+                    } else {
+                        eprintln!("Invalid time '{}'", args[i]);
+                        return;
+                    }
+                }
+                "wtime" | "btime" | "winc" | "binc" => {
+                    i += 1;
+                    if i >= args.len() {
+                        eprintln!("Missing time");
+                        return;
+                    }
+
+                    if let Ok(time) = args[i].parse::<u64>() {
+                        let limit = match limit_str {
+                            "wtime" => &mut wtime,
+                            "btime" => &mut btime,
+                            "winc" => &mut winc,
+                            "binc" => &mut binc,
+                            _ => unreachable!(),
+                        };
+
+                        if limit.is_some() {
+                            eprintln!("Duplicate {} limits", limit_str);
+                            return;
+                        }
+
+                        let secs = (time as f64) / 1000.0;
+                        *limit = Some(secs);
+                    } else {
+                        eprintln!("Invalid time '{}'", args[i]);
+                        return;
+                    }
+                }
+                unsupported => eprintln!("Unsupported limit '{}'", unsupported),
+            }
+
+            i += 1;
+        }
+
+        let (our_time, our_inc) = match self.pos.stm() {
+            Player::P1 => (wtime, winc),
+            Player::P2 => (btime, binc),
+        };
+
+        if our_inc.is_some() && our_time.is_none() {
+            println!("info string Warning: increment given but no base time");
+        }
+
+        if let Some(our_time) = our_time {
+            let our_inc = our_inc.unwrap_or(0.0);
+            limits.set_time_manager(our_time, our_inc);
+        }
+
+        let max_depth = max_depth
+            .unwrap_or(search::MAX_PLY)
+            .clamp(1, search::MAX_PLY);
+
+        self.searcher
+            .start_search(&self.pos, &self.key_history, start_time, limits, max_depth);
     }
 
     fn handle_d(&self) {
         println!("TPS: {}", self.pos.tps());
         println!("Key: {:016x}", self.pos.key());
+
+        let static_eval = static_eval(&self.pos);
+        let static_eval = match self.pos.stm() {
+            Player::P1 => static_eval,
+            Player::P2 => -static_eval,
+        };
+
+        println!(
+            "Static eval (P1-relative): {:+.2}",
+            (static_eval as f64) / 100.0
+        );
     }
 
     fn handle_perft(&self, args: &[&str]) {

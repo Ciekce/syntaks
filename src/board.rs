@@ -3,6 +3,7 @@ use crate::core::*;
 use crate::keys;
 use crate::road::has_road;
 use crate::takmove::Move;
+use std::cmp::Ordering;
 use std::str::FromStr;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -164,6 +165,12 @@ impl Iterator for StackIterator {
     }
 }
 
+pub enum FlatCountOutcome {
+    None,
+    Draw,
+    Win(Player),
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Position {
     stacks: Stacks,
@@ -178,6 +185,7 @@ pub struct Position {
 
 impl Position {
     pub const CARRY_LIMIT: u8 = 6;
+    pub const KOMI: u32 = 2;
 
     #[must_use]
     pub fn startpos() -> Self {
@@ -310,6 +318,11 @@ impl Position {
     }
 
     #[must_use]
+    pub fn player_piece_bb(&self, piece: Piece) -> Bitboard {
+        self.player_bb(piece.player()) & self.piece_bb(piece.piece_type())
+    }
+
+    #[must_use]
     pub fn occ(&self) -> Bitboard {
         self.players[0] | self.players[1]
     }
@@ -357,6 +370,30 @@ impl Position {
     #[must_use]
     pub fn has_road(&self, player: Player) -> bool {
         has_road(self.roads(player))
+    }
+
+    #[must_use]
+    fn has_no_more_pieces(&self, player: Player) -> bool {
+        self.flats_in_hand(player) == 0 && self.caps_in_hand(player) == 0
+    }
+
+    #[must_use]
+    pub fn count_flats(&self) -> FlatCountOutcome {
+        if !(!self.occ()).is_empty()
+            && !self.has_no_more_pieces(Player::P1)
+            && !self.has_no_more_pieces(Player::P2)
+        {
+            return FlatCountOutcome::None;
+        }
+
+        let p1_flats = self.player_piece_bb(Piece::P1Flat).popcount();
+        let p2_flats = self.player_piece_bb(Piece::P2Flat).popcount() + Self::KOMI;
+
+        match p1_flats.cmp(&p2_flats) {
+            Ordering::Less => FlatCountOutcome::Win(Player::P2),
+            Ordering::Equal => FlatCountOutcome::Draw,
+            Ordering::Greater => FlatCountOutcome::Win(Player::P1),
+        }
     }
 
     #[must_use]
