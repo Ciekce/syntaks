@@ -235,7 +235,7 @@ impl Searcher {
         loop {
             thread.reset_seldepth();
 
-            Self::search::<true>(
+            Self::search::<true, true>(
                 ctx,
                 thread,
                 &mut movelists,
@@ -272,7 +272,7 @@ impl Searcher {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn search<const ROOT_NODE: bool>(
+    fn search<const PV_NODE: bool, const ROOT_NODE: bool>(
         ctx: &mut SearchContext,
         thread: &mut ThreadData,
         movelists: &mut [Vec<Move>],
@@ -301,7 +301,9 @@ impl Searcher {
             return static_eval(pos);
         }
 
-        thread.update_seldepth(ply);
+        if PV_NODE {
+            thread.update_seldepth(ply);
+        }
 
         let (moves, movelists) = movelists.split_first_mut().unwrap();
         let (pv, child_pvs) = pvs.split_first_mut().unwrap();
@@ -311,7 +313,9 @@ impl Searcher {
         let mut best_score = -SCORE_INF;
 
         for (move_idx, &mv) in moves.iter().enumerate() {
-            child_pvs[0].clear();
+            if PV_NODE {
+                child_pvs[0].clear();
+            }
 
             let new_pos = thread.apply_move(pos, mv);
 
@@ -342,17 +346,37 @@ impl Searcher {
                     break 'recurse 0;
                 }
 
-                -Self::search::<false>(
-                    ctx,
-                    thread,
-                    movelists,
-                    child_pvs,
-                    &new_pos,
-                    depth - 1,
-                    ply + 1,
-                    -beta,
-                    -alpha,
-                )
+                let mut score = 0;
+
+                if !PV_NODE || move_idx > 0 {
+                    score = -Self::search::<false, false>(
+                        ctx,
+                        thread,
+                        movelists,
+                        child_pvs,
+                        &new_pos,
+                        depth - 1,
+                        ply + 1,
+                        -alpha - 1,
+                        -alpha,
+                    );
+                }
+
+                if PV_NODE && (move_idx == 0 || score > alpha) {
+                    score = -Self::search::<true, false>(
+                        ctx,
+                        thread,
+                        movelists,
+                        child_pvs,
+                        &new_pos,
+                        depth - 1,
+                        ply + 1,
+                        -beta,
+                        -alpha,
+                    );
+                }
+
+                score
             };
 
             thread.pop_move();
@@ -381,7 +405,10 @@ impl Searcher {
 
             if score > alpha {
                 alpha = score;
-                update_pv(pv, mv, &child_pvs[0]);
+
+                if PV_NODE {
+                    update_pv(pv, mv, &child_pvs[0]);
+                }
             }
 
             if score >= beta {
