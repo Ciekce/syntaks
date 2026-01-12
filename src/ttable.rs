@@ -52,8 +52,7 @@ impl TranspositionTable {
         let entry_key = pack_entry_key(key);
 
         //SAFETY: index() cannot return an out-of-bounds index
-        //let entry = *unsafe { self.entries.get_unchecked(idx) };
-        let entry = self.entries[idx];
+        let entry = *unsafe { self.entries.get_unchecked(idx) };
 
         if entry.key != entry_key {
             return None;
@@ -76,8 +75,7 @@ impl TranspositionTable {
         };
 
         //SAFETY: index() cannot return an out-of-bounds index
-        //*unsafe { self.entries.get_unchecked_mut(idx) } = entry;
-        self.entries[idx] = entry;
+        *unsafe { self.entries.get_unchecked_mut(idx) } = entry;
     }
 
     pub fn clear(&mut self) {
