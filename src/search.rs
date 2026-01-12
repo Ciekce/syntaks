@@ -179,6 +179,27 @@ impl ThreadData {
     }
 }
 
+const LMR_TABLE_MOVES: usize = 64;
+
+#[static_init::dynamic]
+static LMR_REDUCTIONS: [[i32; LMR_TABLE_MOVES]; MAX_PLY as usize] = {
+    const BASE: f64 = 0.5;
+    const DIVISOR: f64 = 2.5;
+
+    let mut reductions = [[0; LMR_TABLE_MOVES]; MAX_PLY as usize];
+
+    for depth in 1..MAX_PLY as usize {
+        let ln_depth = (depth as f64).ln();
+        for move_number in 1..LMR_TABLE_MOVES {
+            let ln_move_number = (move_number as f64).ln();
+            let reduction = (BASE + ln_depth * ln_move_number / DIVISOR) as i32;
+            reductions[depth][move_number] = reduction;
+        }
+    }
+
+    reductions
+};
+
 trait NodeType {
     const PV_NODE: bool;
     const ROOT_NODE: bool;
@@ -387,14 +408,45 @@ impl SearcherImpl {
 
                 let mut score = 0;
 
-                if !NT::PV_NODE || move_count > 1 {
+                let new_depth = depth - 1;
+
+                if depth >= 2 && move_count >= 5 + 2 * usize::from(NT::ROOT_NODE) {
+                    let r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
+                    let reduced = (new_depth - r).max(1).min(new_depth - 1);
+
                     score = -self.search::<NonPvNode>(
                         ctx,
                         thread,
                         movelists,
                         child_pvs,
                         &new_pos,
-                        depth - 1,
+                        reduced,
+                        ply + 1,
+                        -alpha - 1,
+                        -alpha,
+                    );
+
+                    if score > alpha && reduced < new_depth {
+                        score = -self.search::<NonPvNode>(
+                            ctx,
+                            thread,
+                            movelists,
+                            child_pvs,
+                            &new_pos,
+                            new_depth,
+                            ply + 1,
+                            -alpha - 1,
+                            -alpha,
+                        );
+                    }
+                } else if !NT::PV_NODE || move_count > 1 {
+                    score = -self.search::<NonPvNode>(
+                        ctx,
+                        thread,
+                        movelists,
+                        child_pvs,
+                        &new_pos,
+                        new_depth,
                         ply + 1,
                         -alpha - 1,
                         -alpha,
@@ -408,7 +460,7 @@ impl SearcherImpl {
                         movelists,
                         child_pvs,
                         &new_pos,
-                        depth - 1,
+                        new_depth,
                         ply + 1,
                         -beta,
                         -alpha,
