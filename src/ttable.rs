@@ -1,13 +1,33 @@
+use crate::search::{SCORE_WIN, Score};
 use crate::takmove::Move;
 
 pub const DEFAULT_TT_SIZE_MIB: usize = 64;
 pub const MAX_TT_SIZE_MIB: usize = 131072;
 
+#[derive(Copy, Clone, Debug)]
+#[repr(u8)]
+pub enum TtFlag {
+    UpperBound = 1,
+    LowerBound,
+    Exact,
+}
+
 #[derive(Copy, Clone, Debug, Default)]
 #[repr(C)]
-pub struct Entry {
-    pub key: u16,
+struct Entry {
+    key: u16,
+    score: i16,
+    mv: Option<Move>,
+    depth: u8,
+    flag: Option<TtFlag>,
+}
+
+#[derive(Copy, Clone, Debug, Default)]
+pub struct ProbedEntry {
+    pub score: Score,
     pub mv: Option<Move>,
+    pub depth: i32,
+    pub flag: Option<TtFlag>,
 }
 
 #[must_use]
@@ -18,6 +38,29 @@ fn calc_entry_count(size_mib: usize) -> usize {
 #[must_use]
 fn pack_entry_key(key: u64) -> u16 {
     key as u16
+}
+
+#[must_use]
+fn score_to_tt(score: Score, ply: i32) -> i16 {
+    if score < -SCORE_WIN {
+        (score - ply) as i16
+    } else if score > SCORE_WIN {
+        (score + ply) as i16
+    } else {
+        score as i16
+    }
+}
+
+#[must_use]
+fn score_from_tt(score: i16, ply: i32) -> Score {
+    let score = score as Score;
+    if score < -SCORE_WIN {
+        score + ply
+    } else if score > SCORE_WIN {
+        score - ply
+    } else {
+        score
+    }
 }
 
 pub struct TranspositionTable {
@@ -47,34 +90,51 @@ impl TranspositionTable {
         self.clear();
     }
 
-    pub fn probe(&self, key: u64) -> Option<Entry> {
+    pub fn probe(&self, key: u64, ply: i32) -> (bool, ProbedEntry) {
         let idx = self.calc_index(key);
         let entry_key = pack_entry_key(key);
+
+        let mut probed = Default::default();
 
         //SAFETY: index() cannot return an out-of-bounds index
         let entry = *unsafe { self.entries.get_unchecked(idx) };
 
         if entry.key != entry_key {
-            return None;
+            return (false, probed);
         }
 
-        if entry.mv.is_some() {
-            return Some(entry);
-        }
+        probed.score = score_from_tt(entry.score, ply);
+        probed.mv = entry.mv;
+        probed.depth = entry.depth as i32;
+        probed.flag = entry.flag;
 
-        None
+        (true, probed)
     }
 
-    pub fn store(&mut self, key: u64, mv: Move) {
+    pub fn store(
+        &mut self,
+        key: u64,
+        score: Score,
+        mv: Option<Move>,
+        depth: i32,
+        ply: i32,
+        flag: TtFlag,
+    ) {
         let idx = self.calc_index(key);
         let entry_key = pack_entry_key(key);
 
-        let entry = Entry {
-            key: entry_key,
-            mv: Some(mv),
-        };
-
         //SAFETY: index() cannot return an out-of-bounds index
+        let mut entry = *unsafe { self.entries.get_unchecked(idx) };
+
+        if mv.is_some() || entry.key != entry_key {
+            entry.mv = mv;
+        }
+
+        entry.key = entry_key;
+        entry.score = score_to_tt(score, ply);
+        entry.depth = depth as u8;
+        entry.flag = Some(flag);
+
         *unsafe { self.entries.get_unchecked_mut(idx) } = entry;
     }
 
