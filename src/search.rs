@@ -4,7 +4,7 @@ use crate::limit::Limits;
 use crate::movegen::generate_moves;
 use crate::movepick::Movepicker;
 use crate::takmove::Move;
-use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable};
+use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable, TtFlag};
 use std::time::Instant;
 
 pub type Score = i32;
@@ -334,8 +334,19 @@ impl SearcherImpl {
             thread.update_seldepth(ply);
         }
 
-        let tt_entry = self.tt.probe(pos.key());
-        let tt_move = tt_entry.and_then(|e| e.mv);
+        let (_tt_hit, tt_entry) = self.tt.probe(pos.key(), ply);
+
+        if !NT::PV_NODE
+            && tt_entry.depth >= depth
+            && match tt_entry.flag {
+                None => unreachable!(),
+                Some(TtFlag::UpperBound) => tt_entry.score <= alpha,
+                Some(TtFlag::LowerBound) => tt_entry.score >= beta,
+                Some(TtFlag::Exact) => true,
+            }
+        {
+            return tt_entry.score;
+        }
 
         let (moves, movelists) = movelists.split_first_mut().unwrap();
         let (pv, child_pvs) = pvs.split_first_mut().unwrap();
@@ -343,7 +354,9 @@ impl SearcherImpl {
         let mut best_score = -SCORE_INF;
         let mut best_move = None;
 
-        let mut movepicker = Movepicker::new(pos, moves, tt_move);
+        let mut tt_flag = TtFlag::UpperBound;
+
+        let mut movepicker = Movepicker::new(pos, moves, tt_entry.mv);
         let mut move_count = 0;
 
         while let Some(mv) = movepicker.next() {
@@ -448,18 +461,20 @@ impl SearcherImpl {
                 if NT::PV_NODE {
                     update_pv(pv, mv, &child_pvs[0]);
                 }
+
+                tt_flag = TtFlag::Exact;
             }
 
             if score >= beta {
+                tt_flag = TtFlag::LowerBound;
                 break;
             }
         }
 
         debug_assert!(move_count > 0);
 
-        if let Some(best_move) = best_move {
-            self.tt.store(pos.key(), best_move);
-        }
+        self.tt
+            .store(pos.key(), best_score, best_move, depth, ply, tt_flag);
 
         best_score
     }
