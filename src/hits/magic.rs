@@ -102,6 +102,11 @@ fn calc_idx(blockers: Bitboard, inv_mask: u64, magic: u64, shift: u32) -> usize 
 }
 
 #[must_use]
+pub fn find_hit_for_dir_magic(blockers: Bitboard, start: Square, dir: Direction) -> super::Hit {
+    find_hits_magic(blockers, start)[dir.idx()]
+}
+
+#[must_use]
 pub(super) fn find_hits_magic(blockers: Bitboard, start: Square) -> super::Hits {
     let magic = MAGICS[start.idx()];
     let shift = SHIFTS[start.idx()];

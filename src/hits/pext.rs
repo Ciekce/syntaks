@@ -60,6 +60,11 @@ static HITS: [super::Hits; SQUARE_DATA.table_size] = {
 };
 
 #[must_use]
+pub fn find_hit_for_dir_pext(blockers: Bitboard, start: Square, dir: Direction) -> super::Hit {
+    find_hits_pext(blockers, start)[dir.idx()]
+}
+
+#[must_use]
 pub(super) fn find_hits_pext(blockers: Bitboard, start: Square) -> super::Hits {
     let sq_data = &SQUARE_DATA.squares[start.idx()];
     let idx = unsafe { _pext_u64(blockers.raw(), sq_data.mask) } as usize;

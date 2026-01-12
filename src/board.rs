@@ -1,5 +1,6 @@
 use crate::bitboard::Bitboard;
 use crate::core::*;
+use crate::hits::find_hit_for_dir;
 use crate::keys;
 use crate::road::has_road;
 use crate::takmove::Move;
@@ -394,6 +395,74 @@ impl Position {
             Ordering::Equal => FlatCountOutcome::Draw,
             Ordering::Greater => FlatCountOutcome::Win(Player::P1),
         }
+    }
+
+    #[must_use]
+    pub fn is_legal(&self, mv: Move) -> bool {
+        if mv.is_spread() {
+            if self.ply < 2 {
+                return false;
+            }
+
+            if self
+                .stacks
+                .top_player(mv.sq())
+                .is_none_or(|p| p != self.stm)
+            {
+                return false;
+            }
+
+            let pattern = mv.pattern();
+
+            let taken = 6 - pattern.trailing_zeros();
+            if taken > self.stacks.height(mv.sq()) as u32 {
+                return false;
+            }
+
+            let dist = pattern.count_ones() as u8;
+            let (max_dist, hit_sq) = find_hit_for_dir(self.all_blockers(), mv.sq(), mv.dir());
+
+            if dist > max_dist {
+                return false;
+            } else if dist == max_dist
+                && let Some(hit_top) = self.stacks.top(hit_sq)
+            {
+                match hit_top {
+                    PieceType::Flat => {}
+                    PieceType::Wall => {
+                        // multiple pieces dropped on the final square
+                        if pattern & (1 << (Self::CARRY_LIMIT - 1)) == 0 {
+                            return false;
+                        }
+
+                        let top = self.stacks.top(mv.sq()).unwrap();
+                        if top != PieceType::Capstone {
+                            return false;
+                        }
+                    }
+                    PieceType::Capstone => return false,
+                }
+            }
+        } else {
+            if self.ply < 2 && mv.pt() != PieceType::Flat {
+                return false;
+            }
+
+            if !self.stacks.is_empty(mv.sq()) {
+                return false;
+            }
+
+            let reserves = match mv.pt() {
+                PieceType::Flat | PieceType::Wall => self.flats_in_hand(self.stm),
+                PieceType::Capstone => self.caps_in_hand(self.stm),
+            };
+
+            if reserves == 0 {
+                return false;
+            }
+        }
+
+        true
     }
 
     #[must_use]

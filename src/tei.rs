@@ -5,6 +5,7 @@ use crate::limit::Limits;
 use crate::perft::{perft, split_perft};
 use crate::search;
 use crate::search::Searcher;
+use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
 use std::time::Instant;
 
 const NAME: &str = "syntaks";
@@ -67,10 +68,17 @@ impl TeiHandler {
 
         println!("id name {} {}", NAME, VERSION);
         println!("id author {}", AUTHORS);
+
         println!(
             "option name HalfKomi type spin default {} min {} max {}",
             half_komi, half_komi, half_komi
         );
+
+        println!(
+            "option name Hash type spin default {} min 1 max {}",
+            DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB
+        );
+
         println!("teiok");
     }
 
@@ -89,11 +97,54 @@ impl TeiHandler {
             }
         }
 
-        //NOOP
+        self.searcher.reset();
     }
 
-    fn handle_setoption(&mut self, _args: &[&str]) {
-        //NOOP
+    fn handle_setoption(&mut self, args: &[&str]) {
+        if args.len() < 2 || args[0] != "name" {
+            return;
+        }
+
+        let value_idx = args.iter().position(|&s| s == "value");
+
+        if value_idx.is_none() {
+            eprintln!("Missing value");
+            return;
+        }
+
+        let value_idx = value_idx.unwrap();
+
+        if value_idx == args.len() - 1 {
+            eprintln!("Missing value");
+            return;
+        }
+
+        if value_idx == 1 {
+            eprintln!("Missing option name");
+            return;
+        }
+
+        if value_idx > 2 {
+            let skipped = args[2..value_idx].join(" ");
+            println!("info string Warning: spaces in option names not supported");
+            println!(
+                "info string Interpreting '{}' as option name and skipping '{}'",
+                args[1], skipped
+            );
+        }
+
+        let name = args[1].to_ascii_lowercase();
+        let value = args[(value_idx + 1)..].join(" ");
+
+        match name.as_str() {
+            "hash" => {
+                if let Ok(size) = value.parse::<usize>() {
+                    let size = size.clamp(1, MAX_TT_SIZE_MIB);
+                    self.searcher.set_tt_size(size);
+                }
+            }
+            unknown => eprintln!("Unknown option '{}'", unknown),
+        }
     }
 
     fn handle_isready(&self) {

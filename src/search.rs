@@ -2,7 +2,9 @@ use crate::board::{FlatCountOutcome, Position};
 use crate::eval::static_eval;
 use crate::limit::Limits;
 use crate::movegen::generate_moves;
+use crate::movepick::Movepicker;
 use crate::takmove::Move;
+use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable};
 use std::time::Instant;
 
 pub type Score = i32;
@@ -200,36 +202,27 @@ impl NodeType for RootNode {
     const ROOT_NODE: bool = true;
 }
 
-pub struct Searcher {
-    data: ThreadData,
+struct SearcherImpl {
+    tt: TranspositionTable,
 }
 
-impl Searcher {
-    pub fn new() -> Self {
+impl SearcherImpl {
+    fn new() -> Self {
         Self {
-            data: ThreadData::new(0),
+            tt: TranspositionTable::new(DEFAULT_TT_SIZE_MIB),
         }
     }
 
-    pub fn start_search(
-        &mut self,
-        pos: &Position,
-        key_history: &[u64],
-        start_time: Instant,
-        limits: Limits,
-        max_depth: i32,
-    ) {
-        let thread = &mut self.data;
+    fn reset(&mut self) {
+        self.tt.clear();
+    }
 
-        thread.reset(key_history);
-        thread.max_depth = max_depth;
-
-        let mut ctx = SearchContext::new(limits);
-
-        Self::run_search(&mut ctx, thread, pos, start_time);
+    fn set_tt_size(&mut self, size_mib: usize) {
+        self.tt.resize(size_mib);
     }
 
     fn run_search(
+        &mut self,
         ctx: &mut SearchContext,
         thread: &mut ThreadData,
         root_pos: &Position,
@@ -258,7 +251,7 @@ impl Searcher {
         loop {
             thread.reset_seldepth();
 
-            Self::search::<RootNode>(
+            self.search::<RootNode>(
                 ctx,
                 thread,
                 &mut movelists,
@@ -269,6 +262,18 @@ impl Searcher {
                 -SCORE_INF,
                 SCORE_INF,
             );
+
+            #[cfg(debug_assertions)]
+            {
+                let mut found = false;
+                for root_move in thread.root_moves.iter() {
+                    if root_move.score != -SCORE_INF {
+                        found = true;
+                        break;
+                    }
+                }
+                assert!(found);
+            }
 
             thread.root_moves.sort_by(|a, b| b.score.cmp(&a.score));
 
@@ -296,6 +301,7 @@ impl Searcher {
 
     #[allow(clippy::too_many_arguments)]
     fn search<NT: NodeType>(
+        &mut self,
         ctx: &mut SearchContext,
         thread: &mut ThreadData,
         movelists: &mut [Vec<Move>],
@@ -328,14 +334,23 @@ impl Searcher {
             thread.update_seldepth(ply);
         }
 
+        let tt_entry = self.tt.probe(pos.key());
+        let tt_move = tt_entry.and_then(|e| e.mv);
+
         let (moves, movelists) = movelists.split_first_mut().unwrap();
         let (pv, child_pvs) = pvs.split_first_mut().unwrap();
 
-        generate_moves(moves, pos);
-
         let mut best_score = -SCORE_INF;
+        let mut best_move = None;
 
-        for (move_idx, &mv) in moves.iter().enumerate() {
+        let mut movepicker = Movepicker::new(pos, moves, tt_move);
+        let mut move_count = 0;
+
+        while let Some(mv) = movepicker.next() {
+            debug_assert!(pos.is_legal(mv));
+
+            move_count += 1;
+
             if NT::PV_NODE {
                 child_pvs[0].clear();
             }
@@ -371,8 +386,8 @@ impl Searcher {
 
                 let mut score = 0;
 
-                if !NT::PV_NODE || move_idx > 0 {
-                    score = -Self::search::<NonPvNode>(
+                if !NT::PV_NODE || move_count > 1 {
+                    score = -self.search::<NonPvNode>(
                         ctx,
                         thread,
                         movelists,
@@ -385,8 +400,8 @@ impl Searcher {
                     );
                 }
 
-                if NT::PV_NODE && (move_idx == 0 || score > alpha) {
-                    score = -Self::search::<PvNode>(
+                if NT::PV_NODE && (move_count == 1 || score > alpha) {
+                    score = -self.search::<PvNode>(
                         ctx,
                         thread,
                         movelists,
@@ -412,7 +427,7 @@ impl Searcher {
                 let seldepth = thread.seldepth;
                 let root_move = thread.get_root_move_mut(mv);
 
-                if move_idx == 0 || score > alpha {
+                if move_count == 1 || score > alpha {
                     root_move.seldepth = seldepth;
                     root_move.score = score;
 
@@ -428,6 +443,7 @@ impl Searcher {
 
             if score > alpha {
                 alpha = score;
+                best_move = Some(mv);
 
                 if NT::PV_NODE {
                     update_pv(pv, mv, &child_pvs[0]);
@@ -437,6 +453,12 @@ impl Searcher {
             if score >= beta {
                 break;
             }
+        }
+
+        debug_assert!(move_count > 0);
+
+        if let Some(best_move) = best_move {
+            self.tt.store(pos.key(), best_move);
         }
 
         best_score
@@ -483,5 +505,44 @@ impl Searcher {
 
         let mv = thread.pv_move().pv[0];
         println!("bestmove {}", mv);
+    }
+}
+
+pub struct Searcher {
+    searcher: SearcherImpl,
+    data: ThreadData,
+}
+
+impl Searcher {
+    pub fn new() -> Self {
+        Self {
+            searcher: SearcherImpl::new(),
+            data: ThreadData::new(0),
+        }
+    }
+
+    pub fn start_search(
+        &mut self,
+        pos: &Position,
+        key_history: &[u64],
+        start_time: Instant,
+        limits: Limits,
+        max_depth: i32,
+    ) {
+        let thread = &mut self.data;
+
+        thread.reset(key_history);
+        thread.max_depth = max_depth;
+
+        let mut ctx = SearchContext::new(limits);
+        self.searcher.run_search(&mut ctx, thread, pos, start_time);
+    }
+
+    pub fn reset(&mut self) {
+        self.searcher.reset();
+    }
+
+    pub fn set_tt_size(&mut self, size_mib: usize) {
+        self.searcher.set_tt_size(size_mib);
     }
 }
