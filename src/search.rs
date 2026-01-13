@@ -44,7 +44,7 @@ type PvList = arrayvec::ArrayVec<Move, { MAX_PLY as usize }>;
 fn update_pv(pv: &mut PvList, mv: Move, child: &PvList) {
     pv.clear();
     pv.push(mv);
-    pv.try_extend_from_slice(&child).unwrap();
+    pv.try_extend_from_slice(child).unwrap();
 }
 
 struct RootMove {
@@ -95,6 +95,7 @@ impl SearchContext {
         false
     }
 
+    #[must_use]
     fn has_stopped(&self) -> bool {
         self.stopped
     }
@@ -169,6 +170,7 @@ impl ThreadData {
         false
     }
 
+    #[must_use]
     fn get_root_move(&self, mv: Move) -> &RootMove {
         for root_move in self.root_moves.iter() {
             if root_move.pv[0] == mv {
@@ -179,6 +181,7 @@ impl ThreadData {
         unreachable!();
     }
 
+    #[must_use]
     fn get_root_move_mut(&mut self, mv: Move) -> &mut RootMove {
         for root_move in self.root_moves.iter_mut() {
             if root_move.pv[0] == mv {
@@ -189,6 +192,7 @@ impl ThreadData {
         unreachable!();
     }
 
+    #[must_use]
     fn pv_move(&self) -> &RootMove {
         &self.root_moves[0]
     }
