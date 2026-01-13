@@ -362,7 +362,7 @@ impl TeiHandler {
         println!("TPS: {}", self.pos.tps());
         println!("Key: {:016x}", self.pos.key());
 
-        let static_eval = static_eval(&self.pos, 0);
+        let static_eval = static_eval(&self.pos);
         let static_eval = match self.pos.stm() {
             Player::P1 => static_eval,
             Player::P2 => -static_eval,

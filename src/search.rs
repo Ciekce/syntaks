@@ -363,7 +363,7 @@ impl SearcherImpl {
         thread.inc_nodes();
 
         if depth <= 0 {
-            return static_eval(pos, thread.nodes);
+            return static_eval(pos);
         }
 
         if NT::PV_NODE {
