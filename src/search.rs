@@ -323,7 +323,7 @@ impl SearcherImpl {
                 }
 
                 let time = start_time.elapsed().as_secs_f64();
-                Self::report(thread, thread.root_depth, time);
+                self.report(thread, thread.root_depth, time);
             }
 
             thread.root_depth += 1;
@@ -331,7 +331,7 @@ impl SearcherImpl {
 
         if thread.is_main_thread() {
             let time = start_time.elapsed().as_secs_f64();
-            Self::final_report(thread, thread.root_depth, time);
+            self.final_report(thread, thread.root_depth, time);
         }
     }
 
@@ -546,7 +546,7 @@ impl SearcherImpl {
         best_score
     }
 
-    fn report(thread: &ThreadData, depth: i32, time: f64) {
+    fn report(&self, thread: &ThreadData, depth: i32, time: f64) {
         let root_move = thread.pv_move();
 
         let score = root_move.score;
@@ -573,6 +573,9 @@ impl SearcherImpl {
             print!("cp {}", score);
         }
 
+        let hashfull = self.tt.estimate_full_permille();
+        print!(" hashfull {}", hashfull);
+
         print!(" pv");
 
         for mv in root_move.pv.iter() {
@@ -582,8 +585,8 @@ impl SearcherImpl {
         println!();
     }
 
-    fn final_report(thread: &ThreadData, depth: i32, time: f64) {
-        Self::report(thread, depth, time);
+    fn final_report(&self, thread: &ThreadData, depth: i32, time: f64) {
+        self.report(thread, depth, time);
 
         let mv = thread.pv_move().pv[0];
         println!("bestmove {}", mv);

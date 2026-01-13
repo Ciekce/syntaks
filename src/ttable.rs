@@ -165,6 +165,18 @@ impl TranspositionTable {
         self.entries.fill(Default::default());
     }
 
+    pub fn estimate_full_permille(&self) -> usize {
+        let mut filled = 0;
+
+        for &entry in self.entries[0..1000].iter() {
+            if entry.flag.is_some() {
+                filled += 1;
+            }
+        }
+
+        filled
+    }
+
     #[must_use]
     fn calc_index(&self, key: u64) -> usize {
         ((key as u128 * self.entries.len() as u128) >> 64) as usize
