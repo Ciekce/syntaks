@@ -26,7 +26,7 @@ use crate::core::{Piece, Player};
 use crate::search::Score;
 
 #[must_use]
-pub fn static_eval(pos: &Position) -> Score {
+pub fn static_eval(pos: &Position, nodes: usize) -> Score {
     let p1_flats = pos.player_piece_bb(Piece::P1Flat).popcount() as Score;
     let p2_flats = (pos.player_piece_bb(Piece::P2Flat).popcount() + Position::KOMI) as Score;
 
@@ -40,9 +40,12 @@ pub fn static_eval(pos: &Position) -> Score {
     let caps_in_hand_diff = caps_in_hand_diff * -25;
 
     let eval = flat_diff + caps_in_hand_diff;
-
-    match pos.stm() {
+    let eval = match pos.stm() {
         Player::P1 => eval,
         Player::P2 => -eval,
-    }
+    };
+
+    let noise = 8 - (nodes % 16) as Score;
+
+    eval + noise
 }
