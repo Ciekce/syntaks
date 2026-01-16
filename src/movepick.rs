@@ -22,6 +22,7 @@
  */
 
 use crate::board::Position;
+use crate::core::PieceType;
 use crate::movegen::generate_moves;
 use crate::takmove::Move;
 
@@ -45,16 +46,18 @@ impl Stage {
     }
 }
 
+pub type ScoredMove = (Move, i32);
+
 pub struct Movepicker<'a> {
     pos: &'a Position,
-    moves: &'a mut Vec<Move>,
+    moves: &'a mut Vec<ScoredMove>,
     idx: usize,
     tt_move: Option<Move>,
     stage: Stage,
 }
 
 impl<'a> Movepicker<'a> {
-    pub fn new(pos: &'a Position, moves: &'a mut Vec<Move>, tt_move: Option<Move>) -> Self {
+    pub fn new(pos: &'a Position, moves: &'a mut Vec<ScoredMove>, tt_move: Option<Move>) -> Self {
         Self {
             pos,
             moves,
@@ -75,14 +78,17 @@ impl<'a> Movepicker<'a> {
                         return Some(tt_move);
                     }
                 }
-                Stage::GenMoves => generate_moves(self.moves, self.pos),
+                Stage::GenMoves => {
+                    self.moves.clear();
+                    generate_moves(&mut |mv| self.moves.push((mv, 0)), self.pos);
+                    self.score_moves();
+                }
                 Stage::Moves => {
-                    while self.idx < self.moves.len() {
-                        let mv = self.moves[self.idx];
-                        self.idx += 1;
-                        if self.tt_move.is_none_or(|tt_move| mv != tt_move) {
-                            return Some(mv);
-                        }
+                    let tt_move = self.tt_move;
+                    if let Some(mv) =
+                        self.select_next(&|mv| tt_move.is_none_or(|tt_move| mv != tt_move))
+                    {
+                        return Some(mv);
                     }
                 }
                 Stage::End => unreachable!(),
@@ -92,5 +98,51 @@ impl<'a> Movepicker<'a> {
         }
 
         None
+    }
+
+    fn score_moves(&mut self) {
+        for (mv, score) in self.moves.iter_mut() {
+            if !mv.is_spread() {
+                *score = match mv.pt() {
+                    PieceType::Flat => 1,
+                    PieceType::Wall => 0,
+                    PieceType::Capstone => 2,
+                };
+            }
+        }
+    }
+
+    fn select_next<F: Fn(Move) -> bool>(&mut self, predicate: &F) -> Option<Move> {
+        while self.idx < self.moves.len() {
+            let idx = self.find_next();
+            let mv = self.moves[idx].0;
+            if predicate(mv) {
+                return Some(mv);
+            }
+        }
+
+        None
+    }
+
+    fn find_next(&mut self) -> usize {
+        let mut best_idx = self.idx;
+        let mut best_score = self.moves[self.idx].1;
+
+        for (idx, &(_, score)) in self.moves[(self.idx + 1)..].iter().enumerate() {
+            if score > best_score {
+                best_idx = self.idx + 1 + idx;
+                best_score = score;
+            }
+        }
+
+        let idx = self.idx;
+
+        if idx != best_idx {
+            self.moves.swap(idx, best_idx);
+        }
+
+        self.idx += 1;
+
+        idx
     }
 }

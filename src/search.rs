@@ -24,8 +24,8 @@
 use crate::board::{FlatCountOutcome, Position};
 use crate::eval::static_eval;
 use crate::limit::Limits;
-use crate::movegen::generate_moves;
-use crate::movepick::Movepicker;
+use crate::movegen::generate_moves_into;
+use crate::movepick::{Movepicker, ScoredMove};
 use crate::takmove::Move;
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable, TtFlag};
 use std::time::Instant;
@@ -278,7 +278,7 @@ impl SearcherImpl {
     ) {
         {
             let mut root_moves = Vec::with_capacity(256);
-            generate_moves(&mut root_moves, root_pos);
+            generate_moves_into(&mut root_moves, root_pos);
 
             thread.root_moves.clear();
             thread.root_moves.reserve(root_moves.len());
@@ -340,7 +340,7 @@ impl SearcherImpl {
         &mut self,
         ctx: &mut SearchContext,
         thread: &mut ThreadData,
-        movelists: &mut [Vec<Move>],
+        movelists: &mut [Vec<ScoredMove>],
         pvs: &mut [PvList],
         pos: &Position,
         depth: i32,

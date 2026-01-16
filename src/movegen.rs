@@ -26,13 +26,13 @@ use crate::core::{Direction, PieceType, Square};
 use crate::hits::find_hits;
 use crate::takmove::Move;
 
-fn generate_starting_moves(dst: &mut Vec<Move>, pos: &Position) {
+fn generate_starting_moves<F: FnMut(Move)>(func: &mut F, pos: &Position) {
     for sq in !pos.occ() {
-        dst.push(Move::placement(PieceType::Flat, sq));
+        func(Move::placement(PieceType::Flat, sq));
     }
 }
 
-fn generate_placements(dst: &mut Vec<Move>, pos: &Position) {
+fn generate_placements<F: FnMut(Move)>(func: &mut F, pos: &Position) {
     let flats = pos.flats_in_hand(pos.stm());
     let caps = pos.caps_in_hand(pos.stm());
 
@@ -42,18 +42,18 @@ fn generate_placements(dst: &mut Vec<Move>, pos: &Position) {
 
     for sq in !pos.occ() {
         if caps > 0 {
-            dst.push(Move::placement(PieceType::Capstone, sq));
+            func(Move::placement(PieceType::Capstone, sq));
         }
 
         if flats > 0 {
-            dst.push(Move::placement(PieceType::Flat, sq));
-            dst.push(Move::placement(PieceType::Wall, sq));
+            func(Move::placement(PieceType::Flat, sq));
+            func(Move::placement(PieceType::Wall, sq));
         }
     }
 }
 
-fn do_spreads(
-    dst: &mut Vec<Move>,
+fn do_spreads<F: FnMut(Move)>(
+    func: &mut F,
     sq: Square,
     dir: Direction,
     lsb: u16,
@@ -63,7 +63,7 @@ fn do_spreads(
 ) {
     assert!(dist > 0);
     while pattern < limit {
-        dst.push(Move::spread(sq, dir, pattern));
+        func(Move::spread(sq, dir, pattern));
         if pattern.count_ones() == dist {
             pattern += pattern & pattern.wrapping_neg();
         } else {
@@ -72,7 +72,7 @@ fn do_spreads(
     }
 }
 
-fn generate_spreads(dst: &mut Vec<Move>, pos: &Position) {
+fn generate_spreads<F: FnMut(Move)>(func: &mut F, pos: &Position) {
     for sq in pos.player_bb(pos.stm()) {
         let top = pos.stacks().top(sq).unwrap();
         let max = pos.stacks().height(sq).min(6);
@@ -100,7 +100,7 @@ fn generate_spreads(dst: &mut Vec<Move>, pos: &Position) {
                     if top == PieceType::Capstone {
                         // Can smash - generate spreads here with msb set
                         do_spreads(
-                            dst,
+                            func,
                             sq,
                             dir,
                             start_bit,
@@ -122,19 +122,21 @@ fn generate_spreads(dst: &mut Vec<Move>, pos: &Position) {
                 continue;
             }
 
-            do_spreads(dst, sq, dir, start_bit, start_bit, dist as u32, limit);
+            do_spreads(func, sq, dir, start_bit, start_bit, dist as u32, limit);
         }
     }
 }
 
-pub fn generate_moves(dst: &mut Vec<Move>, pos: &Position) {
-    dst.clear();
-
+pub fn generate_moves<F: FnMut(Move)>(func: &mut F, pos: &Position) {
     if pos.ply() < 2 {
-        generate_starting_moves(dst, pos);
+        generate_starting_moves(func, pos);
         return;
     }
 
-    generate_placements(dst, pos);
-    generate_spreads(dst, pos);
+    generate_placements(func, pos);
+    generate_spreads(func, pos);
+}
+
+pub fn generate_moves_into(dst: &mut Vec<Move>, pos: &Position) {
+    generate_moves(&mut |mv| dst.push(mv), pos);
 }
