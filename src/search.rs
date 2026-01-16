@@ -553,26 +553,27 @@ impl SearcherImpl {
 
                 tt_flag = TtFlag::Exact;
             }
+
             if score >= beta {
                 tt_flag = TtFlag::LowerBound;
                 break;
             }
+
             if !faillow_moves.is_full() {
                 faillow_moves.push(mv);
             }
         }
 
+        debug_assert!(move_count > 0);
+
         if tt_flag == TtFlag::LowerBound {
-            if let Some(best_move) = best_move {
-                let bonus = 10 * depth;
-                thread.history.update(pos, best_move, bonus);
-                for &mv in &faillow_moves {
-                    thread.history.update(pos, mv, -depth);
-                }
+            let best_move = best_move.unwrap();
+            let bonus = 10 * depth;
+            thread.history.update(pos, best_move, bonus);
+            for &mv in faillow_moves.iter() {
+                thread.history.update(pos, mv, -depth);
             }
         }
-
-        debug_assert!(move_count > 0);
 
         if tt_flag == TtFlag::Exact
             || (tt_flag == TtFlag::UpperBound && best_score < static_eval)

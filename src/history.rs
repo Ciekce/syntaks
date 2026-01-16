@@ -106,8 +106,9 @@ impl History {
         tables.hist[mv].update(bonus.clamp(-Self::MAX_BONUS, Self::MAX_BONUS));
     }
 
-    pub fn read(&self, pos: &Position, mv: Move) -> i32 {
+    #[must_use]
+    pub fn score(&self, pos: &Position, mv: Move) -> i32 {
         let tables = &self.tables[pos.stm().idx()];
-        return tables.hist[mv].get();
+        tables.hist[mv].get()
     }
 }

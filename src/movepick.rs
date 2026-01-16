@@ -22,7 +22,7 @@
  */
 
 use crate::board::Position;
-use crate::history::{self, History};
+use crate::history::History;
 use crate::movegen::generate_moves;
 use crate::search::Score;
 use crate::takmove::Move;
@@ -76,7 +76,7 @@ impl<'a> Movepicker<'a> {
     fn score_moves(&mut self, history: &History) {
         self.scores.clear();
         for mv in self.moves.iter() {
-            self.scores.push(history.read(self.pos, *mv));
+            self.scores.push(history.score(self.pos, *mv));
         }
     }
 
