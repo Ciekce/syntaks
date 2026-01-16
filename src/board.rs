@@ -34,6 +34,7 @@ use std::str::FromStr;
 struct Keys {
     stacks: u64,
     blockers: u64,
+    roads: u64,
 }
 
 impl Keys {
@@ -45,6 +46,9 @@ impl Keys {
         self.stacks ^= keys::top_key(pt, sq);
         if pt.is_blocker() {
             self.blockers ^= keys::top_key(pt, sq);
+        }
+        if pt.is_road() {
+            self.roads ^= keys::top_key(pt, sq);
         }
     }
 
@@ -392,6 +396,11 @@ impl Position {
     #[must_use]
     pub fn blocker_key(&self) -> u64 {
         self.stacks.keys.blockers
+    }
+
+    #[must_use]
+    pub fn road_key(&self) -> u64 {
+        self.stacks.keys.roads
     }
 
     #[must_use]
