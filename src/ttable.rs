@@ -27,7 +27,7 @@ use crate::takmove::Move;
 pub const DEFAULT_TT_SIZE_MIB: usize = 64;
 pub const MAX_TT_SIZE_MIB: usize = 131072;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum TtFlag {
     UpperBound = 1,

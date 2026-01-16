@@ -94,6 +94,16 @@ impl PieceType {
     pub const fn with_player(self, player: Player) -> Piece {
         Piece::from_raw((self.raw() << 1) | player.raw()).unwrap()
     }
+
+    #[must_use]
+    pub const fn is_blocker(self) -> bool {
+        self.raw() > 0
+    }
+
+    #[must_use]
+    pub const fn is_road(self) -> bool {
+        self.raw() & 0b1 == 0
+    }
 }
 
 impl Display for PieceType {

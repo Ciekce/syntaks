@@ -22,6 +22,7 @@
  */
 
 use crate::board::{FlatCountOutcome, Position};
+use crate::correction::CorrectionHistory;
 use crate::eval::static_eval;
 use crate::limit::Limits;
 use crate::movegen::generate_moves;
@@ -109,6 +110,7 @@ struct ThreadData {
     seldepth: i32,
     nodes: usize,
     root_moves: Vec<RootMove>,
+    corrhist: CorrectionHistory,
 }
 
 impl ThreadData {
@@ -121,6 +123,7 @@ impl ThreadData {
             seldepth: 0,
             nodes: 0,
             root_moves: Vec::with_capacity(1024),
+            corrhist: CorrectionHistory::new(),
         }
     }
 
@@ -363,7 +366,9 @@ impl SearcherImpl {
         thread.inc_nodes();
 
         if depth <= 0 {
-            return static_eval(pos);
+            let static_eval = static_eval(pos);
+            let correction = thread.corrhist.correction(pos);
+            return static_eval + correction;
         }
 
         if NT::PV_NODE {
@@ -386,6 +391,8 @@ impl SearcherImpl {
 
         let (moves, movelists) = movelists.split_first_mut().unwrap();
         let (pv, child_pvs) = pvs.split_first_mut().unwrap();
+
+        let static_eval = static_eval(pos);
 
         let mut best_score = -SCORE_INF;
         let mut best_move = None;
@@ -540,6 +547,13 @@ impl SearcherImpl {
 
         debug_assert!(move_count > 0);
 
+        if tt_flag == TtFlag::Exact
+            || (tt_flag == TtFlag::UpperBound && best_score < static_eval)
+            || (tt_flag == TtFlag::LowerBound && best_score > static_eval)
+        {
+            thread.corrhist.update(pos, depth, best_score, static_eval);
+        }
+
         self.tt
             .store(pos.key(), best_score, best_move, depth, ply, tt_flag);
 
@@ -625,6 +639,7 @@ impl Searcher {
 
     pub fn reset(&mut self) {
         self.searcher.reset();
+        self.data.corrhist.clear();
     }
 
     pub fn set_tt_size(&mut self, size_mib: usize) {

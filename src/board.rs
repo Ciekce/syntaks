@@ -30,12 +30,35 @@ use crate::takmove::Move;
 use std::cmp::Ordering;
 use std::str::FromStr;
 
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
+struct Keys {
+    stacks: u64,
+    blockers: u64,
+}
+
+impl Keys {
+    fn reset(&mut self) {
+        *self = Default::default();
+    }
+
+    fn toggle_top_key(&mut self, pt: PieceType, sq: Square) {
+        self.stacks ^= keys::top_key(pt, sq);
+        if pt.is_blocker() {
+            self.blockers ^= keys::top_key(pt, sq);
+        }
+    }
+
+    fn toggle_player_key(&mut self, height: u8, player: Player, sq: Square) {
+        self.stacks ^= keys::player_key(height, player, sq);
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Stacks {
     players: [u64; Square::COUNT],
     heights: [u8; Square::COUNT],
     tops: [Option<PieceType>; Square::COUNT],
-    key: u64,
+    keys: Keys,
 }
 
 impl Stacks {
@@ -74,22 +97,17 @@ impl Stacks {
         self.players[sq.idx()]
     }
 
-    #[must_use]
-    fn key(&self) -> u64 {
-        self.key
-    }
-
     fn push(&mut self, sq: Square, pt: PieceType, player: Player) {
         debug_assert_ne!(self.tops[sq.idx()], Some(PieceType::Capstone));
 
         if let Some(prev_top) = self.tops[sq.idx()] {
-            self.key ^= keys::top_key(prev_top, sq);
+            self.keys.toggle_top_key(prev_top, sq);
         }
 
-        self.key ^= keys::top_key(pt, sq);
+        self.keys.toggle_top_key(pt, sq);
 
         let height = self.heights[sq.idx()];
-        self.key ^= keys::player_key(height, player, sq);
+        self.keys.toggle_player_key(height, player, sq);
 
         self.players[sq.idx()] |= (player.raw() as u64) << self.heights[sq.idx()];
         self.heights[sq.idx()] += 1;
@@ -105,7 +123,7 @@ impl Stacks {
             (self.players[sq.idx()] >> (self.heights[sq.idx()] - count)) & ((1 << count) - 1);
         let top = self.tops[sq.idx()].unwrap();
 
-        self.key ^= keys::top_key(top, sq);
+        self.keys.toggle_top_key(top, sq);
 
         let old_height = self.heights[sq.idx()];
         self.heights[sq.idx()] -= count;
@@ -114,7 +132,7 @@ impl Stacks {
         for height in new_height..old_height {
             let player =
                 Player::from_raw(((self.players[sq.idx()] >> height) & 0x1) as u8).unwrap();
-            self.key ^= keys::player_key(height, player, sq);
+            self.keys.toggle_player_key(height, player, sq);
         }
 
         self.players[sq.idx()] &= (1 << new_height) - 1;
@@ -123,7 +141,7 @@ impl Stacks {
             self.tops[sq.idx()] = None;
             (players as u8, top, None)
         } else {
-            self.key ^= keys::top_key(PieceType::Flat, sq);
+            self.keys.toggle_top_key(PieceType::Flat, sq);
             self.tops[sq.idx()] = Some(PieceType::Flat);
             let new_top_player =
                 Player::from_raw(((self.players[sq.idx()] >> (new_height - 1)) & 0x1) as u8)
@@ -133,18 +151,18 @@ impl Stacks {
     }
 
     fn regen_key(&mut self, occ: Bitboard) {
-        self.key = 0;
+        self.keys.reset();
 
         for sq in occ {
             let players = self.players(sq);
             let height = self.height(sq);
             let top = self.top(sq).unwrap();
 
-            self.key ^= keys::top_key(top, sq);
+            self.keys.toggle_top_key(top, sq);
 
             for i in 0..height {
                 let player = Player::from_raw(((players >> i) & 0x1) as u8).unwrap();
-                self.key ^= keys::player_key(i, player, sq);
+                self.keys.toggle_player_key(i, player, sq);
             }
         }
     }
@@ -164,7 +182,7 @@ impl Default for Stacks {
             players: [u64::default(); Square::COUNT],
             heights: [u8::default(); Square::COUNT],
             tops: [None; Square::COUNT],
-            key: 0,
+            keys: Default::default(),
         }
     }
 }
@@ -368,7 +386,12 @@ impl Position {
 
     #[must_use]
     pub fn key(&self) -> u64 {
-        self.player_key ^ self.stacks().key()
+        self.player_key ^ self.stacks().keys.stacks
+    }
+
+    #[must_use]
+    pub fn blocker_key(&self) -> u64 {
+        self.stacks.keys.blockers
     }
 
     #[must_use]

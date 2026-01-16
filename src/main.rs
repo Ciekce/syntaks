@@ -24,6 +24,7 @@
 mod bitboard;
 mod board;
 mod core;
+mod correction;
 mod eval;
 mod hits;
 mod keys;
