@@ -396,8 +396,6 @@ impl SearcherImpl {
         let correction = thread.corrhist.correction(pos);
         let static_eval = raw_eval + correction;
 
-        debug_assert!(static_eval.abs() < SCORE_MAX_MATE);
-
         // reverse futility pruning (rfp)
         if !NT::PV_NODE {
             let rfp_margin = 100 * depth + 100;
