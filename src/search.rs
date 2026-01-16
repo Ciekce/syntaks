@@ -460,7 +460,10 @@ impl SearcherImpl {
                 let new_depth = depth - 1;
 
                 if depth >= 2 && move_count >= 5 + 2 * usize::from(NT::ROOT_NODE) {
-                    let r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
+                    let mut r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
+
+                    r -= i32::from(NT::PV_NODE);
+
                     let reduced = (new_depth - r).max(1).min(new_depth - 1);
 
                     score = -self.search::<NonPvNode>(
