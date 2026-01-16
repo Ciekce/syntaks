@@ -389,12 +389,18 @@ impl SearcherImpl {
             return tt_entry.score;
         }
 
+        let raw_eval = static_eval(pos);
+        let correction = thread.corrhist.correction(pos);
+        let static_eval = raw_eval + correction;
+
+        if !NT::PV_NODE {
+            if depth <= 6 && static_eval - 100 * depth >= beta {
+                return static_eval;
+            }
+        }
+
         let (moves, movelists) = movelists.split_first_mut().unwrap();
         let (pv, child_pvs) = pvs.split_first_mut().unwrap();
-
-        let static_eval = static_eval(pos);
-        let correction = thread.corrhist.correction(pos);
-        let corrected_eval = static_eval + correction;
 
         let mut best_score = -SCORE_INF;
         let mut best_move = None;
@@ -550,12 +556,10 @@ impl SearcherImpl {
         debug_assert!(move_count > 0);
 
         if tt_flag == TtFlag::Exact
-            || (tt_flag == TtFlag::UpperBound && best_score < corrected_eval)
-            || (tt_flag == TtFlag::LowerBound && best_score > corrected_eval)
+            || (tt_flag == TtFlag::UpperBound && best_score < static_eval)
+            || (tt_flag == TtFlag::LowerBound && best_score > static_eval)
         {
-            thread
-                .corrhist
-                .update(pos, depth, best_score, corrected_eval);
+            thread.corrhist.update(pos, depth, best_score, static_eval);
         }
 
         self.tt
