@@ -33,13 +33,19 @@ pub fn static_eval(pos: &Position) -> Score {
     let flat_diff = p1_flats - p2_flats;
     let flat_diff = flat_diff * 100;
 
+    let p1_flats_in_hand = pos.flats_in_hand(Player::P1) as Score;
+    let p2_flats_in_hand = pos.flats_in_hand(Player::P2) as Score;
+
+    let flats_in_hand_diff = p1_flats_in_hand - p2_flats_in_hand;
+    let flats_in_hand_diff = flats_in_hand_diff * -13;
+
     let p1_caps_in_hand = pos.caps_in_hand(Player::P1) as Score;
     let p2_caps_in_hand = pos.caps_in_hand(Player::P2) as Score;
 
     let caps_in_hand_diff = p1_caps_in_hand - p2_caps_in_hand;
     let caps_in_hand_diff = caps_in_hand_diff * -25;
 
-    let eval = flat_diff + caps_in_hand_diff;
+    let eval = flat_diff + caps_in_hand_diff + flats_in_hand_diff;
 
     match pos.stm() {
         Player::P1 => eval,
