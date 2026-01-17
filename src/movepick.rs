@@ -30,6 +30,7 @@ use crate::takmove::Move;
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum Stage {
     TtMove,
+    Killers,
     GenMoves,
     Moves,
     End,
@@ -39,7 +40,8 @@ impl Stage {
     fn next(&self) -> Self {
         assert_ne!(*self, Self::End);
         match *self {
-            Self::TtMove => Self::GenMoves,
+            Self::TtMove => Self::Killers,
+            Self::Killers => Self::GenMoves,
             Self::GenMoves => Self::Moves,
             Self::Moves => Self::End,
             Self::End => unreachable!(),
@@ -53,6 +55,7 @@ pub struct Movepicker<'a> {
     scores: &'a mut Vec<i32>,
     idx: usize,
     tt_move: Option<Move>,
+    killers: [Move; 2],
     stage: Stage,
 }
 
@@ -62,6 +65,7 @@ impl<'a> Movepicker<'a> {
         moves: &'a mut Vec<Move>,
         scores: &'a mut Vec<Score>,
         tt_move: Option<Move>,
+        killers: [Move; 2],
     ) -> Self {
         Self {
             pos,
@@ -69,6 +73,7 @@ impl<'a> Movepicker<'a> {
             scores,
             idx: 0,
             tt_move,
+            killers,
             stage: Stage::TtMove,
         }
     }
@@ -110,6 +115,18 @@ impl<'a> Movepicker<'a> {
                         return Some(tt_move);
                     }
                 }
+                Stage::Killers => {
+                    while self.idx < self.killers.len() {
+                        let killer = self.killers[self.idx];
+                        self.idx += 1;
+                        if self.tt_move.is_none_or(|tt_move| killer != tt_move)
+                            && self.pos.is_legal(killer)
+                        {
+                            return Some(killer);
+                        }
+                    }
+                    self.idx = 0;
+                }
                 Stage::GenMoves => {
                     generate_moves(self.moves, self.pos);
                     self.score_moves(history);
@@ -118,7 +135,9 @@ impl<'a> Movepicker<'a> {
                     while self.idx < self.moves.len() {
                         let mv = self.pick_best();
                         self.idx += 1;
-                        if self.tt_move.is_none_or(|tt_move| mv != tt_move) {
+                        if self.tt_move.is_none_or(|tt_move| mv != tt_move)
+                            && !self.killers.contains(&mv)
+                        {
                             return Some(mv);
                         }
                     }

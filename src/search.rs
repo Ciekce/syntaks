@@ -22,6 +22,7 @@
  */
 
 use crate::board::{FlatCountOutcome, Position};
+use crate::core::{PieceType, Square};
 use crate::correction::CorrectionHistory;
 use crate::eval::static_eval;
 use crate::history::History;
@@ -113,6 +114,7 @@ struct ThreadData {
     root_moves: Vec<RootMove>,
     corrhist: CorrectionHistory,
     history: History,
+    killers: [[Move; 2]; MAX_PLY as usize],
 }
 
 impl ThreadData {
@@ -127,6 +129,10 @@ impl ThreadData {
             root_moves: Vec::with_capacity(1024),
             corrhist: CorrectionHistory::new(),
             history: History::new(),
+            killers: [[
+                Move::placement(PieceType::Flat, Square::C3),
+                Move::placement(PieceType::Flat, Square::D4),
+            ]; _],
         }
     }
 
@@ -413,7 +419,13 @@ impl SearcherImpl {
         let mut tt_flag = TtFlag::UpperBound;
 
         let mut scores = Vec::new();
-        let mut movepicker = Movepicker::new(pos, moves, &mut scores, tt_entry.mv);
+        let mut movepicker = Movepicker::new(
+            pos,
+            moves,
+            &mut scores,
+            tt_entry.mv,
+            thread.killers[ply as usize],
+        );
         let mut move_count = 0;
         let mut faillow_moves = arrayvec::ArrayVec::<Move, 32>::new();
 
@@ -578,6 +590,13 @@ impl SearcherImpl {
 
             for &mv in faillow_moves.iter() {
                 thread.history.update(pos, mv, -bonus);
+            }
+
+            if alpha >= beta {
+                let killers = &mut thread.killers[ply as usize];
+                if best_move != killers[0] {
+                    *killers = [best_move, killers[0]];
+                }
             }
         }
 
