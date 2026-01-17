@@ -103,6 +103,11 @@ impl SearchContext {
     }
 }
 
+#[derive(Copy, Clone, Debug, Default)]
+struct StackEntry {
+    mv: Option<Move>,
+}
+
 struct ThreadData {
     id: u32,
     key_history: Vec<u64>,
@@ -111,6 +116,7 @@ struct ThreadData {
     seldepth: i32,
     nodes: usize,
     root_moves: Vec<RootMove>,
+    stack: Vec<StackEntry>,
     corrhist: CorrectionHistory,
     history: History,
 }
@@ -125,6 +131,7 @@ impl ThreadData {
             seldepth: 0,
             nodes: 0,
             root_moves: Vec::with_capacity(1024),
+            stack: vec![StackEntry::default(); MAX_PLY as usize + 1],
             corrhist: CorrectionHistory::new(),
             history: History::new(),
         }
@@ -146,9 +153,16 @@ impl ThreadData {
         self.seldepth = self.seldepth.max(ply + 1);
     }
 
-    fn apply_move(&mut self, pos: &Position, mv: Move) -> Position {
+    fn apply_move(&mut self, ply: i32, pos: &Position, mv: Move) -> Position {
         self.key_history.push(pos.key());
+        self.stack[ply as usize].mv = Some(mv);
         pos.apply_move(mv)
+    }
+
+    fn apply_nullmove(&mut self, ply: i32, pos: &Position) -> Position {
+        self.key_history.push(pos.key());
+        self.stack[ply as usize].mv = None;
+        pos.apply_nullmove()
     }
 
     fn pop_move(&mut self) {
@@ -402,6 +416,30 @@ impl SearcherImpl {
             if depth <= 6 && static_eval - rfp_margin >= beta {
                 return static_eval;
             }
+
+            if depth >= 4 && thread.stack[ply as usize - 1].mv.is_some() {
+                let r = 3;
+
+                let new_pos = thread.apply_nullmove(ply, pos);
+
+                let score = -self.search::<NonPvNode>(
+                    ctx,
+                    thread,
+                    movelists,
+                    pvs,
+                    &new_pos,
+                    depth - r,
+                    ply + 1,
+                    -beta,
+                    -beta + 1,
+                );
+
+                thread.pop_move();
+
+                if score >= beta {
+                    return if score > SCORE_WIN { beta } else { score };
+                }
+            }
         }
 
         let (moves, movelists) = movelists.split_first_mut().unwrap();
@@ -426,7 +464,7 @@ impl SearcherImpl {
                 child_pvs[0].clear();
             }
 
-            let new_pos = thread.apply_move(pos, mv);
+            let new_pos = thread.apply_move(ply, pos, mv);
 
             let score = 'recurse: {
                 if new_pos.has_road(pos.stm()) {
