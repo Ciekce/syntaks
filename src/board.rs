@@ -656,6 +656,18 @@ impl Position {
     }
 
     #[must_use]
+    pub fn apply_nullmove(&self) -> Self {
+        let mut new_pos = *self;
+
+        new_pos.stm = new_pos.stm.flip();
+        new_pos.ply += 1;
+
+        new_pos.player_key ^= keys::p2_key();
+
+        new_pos
+    }
+
+    #[must_use]
     pub fn tps(&self) -> String {
         let mut tps = String::with_capacity(21);
 
