@@ -28,17 +28,24 @@ const TIME_CHECK_INTERVAL: usize = 4096;
 #[derive(Copy, Clone, Debug)]
 struct TimeManager {
     max_time: f64,
+    opt_time: f64,
 }
 
 impl TimeManager {
     fn new(remaining: f64, increment: f64) -> Self {
-        let time = remaining / 20.0 + increment;
-        let time = time.min(remaining * 0.8);
+        let base_time = remaining / 20.0 + increment;
 
-        Self { max_time: time }
+        let max_time = remaining * 0.8;
+        let opt_time = (base_time * 0.6).min(max_time);
+
+        Self { max_time, opt_time }
     }
 
-    fn should_stop(&self, _nodes: usize, time: f64) -> bool {
+    fn should_stop_soft(&self, _nodes: usize, time: f64) -> bool {
+        time >= self.opt_time
+    }
+
+    fn should_stop_hard(&self, _nodes: usize, time: f64) -> bool {
         time >= self.max_time
     }
 }
@@ -108,7 +115,7 @@ impl Limits {
         }
 
         if let Some(time_manager) = self.time_manager
-            && time_manager.should_stop(nodes, time)
+            && time_manager.should_stop_soft(nodes, time)
         {
             return true;
         }
@@ -137,7 +144,7 @@ impl Limits {
             }
 
             if let Some(time_manager) = self.time_manager
-                && time_manager.should_stop(nodes, time)
+                && time_manager.should_stop_hard(nodes, time)
             {
                 return true;
             }
