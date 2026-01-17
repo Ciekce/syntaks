@@ -21,14 +21,32 @@
  * SOFTWARE.
  */
 
+use std::array;
+
+use crate::bitboard::Bitboard;
 use crate::board::Position;
 use crate::core::{Piece, Player};
 use crate::search::Score;
 
+#[static_init::dynamic]
+static RINGS: [Bitboard; 5] = {
+    let mut covered = Bitboard::from_raw(1 << 14 | 1 << 15 | 1 << 20 | 1 << 21);
+    let mut curr = covered;
+    array::from_fn(|_| {
+        let r = curr;
+        curr = (curr << 6 | curr >> 6 | curr << 1 | curr >> 1) & !covered;
+        covered |= curr;
+        r
+    })
+};
+
 #[must_use]
 pub fn static_eval(pos: &Position) -> Score {
-    let p1_flats = pos.player_piece_bb(Piece::P1Flat).popcount() as Score;
-    let p2_flats = (pos.player_piece_bb(Piece::P2Flat).popcount() + Position::KOMI) as Score;
+    let p1_flat_bb = pos.player_piece_bb(Piece::P1Flat);
+    let p2_flat_bb = pos.player_piece_bb(Piece::P2Flat);
+
+    let p1_flats = p1_flat_bb.popcount() as Score;
+    let p2_flats = (p2_flat_bb.popcount() + Position::KOMI) as Score;
 
     let flat_diff = p1_flats - p2_flats;
     let flat_diff = flat_diff * 100;
@@ -45,7 +63,16 @@ pub fn static_eval(pos: &Position) -> Score {
     let caps_in_hand_diff = p1_caps_in_hand - p2_caps_in_hand;
     let caps_in_hand_diff = caps_in_hand_diff * -25;
 
-    let eval = flat_diff + caps_in_hand_diff + flats_in_hand_diff;
+    let flat_position_quality_diff = RINGS
+        .iter()
+        .zip([2, 8, -5, -15, -40])
+        .map(|(&ring, value)| {
+            (p1_flat_bb & ring).popcount() as i32 * value
+                - (p2_flat_bb & ring).popcount() as i32 * value
+        })
+        .sum::<i32>();
+
+    let eval = flat_diff + caps_in_hand_diff + flats_in_hand_diff + flat_position_quality_diff;
 
     match pos.stm() {
         Player::P1 => eval,
