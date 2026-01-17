@@ -170,10 +170,12 @@ impl Bitboard {
     }
 
     #[must_use]
-    pub fn shift(&self, dir: Direction) -> Self {
+    pub fn shift(self, dir: Direction) -> Self {
         match dir {
-            Direction::Up | Direction::Right => self.shl(dir.offset() as u32),
-            Direction::Down | Direction::Left => self.shr(-dir.offset() as u32),
+            Direction::Up => self.shl(dir.offset() as u32),
+            Direction::Down => self.shr(-dir.offset() as u32),
+            Direction::Left => (self & !Self::LEFT_EDGE).shr(-dir.offset() as u32),
+            Direction::Right => (self & !Self::RIGHT_EDGE).shl(dir.offset() as u32),
         }
     }
 }
