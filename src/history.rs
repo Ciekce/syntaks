@@ -21,9 +21,9 @@
  * SOFTWARE.
  */
 
+use crate::board::Position;
 use crate::core::Player;
 use crate::takmove::Move;
-use crate::board::Position;
 use std::ops::{Index, IndexMut};
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -33,7 +33,7 @@ struct Entry {
 }
 
 impl Entry {
-    const LIMIT: i32 = 8192;
+    const LIMIT: i32 = 16384;
 
     fn update(&mut self, bonus: i32) {
         let mut value = self.value as i32;
