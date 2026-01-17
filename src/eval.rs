@@ -49,7 +49,7 @@ pub fn static_eval(pos: &Position) -> Score {
     let p2_flats = (p2_flat_bb.popcount() + Position::KOMI) as Score;
 
     let flat_diff = p1_flats - p2_flats;
-    let flat_diff = flat_diff * 100;
+    let flat_diff = flat_diff * 75;
 
     let p1_flats_in_hand = pos.flats_in_hand(Player::P1) as Score;
     let p2_flats_in_hand = pos.flats_in_hand(Player::P2) as Score;
@@ -72,7 +72,39 @@ pub fn static_eval(pos: &Position) -> Score {
         })
         .sum::<i32>();
 
-    let eval = flat_diff + caps_in_hand_diff + flats_in_hand_diff + flat_position_quality_diff;
+    let p1_road_bb = pos.roads(Player::P1);
+    let p2_road_bb = pos.roads(Player::P2);
+
+    let p1_adj_horz = p1_road_bb & p1_road_bb >> 1 & !Bitboard::RIGHT_EDGE;
+    let p2_adj_horz = p2_road_bb & p2_road_bb >> 1 & !Bitboard::RIGHT_EDGE;
+
+    let p1_adj_vert = p1_road_bb & p1_road_bb >> 6;
+    let p2_adj_vert = p2_road_bb & p2_road_bb >> 6;
+
+    let p1_line_horz = p1_adj_horz & p1_adj_horz >> 1 & !Bitboard::RIGHT_EDGE;
+    let p2_line_horz = p2_adj_horz & p2_adj_horz >> 1 & !Bitboard::RIGHT_EDGE;
+
+    let p1_line_vert = p1_adj_vert & p1_adj_vert >> 6;
+    let p2_line_vert = p2_adj_vert & p2_adj_vert >> 6;
+
+    let p1_adj_value = (p1_adj_horz.popcount() + p1_adj_vert.popcount()) as i32;
+    let p2_adj_value = (p2_adj_horz.popcount() + p2_adj_vert.popcount()) as i32;
+
+    let p1_line_value = (p1_line_horz.popcount() + p1_line_vert.popcount()) as i32;
+    let p2_line_value = (p2_line_horz.popcount() + p2_line_vert.popcount()) as i32;
+
+    let adj_diff = p1_adj_value - p2_adj_value;
+    let line_diff = p1_line_value - p2_line_value;
+
+    let adj_diff = adj_diff * 9;
+    let line_diff = line_diff * 7;
+
+    let eval = flat_diff
+        + caps_in_hand_diff
+        + flats_in_hand_diff
+        + flat_position_quality_diff
+        + adj_diff
+        + line_diff;
 
     match pos.stm() {
         Player::P1 => eval,
