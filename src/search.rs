@@ -564,17 +564,18 @@ impl SearcherImpl {
                 break;
             }
 
-            if !faillow_moves.is_full() {
-                faillow_moves.push(mv);
+            if best_move != Some(mv) {
+                faillow_moves.try_push(mv).ok();
             }
         }
 
         debug_assert!(move_count > 0);
 
-        if tt_flag == TtFlag::LowerBound {
-            let best_move = best_move.unwrap();
+        if let Some(best_move) = best_move {
             let bonus = 10 * depth;
+
             thread.history.update(pos, best_move, bonus);
+
             for &mv in faillow_moves.iter() {
                 thread.history.update(pos, mv, -depth);
             }
