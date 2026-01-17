@@ -21,10 +21,9 @@
  * SOFTWARE.
  */
 
-use crate::core::{PieceType, Player};
-use crate::search::Score;
+use crate::core::Player;
 use crate::takmove::Move;
-use crate::{board::Position, core::Square};
+use crate::board::Position;
 use std::ops::{Index, IndexMut};
 
 #[derive(Copy, Clone, Debug, Default)]
