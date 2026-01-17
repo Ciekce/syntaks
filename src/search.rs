@@ -577,7 +577,7 @@ impl SearcherImpl {
             thread.history.update(pos, best_move, bonus);
 
             for &mv in faillow_moves.iter() {
-                thread.history.update(pos, mv, -depth);
+                thread.history.update(pos, mv, -bonus);
             }
         }
 
