@@ -106,8 +106,5 @@ pub fn static_eval(pos: &Position) -> Score {
         + adj_diff
         + line_diff;
 
-    match pos.stm() {
-        Player::P1 => eval,
-        Player::P2 => -eval,
-    }
+    eval * pos.stm().sign() + 30
 }
