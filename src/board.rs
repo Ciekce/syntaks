@@ -37,6 +37,7 @@ struct Keys {
     roads: u64,
     tops: u64,
     caps: u64,
+    walls: u64,
 }
 
 impl Keys {
@@ -55,6 +56,9 @@ impl Keys {
         }
         if pt == PieceType::Capstone {
             self.caps ^= keys::top_key(pt, sq);
+        }
+        if pt == PieceType::Wall {
+            self.walls ^= keys::top_key(pt, sq);
         }
     }
 
@@ -417,6 +421,11 @@ impl Position {
     #[must_use]
     pub fn cap_key(&self) -> u64 {
         self.stacks.keys.caps
+    }
+
+    #[must_use]
+    pub fn wall_key(&self) -> u64 {
+        self.stacks.keys.walls
     }
 
     #[must_use]
