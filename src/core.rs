@@ -55,6 +55,14 @@ impl Player {
     }
 
     #[must_use]
+    pub const fn sign(self) -> i32 {
+        match self {
+            Self::P1 => 1,
+            Self::P2 => -1,
+        }
+    }
+
+    #[must_use]
     pub const fn flip(self) -> Self {
         Self::from_raw(self as u8 ^ 0x1).unwrap()
     }

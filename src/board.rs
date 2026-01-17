@@ -441,6 +441,14 @@ impl Position {
     }
 
     #[must_use]
+    pub fn fcd(&self, player: Player) -> i32 {
+        let p1_advantage = self.player_piece_bb(Piece::P1Flat).popcount() as i32
+            - self.player_piece_bb(Piece::P2Flat).popcount() as i32
+            - Self::KOMI as i32;
+        p1_advantage * player.sign()
+    }
+
+    #[must_use]
     pub fn count_flats(&self) -> FlatCountOutcome {
         if !(!self.occ()).is_empty()
             && !self.has_no_more_pieces(Player::P1)
