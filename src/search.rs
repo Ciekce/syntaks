@@ -572,7 +572,7 @@ impl SearcherImpl {
         debug_assert!(move_count > 0);
 
         if let Some(best_move) = best_move {
-            let bonus = 10 * depth;
+            let bonus = (300 * depth - 300).clamp(0, 2500);
 
             thread.history.update(pos, best_move, bonus);
 
