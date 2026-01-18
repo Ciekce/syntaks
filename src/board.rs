@@ -35,6 +35,7 @@ struct Keys {
     stacks: u64,
     blockers: u64,
     roads: u64,
+    noncaps: u64,
     tops: u64,
     caps: u64,
     walls: u64,
@@ -48,15 +49,21 @@ impl Keys {
     fn toggle_top_key(&mut self, pt: PieceType, sq: Square) {
         self.stacks ^= keys::top_key(pt, sq);
         self.tops ^= keys::top_key(pt, sq);
+
         if pt.is_blocker() {
             self.blockers ^= keys::top_key(pt, sq);
         }
+
         if pt.is_road() {
             self.roads ^= keys::top_key(pt, sq);
         }
+
         if pt == PieceType::Capstone {
             self.caps ^= keys::top_key(pt, sq);
+        } else {
+            self.noncaps ^= keys::top_key(pt, sq);
         }
+
         if pt == PieceType::Wall {
             self.walls ^= keys::top_key(pt, sq);
         }
@@ -411,6 +418,11 @@ impl Position {
     #[must_use]
     pub fn road_key(&self) -> u64 {
         self.stacks.keys.roads
+    }
+
+    #[must_use]
+    pub fn noncap_key(&self) -> u64 {
+        self.stacks.keys.noncaps
     }
 
     #[must_use]
