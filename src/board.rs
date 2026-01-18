@@ -36,6 +36,7 @@ struct Keys {
     blockers: u64,
     roads: u64,
     tops: u64,
+    flats: u64,
     caps: u64,
     walls: u64,
 }
@@ -54,11 +55,10 @@ impl Keys {
         if pt.is_road() {
             self.roads ^= keys::top_key(pt, sq);
         }
-        if pt == PieceType::Capstone {
-            self.caps ^= keys::top_key(pt, sq);
-        }
-        if pt == PieceType::Wall {
-            self.walls ^= keys::top_key(pt, sq);
+        match pt {
+            PieceType::Flat => self.flats ^= keys::top_key(pt, sq),
+            PieceType::Wall => self.walls ^= keys::top_key(pt, sq),
+            PieceType::Capstone => self.caps ^= keys::top_key(pt, sq),
         }
     }
 
@@ -416,6 +416,11 @@ impl Position {
     #[must_use]
     pub fn top_key(&self) -> u64 {
         self.stacks.keys.tops
+    }
+
+    #[must_use]
+    pub fn flat_key(&self) -> u64 {
+        self.stacks.keys.flats
     }
 
     #[must_use]
