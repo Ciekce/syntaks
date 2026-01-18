@@ -54,6 +54,10 @@ struct CombinedHist {
 
 impl CombinedHist {
     const ENTRIES: usize = 1 << Move::TOTAL_BITS;
+
+    fn clear(&mut self) {
+        self.entries.fill(Default::default());
+    }
 }
 
 impl Default for CombinedHist {
@@ -78,9 +82,52 @@ impl IndexMut<Move> for CombinedHist {
     }
 }
 
+#[derive(Copy, Clone)]
+struct HashedTable {
+    entries: [CombinedHist; Self::ENTRIES],
+}
+
+impl HashedTable {
+    const ENTRIES: usize = 512;
+
+    fn clear(&mut self) {
+        self.entries.fill(Default::default());
+    }
+}
+
+impl Default for HashedTable {
+    fn default() -> Self {
+        Self {
+            entries: [Default::default(); Self::ENTRIES],
+        }
+    }
+}
+
+impl Index<u64> for HashedTable {
+    type Output = CombinedHist;
+
+    fn index(&self, index: u64) -> &Self::Output {
+        &self.entries[index as usize % Self::ENTRIES]
+    }
+}
+
+impl IndexMut<u64> for HashedTable {
+    fn index_mut(&mut self, index: u64) -> &mut Self::Output {
+        &mut self.entries[index as usize % Self::ENTRIES]
+    }
+}
+
 #[derive(Copy, Clone, Default)]
 struct SidedTables {
     hist: CombinedHist,
+    blocker: HashedTable,
+}
+
+impl SidedTables {
+    fn clear(&mut self) {
+        self.hist.clear();
+        self.blocker.clear();
+    }
 }
 
 pub struct History {
@@ -90,24 +137,43 @@ pub struct History {
 impl History {
     const MAX_BONUS: i32 = Entry::LIMIT / 4;
 
-    pub fn new() -> Self {
-        Self {
-            tables: Default::default(),
+    pub fn boxed() -> Box<Self> {
+        //SAFETY: history tables are ultimately just a load
+        // of i16s, for which all-zeroes is a valid bit pattern
+        unsafe {
+            let layout = std::alloc::Layout::new::<Self>();
+            let ptr = std::alloc::alloc_zeroed(layout);
+            if ptr.is_null() {
+                std::alloc::handle_alloc_error(layout);
+            }
+            Box::from_raw(ptr.cast())
         }
     }
 
     pub fn clear(&mut self) {
-        self.tables = Default::default();
+        for table in self.tables.iter_mut() {
+            table.clear();
+        }
     }
 
     pub fn update(&mut self, pos: &Position, mv: Move, bonus: i32) {
+        let bonus = bonus.clamp(-Self::MAX_BONUS, Self::MAX_BONUS);
+
         let tables = &mut self.tables[pos.stm().idx()];
-        tables.hist[mv].update(bonus.clamp(-Self::MAX_BONUS, Self::MAX_BONUS));
+
+        tables.hist[mv].update(bonus);
+        tables.blocker[pos.blocker_key()][mv].update(bonus);
     }
 
     #[must_use]
     pub fn score(&self, pos: &Position, mv: Move) -> i32 {
         let tables = &self.tables[pos.stm().idx()];
-        tables.hist[mv].get()
+
+        let mut history = 0;
+
+        history += tables.hist[mv].get();
+        history += tables.blocker[pos.blocker_key()][mv].get();
+
+        history
     }
 }

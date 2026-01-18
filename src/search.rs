@@ -118,7 +118,7 @@ struct ThreadData {
     root_moves: Vec<RootMove>,
     stack: Vec<StackEntry>,
     corrhist: CorrectionHistory,
-    history: History,
+    history: Box<History>,
 }
 
 impl ThreadData {
@@ -133,7 +133,7 @@ impl ThreadData {
             root_moves: Vec::with_capacity(1024),
             stack: vec![StackEntry::default(); MAX_PLY as usize + 1],
             corrhist: CorrectionHistory::new(),
-            history: History::new(),
+            history: History::boxed(),
         }
     }
 
@@ -681,14 +681,14 @@ impl SearcherImpl {
 
 pub struct Searcher {
     searcher: SearcherImpl,
-    data: ThreadData,
+    data: Box<ThreadData>,
 }
 
 impl Searcher {
     pub fn new() -> Self {
         Self {
             searcher: SearcherImpl::new(),
-            data: ThreadData::new(0),
+            data: Box::new(ThreadData::new(0)),
         }
     }
 
@@ -700,7 +700,7 @@ impl Searcher {
         limits: Limits,
         max_depth: i32,
     ) {
-        let thread = &mut self.data;
+        let thread = &mut *self.data;
 
         thread.reset(key_history);
         thread.max_depth = max_depth;
