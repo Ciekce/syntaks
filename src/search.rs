@@ -22,7 +22,6 @@
  */
 
 use crate::board::{FlatCountOutcome, Position};
-use crate::core::{PieceType, Square};
 use crate::correction::CorrectionHistory;
 use crate::eval::static_eval;
 use crate::history::History;
@@ -120,7 +119,7 @@ struct ThreadData {
     stack: Vec<StackEntry>,
     corrhist: CorrectionHistory,
     history: History,
-    killers: [KillerTable; MAX_PLY as usize],
+    killers: [KillerTable; MAX_PLY as usize + 1],
 }
 
 impl ThreadData {
@@ -136,7 +135,7 @@ impl ThreadData {
             stack: vec![StackEntry::default(); MAX_PLY as usize + 1],
             corrhist: CorrectionHistory::new(),
             history: History::new(),
-            killers: [Default::default(); MAX_PLY as usize],
+            killers: [Default::default(); MAX_PLY as usize + 1],
         }
     }
 
@@ -319,6 +318,8 @@ impl SearcherImpl {
         let mut movelists = vec![Vec::with_capacity(256); MAX_PLY as usize];
         let mut pvs = vec![PvList::new(); MAX_PLY as usize];
 
+        thread.killers[0].reset();
+
         loop {
             thread.reset_seldepth();
 
@@ -447,6 +448,8 @@ impl SearcherImpl {
 
         let (moves, movelists) = movelists.split_first_mut().unwrap();
         let (pv, child_pvs) = pvs.split_first_mut().unwrap();
+
+        thread.killers[ply as usize + 1].reset();
 
         let mut best_score = -SCORE_INF;
         let mut best_move = None;
@@ -732,7 +735,6 @@ impl Searcher {
         self.searcher.reset();
         self.data.corrhist.clear();
         self.data.history.clear();
-        self.data.killers.fill(Default::default());
     }
 
     pub fn set_tt_size(&mut self, size_mib: usize) {
