@@ -21,7 +21,7 @@
  * SOFTWARE.
  */
 
-use crate::core::{Player, Square};
+use crate::core::{Direction, Player, Square};
 use crate::takmove::Move;
 use crate::{board::Position, core::PieceType};
 use std::ops::{Index, IndexMut};
@@ -111,11 +111,17 @@ struct CountermoveHistory {
 }
 
 impl CountermoveHistory {
-    const MOVE_TYPES: usize = PieceType::COUNT + 1; // one for each placement type, and spreads
+    const MOVE_TYPES: usize = PieceType::COUNT + Direction::COUNT; // one for each placement type, and 4 spread
+    // directions
     const ENTRIES: usize = Self::MOVE_TYPES * Square::COUNT;
 
     fn move_idx(mv: Move) -> usize {
-        (if mv.is_spread() { 0 } else { 1 + mv.pt().idx() }) * Square::COUNT + mv.sq().idx()
+        let type_idx = if mv.is_spread() {
+            mv.dir().idx()
+        } else {
+            mv.pt().idx() + Direction::COUNT
+        };
+        type_idx * Square::COUNT + mv.sq().idx()
     }
 }
 
