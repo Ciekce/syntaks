@@ -21,9 +21,9 @@
  * SOFTWARE.
  */
 
-use crate::board::Position;
-use crate::core::Player;
+use crate::core::{Player, Square};
 use crate::takmove::Move;
+use crate::{board::Position, core::PieceType};
 use std::ops::{Index, IndexMut};
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -78,9 +78,73 @@ impl IndexMut<Move> for CombinedHist {
     }
 }
 
+#[derive(Copy, Clone)]
+struct ConthistTable {
+    entries: [Entry; CountermoveHistory::ENTRIES],
+}
+
+impl Default for ConthistTable {
+    fn default() -> Self {
+        Self {
+            entries: [Default::default(); CountermoveHistory::ENTRIES],
+        }
+    }
+}
+
+impl Index<Move> for ConthistTable {
+    type Output = Entry;
+
+    fn index(&self, mv: Move) -> &Self::Output {
+        &self.entries[CountermoveHistory::move_idx(mv)]
+    }
+}
+
+impl IndexMut<Move> for ConthistTable {
+    fn index_mut(&mut self, mv: Move) -> &mut Self::Output {
+        &mut self.entries[CountermoveHistory::move_idx(mv)]
+    }
+}
+
+#[derive(Copy, Clone)]
+struct CountermoveHistory {
+    entries: [ConthistTable; Self::ENTRIES],
+}
+
+impl CountermoveHistory {
+    const MOVE_TYPES: usize = PieceType::COUNT + 1; // one for each placement type, and spreads
+    const ENTRIES: usize = Self::MOVE_TYPES * Square::COUNT;
+
+    fn move_idx(mv: Move) -> usize {
+        (if mv.is_spread() { 0 } else { 1 + mv.pt().idx() }) * Square::COUNT + mv.sq().idx()
+    }
+}
+
+impl Default for CountermoveHistory {
+    fn default() -> Self {
+        Self {
+            entries: [Default::default(); Self::ENTRIES],
+        }
+    }
+}
+
+impl Index<Move> for CountermoveHistory {
+    type Output = ConthistTable;
+
+    fn index(&self, mv: Move) -> &Self::Output {
+        &self.entries[Self::move_idx(mv)]
+    }
+}
+
+impl IndexMut<Move> for CountermoveHistory {
+    fn index_mut(&mut self, mv: Move) -> &mut Self::Output {
+        &mut self.entries[Self::move_idx(mv)]
+    }
+}
+
 #[derive(Copy, Clone, Default)]
 struct SidedTables {
     hist: CombinedHist,
+    conthist: CountermoveHistory,
 }
 
 pub struct History {
@@ -100,14 +164,22 @@ impl History {
         self.tables = Default::default();
     }
 
-    pub fn update(&mut self, pos: &Position, mv: Move, bonus: i32) {
+    pub fn update(&mut self, pos: &Position, mv: Move, prev: Option<Move>, bonus: i32) {
         let tables = &mut self.tables[pos.stm().idx()];
-        tables.hist[mv].update(bonus.clamp(-Self::MAX_BONUS, Self::MAX_BONUS));
+        let bonus = bonus.clamp(-Self::MAX_BONUS, Self::MAX_BONUS);
+        tables.hist[mv].update(bonus);
+        if let Some(prev) = prev {
+            tables.conthist[prev][mv].update(bonus);
+        }
     }
 
     #[must_use]
-    pub fn score(&self, pos: &Position, mv: Move) -> i32 {
+    pub fn score(&self, pos: &Position, mv: Move, prev: Option<Move>) -> i32 {
         let tables = &self.tables[pos.stm().idx()];
-        tables.hist[mv].get()
+        let mut res = tables.hist[mv].get();
+        if let Some(prev) = prev {
+            res += tables.conthist[prev][mv].get();
+        }
+        return res;
     }
 }

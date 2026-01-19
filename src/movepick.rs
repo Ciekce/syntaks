@@ -83,6 +83,7 @@ pub struct Movepicker<'a> {
     idx: usize,
     tt_move: Option<Move>,
     killers: KillerTable,
+    prev_move: Option<Move>,
     stage: Stage,
 }
 
@@ -93,6 +94,7 @@ impl<'a> Movepicker<'a> {
         scores: &'a mut Vec<Score>,
         tt_move: Option<Move>,
         killers: KillerTable,
+        prev_move: Option<Move>,
     ) -> Self {
         Self {
             pos,
@@ -101,6 +103,7 @@ impl<'a> Movepicker<'a> {
             idx: 0,
             tt_move,
             killers,
+            prev_move,
             stage: Stage::TtMove,
         }
     }
@@ -108,7 +111,8 @@ impl<'a> Movepicker<'a> {
     fn score_moves(&mut self, history: &History) {
         self.scores.clear();
         for mv in self.moves.iter() {
-            self.scores.push(history.score(self.pos, *mv));
+            self.scores
+                .push(history.score(self.pos, *mv, self.prev_move));
         }
     }
 

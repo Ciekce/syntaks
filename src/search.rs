@@ -22,7 +22,6 @@
  */
 
 use crate::board::{FlatCountOutcome, Position};
-use crate::core::{PieceType, Square};
 use crate::correction::CorrectionHistory;
 use crate::eval::static_eval;
 use crate::history::History;
@@ -454,12 +453,18 @@ impl SearcherImpl {
         let mut tt_flag = TtFlag::UpperBound;
 
         let mut scores = Vec::new();
+        let prev_move = if ply > 0 {
+            thread.stack[(ply - 1) as usize].mv
+        } else {
+            None
+        };
         let mut movepicker = Movepicker::new(
             pos,
             moves,
             &mut scores,
             tt_entry.mv,
             thread.killers[ply as usize],
+            prev_move,
         );
         let mut move_count = 0;
         let mut faillow_moves = arrayvec::ArrayVec::<Move, 32>::new();
@@ -627,10 +632,10 @@ impl SearcherImpl {
         if let Some(best_move) = best_move {
             let bonus = (300 * depth - 300).clamp(0, 2500);
 
-            thread.history.update(pos, best_move, bonus);
+            thread.history.update(pos, best_move, prev_move, bonus);
 
             for &mv in faillow_moves.iter() {
-                thread.history.update(pos, mv, -bonus);
+                thread.history.update(pos, mv, prev_move, -bonus);
             }
 
             if best_score >= beta {
