@@ -458,6 +458,12 @@ impl SearcherImpl {
         while let Some(mv) = movepicker.next(&thread.history) {
             debug_assert!(pos.is_legal(mv));
 
+            if !NT::ROOT_NODE && best_score > -SCORE_WIN {
+                if depth <= 6 && move_count as i32 >= 5 + 3 * depth * depth {
+                    break;
+                }
+            }
+
             move_count += 1;
 
             if NT::PV_NODE {
