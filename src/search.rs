@@ -332,6 +332,7 @@ impl SearcherImpl {
                 0,
                 -SCORE_INF,
                 SCORE_INF,
+                false,
             );
 
             thread.root_moves.sort_by(|a, b| b.score.cmp(&a.score));
@@ -366,10 +367,11 @@ impl SearcherImpl {
         movelists: &mut [Vec<Move>],
         pvs: &mut [PvList],
         pos: &Position,
-        depth: i32,
+        mut depth: i32,
         ply: i32,
         mut alpha: Score,
         beta: Score,
+        expected_cutnode: bool,
     ) -> Score {
         if ctx.has_stopped() {
             return 0;
@@ -409,6 +411,10 @@ impl SearcherImpl {
             return tt_entry.score;
         }
 
+        if depth >= 3 && (NT::PV_NODE || expected_cutnode) && tt_entry.mv.is_none() {
+            depth -= 1;
+        }
+
         let raw_eval = static_eval(pos);
         let correction = thread.corrhist.correction(pos);
         let static_eval = raw_eval + correction;
@@ -435,6 +441,7 @@ impl SearcherImpl {
                     ply + 1,
                     -beta,
                     -beta + 1,
+                    !expected_cutnode,
                 );
 
                 thread.pop_move();
@@ -531,6 +538,7 @@ impl SearcherImpl {
                         ply + 1,
                         -alpha - 1,
                         -alpha,
+                        true,
                     );
 
                     if score > alpha && reduced < new_depth {
@@ -544,6 +552,7 @@ impl SearcherImpl {
                             ply + 1,
                             -alpha - 1,
                             -alpha,
+                            !expected_cutnode,
                         );
                     }
                 } else if !NT::PV_NODE || move_count > 1 {
@@ -557,6 +566,7 @@ impl SearcherImpl {
                         ply + 1,
                         -alpha - 1,
                         -alpha,
+                        !expected_cutnode,
                     );
                 }
 
@@ -571,6 +581,7 @@ impl SearcherImpl {
                         ply + 1,
                         -beta,
                         -alpha,
+                        false,
                     );
                 }
 
