@@ -66,7 +66,48 @@ fn static_eval_player(pos: &Position, player: Player, komi: u32) -> Score {
     let adj_value = adj_value * 9;
     let line_value = line_value * 7;
 
-    flats + flats_in_hand + caps_in_hand + adj_value + line_value
+    let stacks = &pos.stacks();
+    let player_flip = if player == Player::P2 { u64::MAX } else { 0 };
+
+    let mut support_score = 0;
+    let mut captive_score = 0;
+
+    for sq in pos.player_bb(player) {
+        let mut height = stacks.height(sq);
+
+        if height == 1 {
+            continue;
+        }
+
+        let mut players = stacks.players(sq) ^ player_flip;
+
+        if height > 7 {
+            players >>= height - 7;
+            height = 7;
+        }
+
+        let mask = (1 << (height - 1)) - 1;
+
+        let support_count = (!players & mask).count_ones() as Score;
+        let captive_count = (players & mask).count_ones() as Score;
+
+        match stacks.top(sq).unwrap() {
+            PieceType::Flat => {
+                support_score += support_count * 30;
+                captive_score += captive_count * -40;
+            }
+            PieceType::Wall => {
+                support_score += support_count * 35;
+                captive_score += captive_count * -15;
+            }
+            PieceType::Capstone => {
+                support_score += support_count * 40;
+                captive_score += captive_count * -20;
+            }
+        }
+    }
+
+    flats + flats_in_hand + caps_in_hand + adj_value + line_value + support_score + captive_score
 }
 
 #[must_use]
