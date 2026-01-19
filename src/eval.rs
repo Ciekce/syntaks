@@ -25,7 +25,7 @@ use std::array;
 
 use crate::bitboard::Bitboard;
 use crate::board::Position;
-use crate::core::{Direction, Piece, Player};
+use crate::core::{Direction, Piece, PieceType, Player};
 use crate::search::Score;
 
 #[static_init::dynamic]
@@ -41,27 +41,41 @@ static RINGS: [Bitboard; 5] = {
 };
 
 #[must_use]
+fn static_eval_player(pos: &Position, player: Player, komi: u32) -> Score {
+    let flat_bb = pos.player_piece_bb(PieceType::Flat.with_player(player));
+    let flats = (flat_bb.popcount() + komi) as Score;
+    let flats = flats * 75;
+
+    let flats_in_hand = pos.flats_in_hand(player) as Score;
+    let flats_in_hand = flats_in_hand * -13;
+
+    let caps_in_hand = pos.caps_in_hand(player) as Score;
+    let caps_in_hand = caps_in_hand * -25;
+
+    let road_bb = pos.roads(player);
+
+    let adj_horz = road_bb & road_bb.shift(Direction::Left);
+    let adj_vert = road_bb & road_bb.shift(Direction::Down);
+
+    let line_horz = adj_horz & adj_horz.shift(Direction::Left);
+    let line_vert = adj_vert & adj_vert.shift(Direction::Down);
+
+    let adj_value = (adj_horz.popcount() + adj_vert.popcount()) as Score;
+    let line_value = (line_horz.popcount() + line_vert.popcount()) as Score;
+
+    let adj_value = adj_value * 9;
+    let line_value = line_value * 7;
+
+    flats + flats_in_hand + caps_in_hand + adj_value + line_value
+}
+
+#[must_use]
 pub fn static_eval(pos: &Position) -> Score {
+    let p1_score = static_eval_player(pos, Player::P1, 0);
+    let p2_score = static_eval_player(pos, Player::P2, Position::KOMI);
+
     let p1_flat_bb = pos.player_piece_bb(Piece::P1Flat);
     let p2_flat_bb = pos.player_piece_bb(Piece::P2Flat);
-
-    let p1_flats = p1_flat_bb.popcount() as Score;
-    let p2_flats = (p2_flat_bb.popcount() + Position::KOMI) as Score;
-
-    let flat_diff = p1_flats - p2_flats;
-    let flat_diff = flat_diff * 75;
-
-    let p1_flats_in_hand = pos.flats_in_hand(Player::P1) as Score;
-    let p2_flats_in_hand = pos.flats_in_hand(Player::P2) as Score;
-
-    let flats_in_hand_diff = p1_flats_in_hand - p2_flats_in_hand;
-    let flats_in_hand_diff = flats_in_hand_diff * -13;
-
-    let p1_caps_in_hand = pos.caps_in_hand(Player::P1) as Score;
-    let p2_caps_in_hand = pos.caps_in_hand(Player::P2) as Score;
-
-    let caps_in_hand_diff = p1_caps_in_hand - p2_caps_in_hand;
-    let caps_in_hand_diff = caps_in_hand_diff * -25;
 
     let flat_position_quality_diff = RINGS
         .iter()
@@ -72,39 +86,7 @@ pub fn static_eval(pos: &Position) -> Score {
         })
         .sum::<i32>();
 
-    let p1_road_bb = pos.roads(Player::P1);
-    let p2_road_bb = pos.roads(Player::P2);
-
-    let p1_adj_horz = p1_road_bb & p1_road_bb.shift(Direction::Left);
-    let p2_adj_horz = p2_road_bb & p2_road_bb.shift(Direction::Left);
-
-    let p1_adj_vert = p1_road_bb & p1_road_bb.shift(Direction::Down);
-    let p2_adj_vert = p2_road_bb & p2_road_bb.shift(Direction::Down);
-
-    let p1_line_horz = p1_adj_horz & p1_adj_horz.shift(Direction::Left);
-    let p2_line_horz = p2_adj_horz & p2_adj_horz.shift(Direction::Left);
-
-    let p1_line_vert = p1_adj_vert & p1_adj_vert.shift(Direction::Down);
-    let p2_line_vert = p2_adj_vert & p2_adj_vert.shift(Direction::Down);
-
-    let p1_adj_value = (p1_adj_horz.popcount() + p1_adj_vert.popcount()) as i32;
-    let p2_adj_value = (p2_adj_horz.popcount() + p2_adj_vert.popcount()) as i32;
-
-    let p1_line_value = (p1_line_horz.popcount() + p1_line_vert.popcount()) as i32;
-    let p2_line_value = (p2_line_horz.popcount() + p2_line_vert.popcount()) as i32;
-
-    let adj_diff = p1_adj_value - p2_adj_value;
-    let line_diff = p1_line_value - p2_line_value;
-
-    let adj_diff = adj_diff * 9;
-    let line_diff = line_diff * 7;
-
-    let eval = flat_diff
-        + caps_in_hand_diff
-        + flats_in_hand_diff
-        + flat_position_quality_diff
-        + adj_diff
-        + line_diff;
+    let eval = p1_score - p2_score + flat_position_quality_diff;
 
     eval * pos.stm().sign() + 30
 }
