@@ -430,7 +430,7 @@ impl SearcherImpl {
                     movelists,
                     pvs,
                     &new_pos,
-                    depth - r,
+                    (depth - r).max(1), // dont allow dropping straight to eval
                     ply + 1,
                     -beta,
                     -beta + 1,
