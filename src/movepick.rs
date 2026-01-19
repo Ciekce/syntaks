@@ -111,8 +111,13 @@ impl<'a> Movepicker<'a> {
     fn score_moves(&mut self, history: &History) {
         self.scores.clear();
         for mv in self.moves.iter() {
-            self.scores
-                .push(history.score(self.pos, *mv, self.prev_move));
+            let mut score = history.score(self.pos, *mv, self.prev_move);
+
+            if !mv.is_spread() {
+                score += 100;
+            }
+
+            self.scores.push(score);
         }
     }
 
