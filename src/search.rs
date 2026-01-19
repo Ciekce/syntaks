@@ -420,7 +420,7 @@ impl SearcherImpl {
             }
 
             if depth >= 4 && static_eval >= beta && thread.stack[ply as usize - 1].mv.is_some() {
-                let r = 3;
+                let r = 3 + depth / 4;
 
                 let new_pos = thread.apply_nullmove(ply, pos);
 
