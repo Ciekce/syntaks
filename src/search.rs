@@ -92,7 +92,7 @@ static LMR_REDUCTIONS: [[i32; LMR_TABLE_MOVES]; MAX_PLY as usize] = {
         let ln_depth = (depth as f64).ln();
         for move_number in 1..LMR_TABLE_MOVES {
             let ln_move_number = (move_number as f64).ln();
-            let reduction = (BASE + ln_depth * ln_move_number / DIVISOR) as i32;
+            let reduction = ((BASE + ln_depth * ln_move_number / DIVISOR) * 1024.0) as i32;
             reductions[depth][move_number] = reduction;
         }
     }
@@ -426,8 +426,13 @@ impl SearcherImpl {
                         LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
                     if mv.is_spread() {
                         let gain = new_pos.fcd(pos.stm()) - pos.fcd(pos.stm());
-                        r += (1 - gain).clamp(0, 3);
+                        r += (1 - gain).clamp(0, 3) * 1024;
                     }
+
+                    r -= thread.history.score(pos, mv, prev_move) / 8;
+
+                    r /= 1024;
+
                     let reduced = (new_depth - r).max(1).min(new_depth - 1);
 
                     score = -self.search::<NonPvNode>(
