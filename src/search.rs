@@ -22,6 +22,7 @@
  */
 
 use crate::board::{FlatCountOutcome, Position};
+use crate::core::{PieceType, Square};
 use crate::eval::static_eval;
 use crate::limit::Limits;
 use crate::movegen::generate_moves;
@@ -373,13 +374,21 @@ impl SearcherImpl {
                 }
             }
 
+            let mut extension = 0;
+
             move_count += 1;
 
             if NT::PV_NODE {
                 child_pvs[0].clear();
             }
 
+            let is_crush =
+                mv.is_spread() && pos.stacks().top(mv.spread_dest()) == Some(PieceType::Wall);
             let new_pos = thread.apply_move(ply, pos, mv);
+
+            if is_crush {
+                extension += 1;
+            }
 
             let score = 'recurse: {
                 if new_pos.has_road(pos.stm()) {
@@ -410,7 +419,7 @@ impl SearcherImpl {
 
                 let mut score = 0;
 
-                let new_depth = depth - 1;
+                let new_depth = depth + extension - 1;
 
                 if depth >= 2 && move_count >= 5 + 2 * usize::from(NT::ROOT_NODE) {
                     let mut r =

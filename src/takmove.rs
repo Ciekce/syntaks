@@ -117,6 +117,25 @@ impl Move {
         assert!(self.is_spread());
         Direction::from_raw(((self.raw.get() >> Self::FLAG_SHIFT) & Self::FLAG_MASK) as u8).unwrap()
     }
+
+    #[must_use]
+    pub const fn spread_length(self) -> u8 {
+        // it will just be zero if its not a spread
+        // so its perfectly fine to call on placements, just not very useful
+
+        self.pattern().count_ones() as u8
+    }
+
+    #[must_use]
+    pub const fn spread_dest(self) -> Square {
+        assert!(self.is_spread());
+        let sq = self.sq();
+        let dir = self.dir();
+
+        let offset = dir.offset() * self.spread_length() as i8;
+
+        Square::from_raw((sq.raw() as i8 + offset) as u8).unwrap()
+    }
 }
 
 impl Display for Move {
