@@ -40,6 +40,24 @@ static RINGS: [Bitboard; 5] = {
     })
 };
 
+const ADJACENT_MASKS: [Bitboard; Square::COUNT] = {
+    let mut masks = [Bitboard::empty(); Square::COUNT];
+
+    let mut sq_idx = 0;
+    while let Some(sq) = Square::from_raw(sq_idx) {
+        let bb = sq.bb();
+        let bb = bb
+            .shift(Direction::Up)
+            .or(bb.shift(Direction::Down))
+            .or(bb.shift(Direction::Left))
+            .or(bb.shift(Direction::Right));
+        masks[sq.idx()] = bb;
+        sq_idx += 1;
+    }
+
+    masks
+};
+
 #[rustfmt::skip]
 const CAP_PSQT: [Score; Square::COUNT] = [
     -20,  -5,  -5,  -5,  -5, -20,
@@ -114,13 +132,28 @@ fn static_eval_player(pos: &Position, player: Player, komi: u32) -> Score {
         }
     }
 
+    let isolated_mask = pos.occ() & !flat_bb;
+
     let mut psqt_score = 0;
+    let mut isolated_cap_score = 0;
 
     for cap_sq in pos.player_piece_bb(PieceType::Capstone.with_player(player)) {
         psqt_score += CAP_PSQT[cap_sq.idx()];
+
+        let adjacent = ADJACENT_MASKS[cap_sq.idx()];
+        if (adjacent & isolated_mask).is_empty() {
+            isolated_cap_score -= 50;
+        }
     }
 
-    flats + flats_in_hand + adj_value + line_value + support_score + captive_score + psqt_score
+    flats
+        + flats_in_hand
+        + adj_value
+        + line_value
+        + support_score
+        + captive_score
+        + psqt_score
+        + isolated_cap_score
 }
 
 #[must_use]
