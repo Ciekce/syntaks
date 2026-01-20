@@ -42,12 +42,12 @@ static RINGS: [Bitboard; 5] = {
 
 #[rustfmt::skip]
 const CAP_PSQT: [Score; Square::COUNT] = [
-    -45, -30, -30, -30, -30, -45,
-    -30, -15,  -7,  -7, -15, -30,
-    -30,  -7,  10,  10,  -7, -30,
-    -30,  -7,  10,  10,  -7, -30,
-    -30, -15,  -7,  -7, -15, -30,
-    -45, -30, -30, -30, -30, -45,
+    -20,  -5,  -5,  -5,  -5, -20,
+     -5,  10,  18,  18,  10,  -5,
+     -5,  18,  35,  35,  18,  -5,
+     -5,  18,  35,  35,  18,  -5,
+     -5,  10,  18,  18,  10,  -5,
+    -20,  -5,  -5,  -5,  -5, -20,
 ];
 
 #[must_use]
@@ -58,9 +58,6 @@ fn static_eval_player(pos: &Position, player: Player, komi: u32) -> Score {
 
     let flats_in_hand = pos.flats_in_hand(player) as Score;
     let flats_in_hand = flats_in_hand * -13;
-
-    let caps_in_hand = pos.caps_in_hand(player) as Score;
-    let caps_in_hand = caps_in_hand * -25;
 
     let road_bb = pos.roads(player);
 
@@ -123,14 +120,7 @@ fn static_eval_player(pos: &Position, player: Player, komi: u32) -> Score {
         psqt_score += CAP_PSQT[cap_sq.idx()];
     }
 
-    flats
-        + flats_in_hand
-        + caps_in_hand
-        + adj_value
-        + line_value
-        + support_score
-        + captive_score
-        + psqt_score
+    flats + flats_in_hand + adj_value + line_value + support_score + captive_score + psqt_score
 }
 
 #[must_use]
