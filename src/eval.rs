@@ -79,30 +79,45 @@ fn static_eval_player(pos: &Position, player: Player, komi: u32) -> Score {
             continue;
         }
 
-        let mut players = stacks.players(sq) ^ player_flip;
+        //TODO extremely scuffed
+        let mut shallow_players = stacks.players(sq) ^ player_flip;
+        let mut deep_players = 0;
+
+        let mut deep_mask = 0;
 
         if height > 7 {
-            players >>= height - 7;
+            deep_mask = (1 << (height - 7)) - 1;
+            deep_players = shallow_players & deep_mask;
+            shallow_players >>= height - 7;
             height = 7;
         }
 
-        let mask = (1 << (height - 1)) - 1;
+        let shallow_mask = (1 << (height - 1)) - 1;
 
-        let support_count = (!players & mask).count_ones() as Score;
-        let captive_count = (players & mask).count_ones() as Score;
+        let shallow_support_count = (!shallow_players & shallow_mask).count_ones() as Score;
+        let shallow_captive_count = (shallow_players & shallow_mask).count_ones() as Score;
+
+        let deep_support_count = (!deep_players & deep_mask).count_ones() as Score;
+        let deep_captive_count = (deep_players & deep_mask).count_ones() as Score;
 
         match stacks.top(sq).unwrap() {
             PieceType::Flat => {
-                support_score += support_count * 30;
-                captive_score += captive_count * -40;
+                support_score += shallow_support_count * 30;
+                captive_score += shallow_captive_count * -40;
+                support_score += deep_support_count * 6;
+                support_score += deep_captive_count * 8;
             }
             PieceType::Wall => {
-                support_score += support_count * 35;
-                captive_score += captive_count * -15;
+                support_score += shallow_support_count * 35;
+                captive_score += shallow_captive_count * -15;
+                support_score += deep_support_count * 7;
+                support_score += deep_captive_count * -3;
             }
             PieceType::Capstone => {
-                support_score += support_count * 40;
-                captive_score += captive_count * -20;
+                support_score += shallow_support_count * 40;
+                captive_score += shallow_captive_count * -20;
+                support_score += deep_support_count * 8;
+                support_score += deep_captive_count * -4;
             }
         }
     }
