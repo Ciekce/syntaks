@@ -473,7 +473,7 @@ impl SearcherImpl {
             debug_assert!(pos.is_legal(mv));
 
             if !NT::ROOT_NODE && best_score > -SCORE_WIN {
-                if depth <= 6 && move_count as i32 >= 5 + 3 * depth * depth {
+                if depth <= 6 && move_count as i32 >= 5 + 2 * depth * depth {
                     break;
                 }
             }
