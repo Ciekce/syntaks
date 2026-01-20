@@ -331,6 +331,7 @@ impl SearcherImpl {
                 0,
                 -SCORE_INF,
                 SCORE_INF,
+                false,
             );
 
             thread.root_moves.sort_by(|a, b| b.score.cmp(&a.score));
@@ -369,6 +370,7 @@ impl SearcherImpl {
         ply: i32,
         mut alpha: Score,
         beta: Score,
+        cutnode: bool,
     ) -> Score {
         if ctx.has_stopped() {
             return 0;
@@ -419,7 +421,11 @@ impl SearcherImpl {
                 return static_eval;
             }
 
-            if depth >= 4 && static_eval >= beta && thread.stack[ply as usize - 1].mv.is_some() {
+            if depth >= 4
+                && static_eval >= beta
+                && thread.stack[ply as usize - 1].mv.is_some()
+                && cutnode
+            {
                 let r = 3 + depth / 4;
 
                 let new_pos = thread.apply_nullmove(ply, pos);
@@ -434,6 +440,7 @@ impl SearcherImpl {
                     ply + 1,
                     -beta,
                     -beta + 1,
+                    !cutnode,
                 );
 
                 thread.pop_move();
@@ -536,6 +543,7 @@ impl SearcherImpl {
                         ply + 1,
                         -alpha - 1,
                         -alpha,
+                        true,
                     );
 
                     if score > alpha && reduced < new_depth {
@@ -549,6 +557,7 @@ impl SearcherImpl {
                             ply + 1,
                             -alpha - 1,
                             -alpha,
+                            !cutnode,
                         );
                     }
                 } else if !NT::PV_NODE || move_count > 1 {
@@ -562,6 +571,7 @@ impl SearcherImpl {
                         ply + 1,
                         -alpha - 1,
                         -alpha,
+                        !cutnode,
                     );
                 }
 
@@ -576,6 +586,7 @@ impl SearcherImpl {
                         ply + 1,
                         -beta,
                         -alpha,
+                        false,
                     );
                 }
 
