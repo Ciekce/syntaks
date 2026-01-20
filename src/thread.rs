@@ -39,7 +39,10 @@ pub fn update_pv(pv: &mut PvList, mv: Move, child: &PvList) {
 }
 
 pub struct RootMove {
+    pub display_score: Score,
     pub score: Score,
+    pub upper_bound: bool,
+    pub lower_bound: bool,
     pub seldepth: i32,
     pub pv: PvList,
 }
@@ -47,7 +50,10 @@ pub struct RootMove {
 impl Default for RootMove {
     fn default() -> Self {
         Self {
+            display_score: -SCORE_INF,
             score: -SCORE_INF,
+            upper_bound: false,
+            lower_bound: false,
             seldepth: 0,
             pv: PvList::new(),
         }
@@ -104,6 +110,10 @@ impl ThreadData {
 
     pub fn update_seldepth(&mut self, ply: i32) {
         self.seldepth = self.seldepth.max(ply + 1);
+    }
+
+    pub fn sort_root_moves(&mut self) {
+        self.root_moves.sort_by(|a, b| b.score.cmp(&a.score));
     }
 
     pub fn apply_move(&mut self, ply: i32, pos: &Position, mv: Move) -> Position {

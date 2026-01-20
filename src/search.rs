@@ -122,6 +122,8 @@ impl NodeType for RootNode {
     const ROOT_NODE: bool = true;
 }
 
+const WIDEN_REPORT_DELAY: f64 = 1.0;
+
 struct SearcherImpl {
     tt: TranspositionTable,
 }
@@ -171,20 +173,51 @@ impl SearcherImpl {
         loop {
             thread.reset_seldepth();
 
-            self.search::<RootNode>(
-                ctx,
-                thread,
-                &mut movelists,
-                &mut pvs,
-                root_pos,
-                thread.root_depth,
-                0,
-                -SCORE_INF,
-                SCORE_INF,
-                false,
-            );
+            let delta = 25;
 
-            thread.root_moves.sort_by(|a, b| b.score.cmp(&a.score));
+            let mut alpha = -SCORE_INF;
+            let mut beta = SCORE_INF;
+
+            if thread.root_depth >= 3 {
+                let last_score = thread.pv_move().score;
+                alpha = (last_score - delta).max(-SCORE_INF);
+                beta = (last_score + delta).min(SCORE_INF);
+            }
+
+            while !ctx.has_stopped() {
+                let score = self.search::<RootNode>(
+                    ctx,
+                    thread,
+                    &mut movelists,
+                    &mut pvs,
+                    root_pos,
+                    thread.root_depth,
+                    0,
+                    alpha,
+                    beta,
+                    false,
+                );
+
+                thread.sort_root_moves();
+
+                if (score > alpha && score < beta) || ctx.has_stopped() {
+                    break;
+                }
+
+                if thread.is_main_thread() {
+                    let time = start_time.elapsed().as_secs_f64();
+                    if time >= WIDEN_REPORT_DELAY {
+                        self.report(thread, thread.root_depth, time);
+                    }
+                }
+
+                alpha = -SCORE_INF;
+                beta = SCORE_INF;
+            }
+
+            if ctx.has_stopped() {
+                break;
+            }
 
             if thread.root_depth >= thread.max_depth {
                 break;
@@ -456,7 +489,20 @@ impl SearcherImpl {
 
                 if move_count == 1 || score > alpha {
                     root_move.seldepth = seldepth;
+
+                    root_move.display_score = score;
                     root_move.score = score;
+
+                    root_move.upper_bound = false;
+                    root_move.lower_bound = false;
+
+                    if score <= alpha {
+                        root_move.display_score = alpha;
+                        root_move.upper_bound = true;
+                    } else if score >= beta {
+                        root_move.display_score = beta;
+                        root_move.lower_bound = true;
+                    }
 
                     update_pv(&mut root_move.pv, mv, &child_pvs[0]);
                 } else {
@@ -543,6 +589,16 @@ impl SearcherImpl {
             );
         } else {
             print!("cp {}", score);
+        }
+
+        if root_move.upper_bound {
+            assert!(!root_move.lower_bound);
+            print!(" upperbound");
+        }
+
+        if root_move.lower_bound {
+            assert!(!root_move.upper_bound);
+            print!(" lowerbound");
         }
 
         let hashfull = self.tt.estimate_full_permille();
