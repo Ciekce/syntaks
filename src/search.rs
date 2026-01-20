@@ -375,6 +375,10 @@ impl SearcherImpl {
                 child_pvs[0].clear();
             }
 
+            let mut extension = 0;
+
+            // ======= HERE IF YOU DON'T NEED `new_pos` =======
+
             let new_pos = thread.apply_move(ply, pos, mv);
 
             let score = 'recurse: {
@@ -404,9 +408,11 @@ impl SearcherImpl {
                     break 'recurse 0;
                 }
 
+                // ======= HERE IF YOU DO =======
+
                 let mut score = 0;
 
-                let new_depth = depth - 1;
+                let new_depth = depth - 1 + extension;
 
                 if depth >= 2 && move_count >= 5 + 2 * usize::from(NT::ROOT_NODE) {
                     let mut r =
