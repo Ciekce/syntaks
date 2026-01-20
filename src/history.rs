@@ -79,42 +79,43 @@ impl IndexMut<Move> for CombinedHist {
 }
 
 #[derive(Copy, Clone)]
-struct ConthistTable {
-    entries: [Entry; CountermoveHistory::ENTRIES],
+struct ConthistSubTable {
+    entries: [Entry; ConthistTable::ENTRIES],
 }
 
-impl Default for ConthistTable {
+impl Default for ConthistSubTable {
     fn default() -> Self {
         Self {
-            entries: [Default::default(); CountermoveHistory::ENTRIES],
+            entries: [Default::default(); ConthistTable::ENTRIES],
         }
     }
 }
 
-impl Index<Move> for ConthistTable {
+impl Index<Move> for ConthistSubTable {
     type Output = Entry;
 
     fn index(&self, mv: Move) -> &Self::Output {
-        &self.entries[CountermoveHistory::move_idx(mv)]
+        &self.entries[ConthistTable::move_idx(mv)]
     }
 }
 
-impl IndexMut<Move> for ConthistTable {
+impl IndexMut<Move> for ConthistSubTable {
     fn index_mut(&mut self, mv: Move) -> &mut Self::Output {
-        &mut self.entries[CountermoveHistory::move_idx(mv)]
+        &mut self.entries[ConthistTable::move_idx(mv)]
     }
 }
 
 #[derive(Copy, Clone)]
-struct CountermoveHistory {
-    entries: [ConthistTable; Self::ENTRIES],
+struct ConthistTable {
+    entries: [ConthistSubTable; Self::ENTRIES],
 }
 
-impl CountermoveHistory {
-    const MOVE_TYPES: usize = PieceType::COUNT + Direction::COUNT; // one for each placement type, and 4 spread
-    // directions
+impl ConthistTable {
+    // one for each placement type, and 4 spread directions
+    const MOVE_TYPES: usize = PieceType::COUNT + Direction::COUNT;
     const ENTRIES: usize = Self::MOVE_TYPES * Square::COUNT;
 
+    #[must_use]
     fn move_idx(mv: Move) -> usize {
         let type_idx = if mv.is_spread() {
             mv.dir().idx()
@@ -125,7 +126,7 @@ impl CountermoveHistory {
     }
 }
 
-impl Default for CountermoveHistory {
+impl Default for ConthistTable {
     fn default() -> Self {
         Self {
             entries: [Default::default(); Self::ENTRIES],
@@ -133,15 +134,15 @@ impl Default for CountermoveHistory {
     }
 }
 
-impl Index<Move> for CountermoveHistory {
-    type Output = ConthistTable;
+impl Index<Move> for ConthistTable {
+    type Output = ConthistSubTable;
 
     fn index(&self, mv: Move) -> &Self::Output {
         &self.entries[Self::move_idx(mv)]
     }
 }
 
-impl IndexMut<Move> for CountermoveHistory {
+impl IndexMut<Move> for ConthistTable {
     fn index_mut(&mut self, mv: Move) -> &mut Self::Output {
         &mut self.entries[Self::move_idx(mv)]
     }
@@ -150,7 +151,7 @@ impl IndexMut<Move> for CountermoveHistory {
 #[derive(Copy, Clone, Default)]
 struct SidedTables {
     hist: CombinedHist,
-    conthist: CountermoveHistory,
+    conthist: ConthistTable,
 }
 
 pub struct History {
@@ -160,6 +161,7 @@ pub struct History {
 impl History {
     const MAX_BONUS: i32 = Entry::LIMIT / 4;
 
+    #[must_use]
     pub fn new() -> Self {
         Self {
             tables: Default::default(),
@@ -186,6 +188,6 @@ impl History {
         if let Some(prev) = prev {
             res += tables.conthist[prev][mv].get();
         }
-        return res;
+        res
     }
 }

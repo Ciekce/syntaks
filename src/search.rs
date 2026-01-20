@@ -22,13 +22,12 @@
  */
 
 use crate::board::{FlatCountOutcome, Position};
-use crate::correction::CorrectionHistory;
 use crate::eval::static_eval;
-use crate::history::History;
 use crate::limit::Limits;
 use crate::movegen::generate_moves;
-use crate::movepick::{KillerTable, Movepicker};
+use crate::movepick::Movepicker;
 use crate::takmove::Move;
+use crate::thread::{PvList, RootMove, ThreadData, update_pv};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable, TtFlag};
 use std::time::Instant;
 
@@ -40,30 +39,6 @@ pub const SCORE_WIN: Score = 25000;
 pub const SCORE_MAX_MATE: Score = SCORE_MATE - MAX_PLY as Score;
 
 pub const MAX_PLY: i32 = 255;
-
-type PvList = arrayvec::ArrayVec<Move, { MAX_PLY as usize }>;
-
-fn update_pv(pv: &mut PvList, mv: Move, child: &PvList) {
-    pv.clear();
-    pv.push(mv);
-    pv.try_extend_from_slice(child).unwrap();
-}
-
-struct RootMove {
-    score: Score,
-    seldepth: i32,
-    pv: PvList,
-}
-
-impl Default for RootMove {
-    fn default() -> Self {
-        Self {
-            score: -SCORE_INF,
-            seldepth: 0,
-            pv: PvList::new(),
-        }
-    }
-}
 
 #[derive(Debug)]
 struct SearchContext {
@@ -100,131 +75,6 @@ impl SearchContext {
     #[must_use]
     fn has_stopped(&self) -> bool {
         self.stopped
-    }
-}
-
-#[derive(Copy, Clone, Debug, Default)]
-struct StackEntry {
-    mv: Option<Move>,
-}
-
-struct ThreadData {
-    id: u32,
-    key_history: Vec<u64>,
-    root_depth: i32,
-    max_depth: i32,
-    seldepth: i32,
-    nodes: usize,
-    root_moves: Vec<RootMove>,
-    stack: Vec<StackEntry>,
-    corrhist: CorrectionHistory,
-    history: History,
-    killers: [KillerTable; MAX_PLY as usize],
-}
-
-impl ThreadData {
-    fn new(id: u32) -> Self {
-        Self {
-            id,
-            key_history: Vec::with_capacity(1024),
-            root_depth: 0,
-            max_depth: 0,
-            seldepth: 0,
-            nodes: 0,
-            root_moves: Vec::with_capacity(1024),
-            stack: vec![StackEntry::default(); MAX_PLY as usize + 1],
-            corrhist: CorrectionHistory::new(),
-            history: History::new(),
-            killers: [Default::default(); MAX_PLY as usize],
-        }
-    }
-
-    fn is_main_thread(&self) -> bool {
-        self.id == 0
-    }
-
-    fn inc_nodes(&mut self) {
-        self.nodes += 1;
-    }
-
-    fn reset_seldepth(&mut self) {
-        self.seldepth = 0;
-    }
-
-    fn update_seldepth(&mut self, ply: i32) {
-        self.seldepth = self.seldepth.max(ply + 1);
-    }
-
-    fn apply_move(&mut self, ply: i32, pos: &Position, mv: Move) -> Position {
-        self.key_history.push(pos.key());
-        self.stack[ply as usize].mv = Some(mv);
-        pos.apply_move(mv)
-    }
-
-    fn apply_nullmove(&mut self, ply: i32, pos: &Position) -> Position {
-        self.key_history.push(pos.key());
-        self.stack[ply as usize].mv = None;
-        pos.apply_nullmove()
-    }
-
-    fn pop_move(&mut self) {
-        self.key_history.pop();
-    }
-
-    fn is_drawn_by_repetition(&self, curr: u64, ply: i32) -> bool {
-        let mut ply = ply - 1;
-        let mut repetitions = 0;
-
-        //TODO skip properly
-        for &key in self.key_history.iter().rev() {
-            if key == curr {
-                repetitions += 1;
-
-                let required = 1 + if ply < 0 { 1 } else { 0 };
-                if repetitions == required {
-                    return true;
-                }
-
-                ply -= 1;
-            }
-        }
-
-        false
-    }
-
-    #[must_use]
-    fn get_root_move(&self, mv: Move) -> &RootMove {
-        for root_move in self.root_moves.iter() {
-            if root_move.pv[0] == mv {
-                return root_move;
-            }
-        }
-
-        unreachable!();
-    }
-
-    #[must_use]
-    fn get_root_move_mut(&mut self, mv: Move) -> &mut RootMove {
-        for root_move in self.root_moves.iter_mut() {
-            if root_move.pv[0] == mv {
-                return root_move;
-            }
-        }
-
-        unreachable!();
-    }
-
-    #[must_use]
-    fn pv_move(&self) -> &RootMove {
-        &self.root_moves[0]
-    }
-
-    fn reset(&mut self, key_history: &[u64]) {
-        self.key_history.clear();
-        self.key_history
-            .reserve(key_history.len() + MAX_PLY as usize);
-
-        self.key_history.extend_from_slice(key_history);
     }
 }
 
@@ -370,7 +220,7 @@ impl SearcherImpl {
         ply: i32,
         mut alpha: Score,
         beta: Score,
-        cutnode: bool,
+        expected_cutnode: bool,
     ) -> Score {
         if ctx.has_stopped() {
             return 0;
@@ -414,17 +264,18 @@ impl SearcherImpl {
         let correction = thread.corrhist.correction(pos);
         let static_eval = raw_eval + correction;
 
-        // reverse futility pruning (rfp)
         if !NT::PV_NODE {
+            // reverse futility pruning (rfp)
             let rfp_margin = 100 * depth + 100;
             if depth <= 6 && static_eval - rfp_margin >= beta {
                 return static_eval;
             }
 
-            if depth >= 4
+            // nullmove pruning (nmp)
+            if expected_cutnode
+                && depth >= 4
                 && static_eval >= beta
                 && thread.stack[ply as usize - 1].mv.is_some()
-                && cutnode
             {
                 let r = 3 + depth / 4;
 
@@ -440,7 +291,7 @@ impl SearcherImpl {
                     ply + 1,
                     -beta,
                     -beta + 1,
-                    !cutnode,
+                    false,
                 );
 
                 thread.pop_move();
@@ -557,7 +408,7 @@ impl SearcherImpl {
                             ply + 1,
                             -alpha - 1,
                             -alpha,
-                            !cutnode,
+                            !expected_cutnode,
                         );
                     }
                 } else if !NT::PV_NODE || move_count > 1 {
@@ -571,7 +422,7 @@ impl SearcherImpl {
                         ply + 1,
                         -alpha - 1,
                         -alpha,
-                        !cutnode,
+                        !expected_cutnode,
                     );
                 }
 

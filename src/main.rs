@@ -37,6 +37,7 @@ mod road;
 mod search;
 mod takmove;
 mod tei;
+mod thread;
 mod ttable;
 
 fn main() {
