@@ -28,7 +28,7 @@ use crate::movegen::generate_moves;
 use crate::movepick::Movepicker;
 use crate::takmove::Move;
 use crate::thread::{PvList, RootMove, ThreadData, update_pv};
-use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable, TtFlag};
+use crate::ttable::{DEFAULT_TT_SIZE_MIB, ProbedEntry, TranspositionTable, TtFlag};
 use std::time::Instant;
 
 pub type Score = i32;
@@ -37,6 +37,11 @@ pub const SCORE_INF: Score = 32767;
 pub const SCORE_MATE: Score = SCORE_INF - 1;
 pub const SCORE_WIN: Score = 25000;
 pub const SCORE_MAX_MATE: Score = SCORE_MATE - MAX_PLY as Score;
+
+#[must_use]
+pub fn is_decisive(score: Score) -> bool {
+    score.abs() > SCORE_WIN
+}
 
 pub const MAX_PLY: i32 = 255;
 
@@ -241,7 +246,7 @@ impl SearcherImpl {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::collapsible_if)]
     fn search<NT: NodeType>(
         &mut self,
         ctx: &mut SearchContext,
@@ -279,9 +284,16 @@ impl SearcherImpl {
             thread.update_seldepth(ply);
         }
 
-        let (_tt_hit, tt_entry) = self.tt.probe(pos.key(), ply);
+        let singular_search = thread.stack[ply as usize].excluded.is_some();
+
+        let (_tt_hit, tt_entry) = if singular_search {
+            self.tt.probe(pos.key(), ply)
+        } else {
+            (false, ProbedEntry::default())
+        };
 
         if !NT::PV_NODE
+            && !singular_search
             && tt_entry.depth >= depth
             && match tt_entry.flag {
                 None => unreachable!(),
@@ -297,7 +309,7 @@ impl SearcherImpl {
         let correction = thread.corrhist.correction(pos);
         let static_eval = raw_eval + correction;
 
-        if !NT::PV_NODE {
+        if !NT::PV_NODE && !singular_search {
             // reverse futility pruning (rfp)
             let rfp_margin = 100 * depth + 100;
             if depth <= 6 && static_eval - rfp_margin >= beta {
@@ -363,6 +375,10 @@ impl SearcherImpl {
         while let Some(mv) = movepicker.next(&thread.history) {
             debug_assert!(pos.is_legal(mv));
 
+            if Some(mv) == thread.stack[ply as usize].excluded {
+                continue;
+            }
+
             if !NT::ROOT_NODE && best_score > -SCORE_WIN {
                 if depth <= 6 && move_count as i32 >= 5 + 2 * depth * depth {
                     break;
@@ -373,6 +389,40 @@ impl SearcherImpl {
 
             if NT::PV_NODE {
                 child_pvs[0].clear();
+            }
+
+            let mut extension = 0;
+
+            if !NT::ROOT_NODE
+                && depth >= 8
+                && ply < thread.root_depth * 2
+                && Some(mv) == tt_entry.mv
+                && tt_entry.depth >= depth - 3
+                && tt_entry.flag != Some(TtFlag::UpperBound)
+                && !is_decisive(tt_entry.score)
+                && !singular_search
+            {
+                let s_beta = tt_entry.score - depth * 3;
+                let s_depth = (depth - 1) / 2;
+
+                thread.stack[ply as usize].excluded = Some(mv);
+                let score = self.search::<NonPvNode>(
+                    ctx,
+                    thread,
+                    movelists,
+                    child_pvs,
+                    pos,
+                    s_depth,
+                    ply,
+                    s_beta - 1,
+                    s_beta,
+                    expected_cutnode,
+                );
+                thread.stack[ply as usize].excluded = None;
+
+                if score < s_beta {
+                    extension = 1;
+                }
             }
 
             let new_pos = thread.apply_move(ply, pos, mv);
@@ -406,7 +456,7 @@ impl SearcherImpl {
 
                 let mut score = 0;
 
-                let new_depth = depth - 1;
+                let new_depth = depth - 1 + extension;
 
                 if depth >= 2 && move_count >= 5 + 2 * usize::from(NT::ROOT_NODE) {
                     let mut r =
@@ -535,6 +585,10 @@ impl SearcherImpl {
             }
         }
 
+        if singular_search && move_count == 0 {
+            return alpha;
+        }
+
         debug_assert!(move_count > 0);
 
         if let Some(best_move) = best_move {
@@ -551,15 +605,17 @@ impl SearcherImpl {
             }
         }
 
-        if tt_flag == TtFlag::Exact
-            || (tt_flag == TtFlag::UpperBound && best_score < static_eval)
-            || (tt_flag == TtFlag::LowerBound && best_score > static_eval)
-        {
-            thread.corrhist.update(pos, depth, best_score, static_eval);
-        }
+        if !singular_search {
+            if tt_flag == TtFlag::Exact
+                || (tt_flag == TtFlag::UpperBound && best_score < static_eval)
+                || (tt_flag == TtFlag::LowerBound && best_score > static_eval)
+            {
+                thread.corrhist.update(pos, depth, best_score, static_eval);
+            }
 
-        self.tt
-            .store(pos.key(), best_score, best_move, depth, ply, tt_flag);
+            self.tt
+                .store(pos.key(), best_score, best_move, depth, ply, tt_flag);
+        }
 
         best_score
     }

@@ -63,6 +63,7 @@ impl Default for RootMove {
 #[derive(Copy, Clone, Debug, Default)]
 pub struct StackEntry {
     pub mv: Option<Move>,
+    pub excluded: Option<Move>,
 }
 
 pub struct ThreadData {
