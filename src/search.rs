@@ -173,7 +173,7 @@ impl SearcherImpl {
         loop {
             thread.reset_seldepth();
 
-            let delta = 25;
+            let mut delta = 25;
 
             let mut alpha = -SCORE_INF;
             let mut beta = SCORE_INF;
@@ -211,8 +211,13 @@ impl SearcherImpl {
                     }
                 }
 
-                alpha = -SCORE_INF;
-                beta = SCORE_INF;
+                if score <= alpha {
+                    alpha = (score - delta).max(-SCORE_INF);
+                } else {
+                    beta = (score + delta).max(SCORE_INF);
+                }
+
+                delta += delta * 2;
             }
 
             if ctx.has_stopped() {
