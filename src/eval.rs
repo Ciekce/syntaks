@@ -25,7 +25,7 @@ use std::array;
 
 use crate::bitboard::Bitboard;
 use crate::board::Position;
-use crate::core::{Direction, Piece, PieceType, Player};
+use crate::core::{Direction, Piece, PieceType, Player, Square};
 use crate::search::Score;
 
 #[static_init::dynamic]
@@ -39,6 +39,16 @@ static RINGS: [Bitboard; 5] = {
         r
     })
 };
+
+#[rustfmt::skip]
+const CAP_PSQT: [Score; Square::COUNT] = [
+    -45, -30, -30, -30, -30, -45,
+    -30, -15,  -7,  -7, -15, -30,
+    -30,  -7,  10,  10,  -7, -30,
+    -30,  -7,  10,  10,  -7, -30,
+    -30, -15,  -7,  -7, -15, -30,
+    -45, -30, -30, -30, -30, -45,
+];
 
 #[must_use]
 fn static_eval_player(pos: &Position, player: Player, komi: u32) -> Score {
@@ -107,7 +117,20 @@ fn static_eval_player(pos: &Position, player: Player, komi: u32) -> Score {
         }
     }
 
-    flats + flats_in_hand + caps_in_hand + adj_value + line_value + support_score + captive_score
+    let mut psqt_score = 0;
+
+    for cap_sq in pos.player_piece_bb(PieceType::Capstone.with_player(player)) {
+        psqt_score += CAP_PSQT[cap_sq.idx()];
+    }
+
+    flats
+        + flats_in_hand
+        + caps_in_hand
+        + adj_value
+        + line_value
+        + support_score
+        + captive_score
+        + psqt_score
 }
 
 #[must_use]
