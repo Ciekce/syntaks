@@ -134,16 +134,48 @@ fn static_eval_player(pos: &Position, player: Player, komi: u32) -> Score {
 
     let isolated_mask = pos.occ() & !flat_bb;
 
+    let opp_vulnerabilities = {
+        let mut vulnerabilities = Bitboard::empty();
+
+        for sq in pos.player_bb(player.flip()) {
+            let mut height = stacks.height(sq);
+
+            if height == 1 || stacks.top(sq).unwrap() != PieceType::Flat {
+                continue;
+            }
+
+            let mut players = stacks.players(sq) ^ player_flip;
+
+            if height > 7 {
+                players >>= height - 7;
+                height = 7;
+            }
+
+            let mask = (1 << (height - 1)) - 1;
+
+            if (!players & mask) != 0 {
+                vulnerabilities.set_sq(sq);
+            }
+        }
+
+        vulnerabilities
+    };
+
     let mut psqt_score = 0;
     let mut isolated_cap_score = 0;
+    let mut vulnerability_threat_score = 0;
 
     for cap_sq in pos.player_piece_bb(PieceType::Capstone.with_player(player)) {
         psqt_score += CAP_PSQT[cap_sq.idx()];
 
         let adjacent = ADJACENT_MASKS[cap_sq.idx()];
+
         if (adjacent & isolated_mask).is_empty() {
             isolated_cap_score -= 50;
         }
+
+        let threatened_vulnerabilities = opp_vulnerabilities & adjacent;
+        vulnerability_threat_score += threatened_vulnerabilities.popcount() as Score * 25;
     }
 
     flats
@@ -154,6 +186,7 @@ fn static_eval_player(pos: &Position, player: Player, komi: u32) -> Score {
         + captive_score
         + psqt_score
         + isolated_cap_score
+        + vulnerability_threat_score
 }
 
 #[must_use]
