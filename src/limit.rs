@@ -41,8 +41,9 @@ impl TimeManager {
         Self { max_time, opt_time }
     }
 
-    fn should_stop_soft(&self, _nodes: usize, time: f64) -> bool {
-        time >= self.opt_time
+    fn should_stop_soft(&self, _nodes: usize, time: f64, best_move_nodes_fraction: f64) -> bool {
+        let nodetm_scale = (2.0 - 2.0 * best_move_nodes_fraction).max(0.5);
+        time >= self.opt_time * nodetm_scale
     }
 
     fn should_stop_hard(&self, _nodes: usize, time: f64) -> bool {
@@ -99,7 +100,7 @@ impl Limits {
     }
 
     #[must_use]
-    pub fn should_stop_soft(&self, nodes: usize) -> bool {
+    pub fn should_stop_soft(&self, nodes: usize, best_move_nodes_fraction: f64) -> bool {
         if let Some(max_nodes) = self.nodes
             && nodes >= max_nodes
         {
@@ -115,7 +116,7 @@ impl Limits {
         }
 
         if let Some(time_manager) = self.time_manager
-            && time_manager.should_stop_soft(nodes, time)
+            && time_manager.should_stop_soft(nodes, time, best_move_nodes_fraction)
         {
             return true;
         }

@@ -55,8 +55,11 @@ impl SearchContext {
         }
     }
 
-    fn check_stop_soft(&mut self, nodes: usize) -> bool {
-        if self.limits.should_stop_soft(nodes) {
+    fn check_stop_soft(&mut self, nodes: usize, best_move_nodes_fraction: f64) -> bool {
+        if self
+            .limits
+            .should_stop_soft(nodes, best_move_nodes_fraction)
+        {
             self.stopped = true;
             return true;
         }
@@ -229,7 +232,12 @@ impl SearcherImpl {
             }
 
             if thread.is_main_thread() {
-                if ctx.check_stop_soft(thread.nodes) {
+                if ctx.check_stop_soft(
+                    thread.nodes,
+                    // after searching we sort the moves, so we can rely
+                    // on the first move being the one with the highest score
+                    thread.root_moves[0].nodes as f64 / (thread.nodes as f64),
+                ) {
                     break;
                 }
 
@@ -389,6 +397,7 @@ impl SearcherImpl {
             if is_crush {
                 extension += 1;
             }
+            let nodes_before = thread.nodes;
 
             let score = 'recurse: {
                 if new_pos.has_road(pos.stm()) {
@@ -495,6 +504,8 @@ impl SearcherImpl {
                 score
             };
 
+            let nodes_after = thread.nodes;
+
             thread.pop_move();
 
             if ctx.has_stopped() {
@@ -504,6 +515,8 @@ impl SearcherImpl {
             if NT::ROOT_NODE {
                 let seldepth = thread.seldepth;
                 let root_move = thread.get_root_move_mut(mv);
+
+                root_move.nodes += nodes_after - nodes_before;
 
                 if move_count == 1 || score > alpha {
                     root_move.seldepth = seldepth;

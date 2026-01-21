@@ -45,6 +45,7 @@ pub struct RootMove {
     pub lower_bound: bool,
     pub seldepth: i32,
     pub pv: PvList,
+    pub nodes: usize,
 }
 
 impl Default for RootMove {
@@ -56,6 +57,7 @@ impl Default for RootMove {
             lower_bound: false,
             seldepth: 0,
             pv: PvList::new(),
+            nodes: 0,
         }
     }
 }
