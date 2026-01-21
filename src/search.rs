@@ -430,6 +430,7 @@ impl SearcherImpl {
                     }
 
                     r -= thread.history.score(pos, mv, prev_move) / 8;
+                    r += i32::from(expected_cutnode) * 2048;
 
                     r /= 1024;
 
