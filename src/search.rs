@@ -234,9 +234,7 @@ impl SearcherImpl {
             if thread.is_main_thread() {
                 if ctx.check_stop_soft(
                     thread.nodes,
-                    // after searching we sort the moves, so we can rely
-                    // on the first move being the one with the highest score
-                    thread.root_moves[0].nodes as f64 / (thread.nodes as f64),
+                    thread.pv_move().nodes as f64 / (thread.nodes as f64),
                 ) {
                     break;
                 }
@@ -397,6 +395,7 @@ impl SearcherImpl {
             if is_crush {
                 extension += 1;
             }
+
             let nodes_before = thread.nodes;
 
             let score = 'recurse: {
