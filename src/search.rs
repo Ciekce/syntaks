@@ -388,9 +388,11 @@ impl SearcherImpl {
                 child_pvs[0].clear();
             }
 
+            let new_pos = thread.apply_move(ply, pos, mv);
+            self.tt.prefetch(new_pos.key());
+
             let is_crush =
                 mv.is_spread() && pos.stacks().top(mv.spread_dest()) == Some(PieceType::Wall);
-            let new_pos = thread.apply_move(ply, pos, mv);
 
             if is_crush {
                 extension += 1;
