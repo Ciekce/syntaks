@@ -20,9 +20,9 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-
 use crate::search::{SCORE_WIN, Score};
 use crate::takmove::Move;
+use std::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
 
 pub const DEFAULT_TT_SIZE_MIB: usize = 64;
 pub const MAX_TT_SIZE_MIB: usize = 131072;
@@ -113,13 +113,24 @@ impl TranspositionTable {
         self.clear();
     }
 
+    pub fn prefetch(&self, key: u64) {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let idx = self.calc_index(key);
+            //SAFETY: calc_index() cannot return an out-of-bounds index
+            let entry = unsafe { self.entries.get_unchecked(idx) };
+            let ptr = std::ptr::from_ref(entry).cast();
+            unsafe { _mm_prefetch(ptr, _MM_HINT_T0) };
+        }
+    }
+
     pub fn probe(&self, key: u64, ply: i32) -> (bool, ProbedEntry) {
         let idx = self.calc_index(key);
         let entry_key = pack_entry_key(key);
 
         let mut probed = Default::default();
 
-        //SAFETY: index() cannot return an out-of-bounds index
+        //SAFETY: calc_index() cannot return an out-of-bounds index
         let entry = *unsafe { self.entries.get_unchecked(idx) };
 
         if entry.key != entry_key {
@@ -146,7 +157,7 @@ impl TranspositionTable {
         let idx = self.calc_index(key);
         let entry_key = pack_entry_key(key);
 
-        //SAFETY: index() cannot return an out-of-bounds index
+        //SAFETY: calc_index() cannot return an out-of-bounds index
         let mut entry = *unsafe { self.entries.get_unchecked(idx) };
 
         if mv.is_some() || entry.key != entry_key {
