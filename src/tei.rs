@@ -160,6 +160,13 @@ impl TeiHandler {
         let value = args[(value_idx + 1)..].join(" ");
 
         match name.as_str() {
+            "halfkomi" => {
+                if let Ok(half_komi) = value.parse::<u32>()
+                    && half_komi != Position::KOMI * 2
+                {
+                    eprintln!("Unsupported komi value");
+                }
+            }
             "hash" => {
                 if let Ok(size) = value.parse::<usize>() {
                     let size = size.clamp(1, MAX_TT_SIZE_MIB);
