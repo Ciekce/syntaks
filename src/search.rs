@@ -396,6 +396,14 @@ impl SearcherImpl {
 
             if is_crush {
                 extension += 1;
+            } else if !NT::ROOT_NODE
+                && Some(mv) == tt_entry.mv
+                && !mv.is_spread()
+                && let Some(parent_mv) = thread.stack[ply as usize - 1].mv
+                && parent_mv.is_spread()
+                && mv.sq() == parent_mv.sq()
+            {
+                extension += 1;
             }
 
             let nodes_before = thread.nodes;
