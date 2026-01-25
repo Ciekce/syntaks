@@ -263,7 +263,7 @@ impl SearcherImpl {
         depth: i32,
         ply: i32,
         mut alpha: Score,
-        beta: Score,
+        mut beta: Score,
         expected_cutnode: bool,
     ) -> Score {
         if ctx.has_stopped() {
@@ -276,6 +276,14 @@ impl SearcherImpl {
             && ctx.check_stop_hard(thread.nodes)
         {
             return 0;
+        }
+
+        if !NT::ROOT_NODE {
+            alpha = alpha.max(-SCORE_MATE + ply);
+            beta = beta.min(SCORE_MATE - ply);
+            if alpha >= beta {
+                return alpha;
+            }
         }
 
         thread.inc_nodes();
