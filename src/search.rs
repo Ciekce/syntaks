@@ -318,7 +318,7 @@ impl SearcherImpl {
 
         if !NT::PV_NODE {
             // reverse futility pruning (rfp)
-            let rfp_margin = 100 * depth + 100;
+            let rfp_margin = 100 * depth + 100 - (expected_cutnode as i32 * 50);
             if depth <= 6 && static_eval - rfp_margin >= beta {
                 return static_eval;
             }
