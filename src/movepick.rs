@@ -122,17 +122,16 @@ impl<'a> Movepicker<'a> {
     }
 
     fn pick_best(&mut self) -> Move {
-        let mut best_score = self.scores[self.idx];
-        let mut best_idx = self.idx;
+        let packed_best = self
+            .scores
+            .iter()
+            .enumerate()
+            .skip(self.idx)
+            .map(|(i, score)| (*score as i64) << 32 | ((!i as u32) as i64))
+            .max()
+            .unwrap();
 
-        let mut i = self.idx + 1;
-        while i < self.moves.len() {
-            if self.scores[i] > best_score {
-                best_score = self.scores[i];
-                best_idx = i;
-            }
-            i += 1;
-        }
+        let best_idx = !packed_best as u32 as usize;
 
         self.scores.swap(self.idx, best_idx);
         self.moves.swap(self.idx, best_idx);
