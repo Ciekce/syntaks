@@ -117,6 +117,9 @@ impl<'a> Movepicker<'a> {
                 score += 100;
             }
 
+            // scores have to be less than 2²⁰ to make the movepicking more efficient
+            debug_assert!(score.abs() < (1 << 20));
+
             self.scores.push(score);
         }
     }
@@ -127,11 +130,11 @@ impl<'a> Movepicker<'a> {
             .iter()
             .enumerate()
             .skip(self.idx)
-            .map(|(i, score)| (*score as i64) << 32 | ((!i as u32) as i64))
+            .map(|(i, score)| *score << 11 | ((i as u32 ^ 0x7ff) as i32))
             .max()
             .unwrap();
 
-        let best_idx = !packed_best as u32 as usize;
+        let best_idx = (!packed_best & 0x7ff) as usize;
 
         self.scores.swap(self.idx, best_idx);
         self.moves.swap(self.idx, best_idx);
