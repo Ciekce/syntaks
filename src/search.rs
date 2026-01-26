@@ -188,14 +188,17 @@ impl SearcherImpl {
                 beta = (last_score + delta).min(SCORE_INF);
             }
 
+            let mut reduction = 0;
+
             while !ctx.has_stopped() {
+                let root_depth = (thread.root_depth - reduction).max(1);
                 let score = self.search::<RootNode>(
                     ctx,
                     thread,
                     &mut movelists,
                     &mut pvs,
                     root_pos,
-                    thread.root_depth,
+                    root_depth,
                     0,
                     alpha,
                     beta,
@@ -216,9 +219,12 @@ impl SearcherImpl {
                 }
 
                 delta = (delta * 8).min(SCORE_INF);
+
                 if score <= alpha {
+                    reduction = 0;
                     alpha = (alpha - delta).max(-SCORE_INF);
                 } else {
+                    reduction = (reduction + 1).min(3);
                     beta = (beta + delta).min(SCORE_INF);
                 }
             }
