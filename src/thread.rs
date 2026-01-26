@@ -79,6 +79,7 @@ pub struct ThreadData {
     pub corrhist: CorrectionHistory,
     pub history: History,
     pub killers: [KillerTable; MAX_PLY as usize],
+    pub min_nmp_ply: i32,
 }
 
 impl ThreadData {
@@ -95,6 +96,7 @@ impl ThreadData {
             corrhist: CorrectionHistory::new(),
             history: History::new(),
             killers: [Default::default(); MAX_PLY as usize],
+            min_nmp_ply: 0,
         }
     }
 

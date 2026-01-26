@@ -326,10 +326,14 @@ impl SearcherImpl {
             // nullmove pruning (nmp)
             if expected_cutnode
                 && depth >= 4
+                && ply >= thread.min_nmp_ply
                 && static_eval >= beta
                 && thread.stack[ply as usize - 1].mv.is_some()
             {
                 let r = 3 + depth / 4;
+
+                // dont allow dropping straight to eval
+                let nmp_depth = (depth - r).max(1);
 
                 let new_pos = thread.apply_nullmove(ply, pos);
 
@@ -339,7 +343,7 @@ impl SearcherImpl {
                     movelists,
                     pvs,
                     &new_pos,
-                    (depth - r).max(1), // dont allow dropping straight to eval
+                    nmp_depth,
                     ply + 1,
                     -beta,
                     -beta + 1,
@@ -349,7 +353,30 @@ impl SearcherImpl {
                 thread.pop_move();
 
                 if score >= beta {
-                    return if score > SCORE_WIN { beta } else { score };
+                    if depth <= 12 || thread.min_nmp_ply > 0 {
+                        return if score > SCORE_WIN { beta } else { score };
+                    }
+
+                    thread.min_nmp_ply = ply + (depth - r) * 3 / 4;
+
+                    let verif_score = self.search::<NonPvNode>(
+                        ctx,
+                        thread,
+                        movelists,
+                        pvs,
+                        pos,
+                        nmp_depth,
+                        ply,
+                        beta - 1,
+                        beta,
+                        true,
+                    );
+
+                    thread.min_nmp_ply = 0;
+
+                    if verif_score >= beta {
+                        return verif_score;
+                    }
                 }
             }
         }
