@@ -205,7 +205,7 @@ impl SearcherImpl {
                 let mut beta = SCORE_INF;
 
                 if thread.root_depth >= 3 {
-                    let last_score = thread.pv_move().score;
+                    let last_score = thread.root_moves[thread.pv_idx].window_score;
                     alpha = (last_score - delta).max(-SCORE_INF);
                     beta = (last_score + delta).min(SCORE_INF);
                 }
@@ -569,6 +569,7 @@ impl SearcherImpl {
                 let root_move = thread.get_root_move_mut(mv);
 
                 root_move.nodes += nodes_after - nodes_before;
+                root_move.window_score = score;
 
                 if move_count == 1 || score > alpha {
                     root_move.seldepth = seldepth;

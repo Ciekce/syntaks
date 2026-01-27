@@ -40,8 +40,9 @@ pub fn update_pv(pv: &mut PvList, mv: Move, child: &PvList) {
 
 #[derive(Clone, Debug)]
 pub struct RootMove {
-    pub display_score: Score,
     pub score: Score,
+    pub window_score: Score,
+    pub display_score: Score,
     pub previous_score: Score,
     pub upper_bound: bool,
     pub lower_bound: bool,
@@ -60,8 +61,9 @@ impl RootMove {
 impl Default for RootMove {
     fn default() -> Self {
         Self {
-            display_score: -SCORE_INF,
             score: -SCORE_INF,
+            window_score: -SCORE_INF,
+            display_score: -SCORE_INF,
             previous_score: -SCORE_INF,
             upper_bound: false,
             lower_bound: false,
