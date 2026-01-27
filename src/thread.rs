@@ -49,6 +49,13 @@ pub struct RootMove {
     pub nodes: usize,
 }
 
+impl RootMove {
+    #[must_use]
+    pub fn mv(&self) -> Move {
+        self.pv[0]
+    }
+}
+
 impl Default for RootMove {
     fn default() -> Self {
         Self {

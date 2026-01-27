@@ -343,7 +343,7 @@ impl SearcherImpl {
         }
 
         let tt_move = if NT::ROOT_NODE && thread.root_depth > 1 {
-            Some(thread.root_moves[thread.pv_idx].pv[0])
+            Some(thread.root_moves[thread.pv_idx].mv())
         } else {
             tt_entry.mv
         };
@@ -656,8 +656,14 @@ impl SearcherImpl {
     ) {
         let root_move = &thread.root_moves[pv_idx];
 
-        let score = root_move.score;
-        assert_ne!(root_move.score, -SCORE_INF);
+        let (depth, score) = if root_move.score == -SCORE_INF {
+            ((depth - 1).max(1), root_move.display_score)
+        } else {
+            (depth, root_move.score)
+        };
+
+        assert_ne!(depth, 0);
+        assert_ne!(score, -SCORE_INF);
 
         let ms = (time * 1000.0) as usize;
         let nps = ((thread.nodes as f64) / time) as usize;
@@ -717,7 +723,7 @@ impl SearcherImpl {
     fn final_report(&self, thread: &ThreadData, depth: i32, time: f64, multipv: usize) {
         self.report(thread, depth, time, multipv);
 
-        let mv = thread.pv_move().pv[0];
+        let mv = thread.pv_move().mv();
         println!("bestmove {}", mv);
     }
 }
