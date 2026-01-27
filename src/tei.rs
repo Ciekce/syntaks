@@ -35,10 +35,24 @@ const NAME: &str = "syntaks";
 const AUTHORS: &str = "Ciekce";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub const MAX_MULTIPV: usize = 2048;
+
+#[derive(Copy, Clone, Debug)]
+pub struct TeiOptions {
+    pub multipv: usize,
+}
+
+impl Default for TeiOptions {
+    fn default() -> Self {
+        Self { multipv: 1 }
+    }
+}
+
 struct TeiHandler {
     pos: Position,
     key_history: Vec<u64>,
     searcher: Searcher,
+    options: TeiOptions,
 }
 
 impl TeiHandler {
@@ -48,6 +62,7 @@ impl TeiHandler {
             pos: Position::startpos(),
             key_history: Vec::with_capacity(1024),
             searcher: Searcher::new(),
+            options: TeiOptions::default(),
         }
     }
 
@@ -100,6 +115,11 @@ impl TeiHandler {
         println!(
             "option name Hash type spin default {} min 1 max {}",
             DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB
+        );
+
+        println!(
+            "option name MultiPV type spin default 1 min 1 max {}",
+            MAX_MULTIPV
         );
 
         println!("teiok");
@@ -171,6 +191,12 @@ impl TeiHandler {
                 if let Ok(size) = value.parse::<usize>() {
                     let size = size.clamp(1, MAX_TT_SIZE_MIB);
                     self.searcher.set_tt_size(size);
+                }
+            }
+            "multipv" => {
+                if let Ok(multipv) = value.parse::<usize>() {
+                    let multipv = multipv.clamp(1, MAX_MULTIPV);
+                    self.options.multipv = multipv;
                 }
             }
             unknown => eprintln!("Unknown option '{}'", unknown),
@@ -361,8 +387,14 @@ impl TeiHandler {
             .unwrap_or(search::MAX_PLY)
             .clamp(1, search::MAX_PLY);
 
-        self.searcher
-            .start_search(&self.pos, &self.key_history, start_time, limits, max_depth);
+        self.searcher.start_search(
+            &self.pos,
+            &self.key_history,
+            start_time,
+            limits,
+            max_depth,
+            &self.options,
+        );
     }
 
     fn handle_d(&self) {

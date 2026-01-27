@@ -22,12 +22,13 @@
  */
 
 use crate::board::{FlatCountOutcome, Position};
-use crate::core::{PieceType, Square};
+use crate::core::PieceType;
 use crate::eval::static_eval;
 use crate::limit::Limits;
 use crate::movegen::generate_moves;
 use crate::movepick::Movepicker;
 use crate::takmove::Move;
+use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, ThreadData, update_pv};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable, TtFlag};
 use std::time::Instant;
@@ -44,13 +45,15 @@ pub const MAX_PLY: i32 = 255;
 #[derive(Debug)]
 struct SearchContext {
     limits: Limits,
+    multipv: usize,
     stopped: bool,
 }
 
 impl SearchContext {
-    fn new(limits: Limits) -> Self {
+    fn new(limits: Limits, multipv: usize) -> Self {
         Self {
             limits,
+            multipv,
             stopped: false,
         }
     }
@@ -130,12 +133,14 @@ const WIDEN_REPORT_DELAY: f64 = 1.0;
 
 struct SearcherImpl {
     tt: TranspositionTable,
+    root_moves: Vec<RootMove>,
 }
 
 impl SearcherImpl {
     fn new() -> Self {
         Self {
             tt: TranspositionTable::new(DEFAULT_TT_SIZE_MIB),
+            root_moves: Vec::with_capacity(1024),
         }
     }
 
@@ -147,6 +152,22 @@ impl SearcherImpl {
         self.tt.resize(size_mib);
     }
 
+    fn init_root_moves(&mut self, root_pos: &Position) {
+        self.root_moves.clear();
+
+        let mut root_moves = Vec::with_capacity(1024);
+        generate_moves(&mut root_moves, root_pos);
+
+        self.root_moves.clear();
+        self.root_moves.reserve(root_moves.len());
+
+        for mv in root_moves {
+            let mut root_move = RootMove::default();
+            root_move.pv.push(mv);
+            self.root_moves.push(root_move);
+        }
+    }
+
     fn run_search(
         &mut self,
         ctx: &mut SearchContext,
@@ -155,16 +176,11 @@ impl SearcherImpl {
         start_time: Instant,
     ) {
         {
-            let mut root_moves = Vec::with_capacity(256);
-            generate_moves(&mut root_moves, root_pos);
-
             thread.root_moves.clear();
-            thread.root_moves.reserve(root_moves.len());
+            thread.root_moves.reserve(self.root_moves.len());
 
-            for mv in root_moves {
-                let mut root_move = RootMove::default();
-                root_move.pv.push(mv);
-                thread.root_moves.push(root_move);
+            for mv in self.root_moves.iter() {
+                thread.root_moves.push(mv.clone());
             }
         }
 
@@ -175,52 +191,66 @@ impl SearcherImpl {
         let mut pvs = vec![PvList::new(); MAX_PLY as usize];
 
         loop {
-            thread.reset_seldepth();
+            thread.pv_idx = 0;
 
-            let mut delta = 25;
+            while !ctx.has_stopped() && thread.pv_idx < ctx.multipv {
+                thread.reset_seldepth();
 
-            let mut alpha = -SCORE_INF;
-            let mut beta = SCORE_INF;
+                let mut delta = 25;
 
-            if thread.root_depth >= 3 {
-                let last_score = thread.pv_move().score;
-                alpha = (last_score - delta).max(-SCORE_INF);
-                beta = (last_score + delta).min(SCORE_INF);
-            }
+                let mut alpha = -SCORE_INF;
+                let mut beta = SCORE_INF;
 
-            while !ctx.has_stopped() {
-                let score = self.search::<RootNode>(
-                    ctx,
-                    thread,
-                    &mut movelists,
-                    &mut pvs,
-                    root_pos,
-                    thread.root_depth,
-                    0,
-                    alpha,
-                    beta,
-                    false,
-                );
-
-                thread.sort_root_moves();
-
-                if (score > alpha && score < beta) || ctx.has_stopped() {
-                    break;
+                if thread.root_depth >= 3 {
+                    let last_score = thread.pv_move().score;
+                    alpha = (last_score - delta).max(-SCORE_INF);
+                    beta = (last_score + delta).min(SCORE_INF);
                 }
 
-                if thread.is_main_thread() {
-                    let time = start_time.elapsed().as_secs_f64();
-                    if time >= WIDEN_REPORT_DELAY {
-                        self.report(thread, thread.root_depth, time);
+                while !ctx.has_stopped() {
+                    let score = self.search::<RootNode>(
+                        ctx,
+                        thread,
+                        &mut movelists,
+                        &mut pvs,
+                        root_pos,
+                        thread.root_depth,
+                        0,
+                        alpha,
+                        beta,
+                        false,
+                    );
+
+                    thread.sort_remaining_root_moves();
+
+                    if (score > alpha && score < beta) || ctx.has_stopped() {
+                        break;
+                    }
+
+                    if thread.is_main_thread() && ctx.multipv == 1 {
+                        let time = start_time.elapsed().as_secs_f64();
+                        if time >= WIDEN_REPORT_DELAY {
+                            self.report_single(
+                                thread,
+                                thread.root_depth,
+                                time,
+                                ctx.multipv,
+                                thread.pv_idx,
+                            );
+                        }
+                    }
+
+                    delta = (delta * 8).min(SCORE_INF);
+                    if score <= alpha {
+                        alpha = (alpha - delta).max(-SCORE_INF);
+                    } else {
+                        beta = (beta + delta).min(SCORE_INF);
                     }
                 }
 
-                delta = (delta * 8).min(SCORE_INF);
-                if score <= alpha {
-                    alpha = (alpha - delta).max(-SCORE_INF);
-                } else {
-                    beta = (beta + delta).min(SCORE_INF);
-                }
+                thread.sort_root_moves();
+
+                thread.pv_idx += 1;
             }
 
             if ctx.has_stopped() {
@@ -240,7 +270,7 @@ impl SearcherImpl {
                 }
 
                 let time = start_time.elapsed().as_secs_f64();
-                self.report(thread, thread.root_depth, time);
+                self.report(thread, thread.root_depth, time, ctx.multipv);
             }
 
             thread.root_depth += 1;
@@ -248,7 +278,7 @@ impl SearcherImpl {
 
         if thread.is_main_thread() {
             let time = start_time.elapsed().as_secs_f64();
-            self.final_report(thread, thread.root_depth, time);
+            self.final_report(thread, thread.root_depth, time, ctx.multipv);
         }
     }
 
@@ -312,6 +342,12 @@ impl SearcherImpl {
             return tt_entry.score;
         }
 
+        let tt_move = if NT::ROOT_NODE && thread.root_depth > 1 {
+            Some(thread.root_moves[thread.pv_idx].pv[0])
+        } else {
+            tt_entry.mv
+        };
+
         let raw_eval = static_eval(pos);
         let correction = thread.corrhist.correction(pos);
         let static_eval = raw_eval + correction;
@@ -372,7 +408,7 @@ impl SearcherImpl {
             pos,
             moves,
             &mut scores,
-            tt_entry.mv,
+            tt_move,
             thread.killers[ply as usize],
             prev_move,
         );
@@ -381,6 +417,10 @@ impl SearcherImpl {
 
         while let Some(mv) = movepicker.next(&thread.history) {
             debug_assert!(pos.is_legal(mv));
+
+            if NT::ROOT_NODE && !thread.is_legal_root_move(mv) {
+                continue;
+            }
 
             if !NT::ROOT_NODE && best_score > -SCORE_WIN {
                 if depth <= 6 && move_count as i32 >= 5 + 2 * depth * depth {
@@ -598,14 +638,23 @@ impl SearcherImpl {
             thread.corrhist.update(pos, depth, best_score, static_eval);
         }
 
-        self.tt
-            .store(pos.key(), best_score, best_move, depth, ply, tt_flag);
+        if !NT::ROOT_NODE || thread.pv_idx == 0 {
+            self.tt
+                .store(pos.key(), best_score, best_move, depth, ply, tt_flag);
+        }
 
         best_score
     }
 
-    fn report(&self, thread: &ThreadData, depth: i32, time: f64) {
-        let root_move = thread.pv_move();
+    fn report_single(
+        &self,
+        thread: &ThreadData,
+        depth: i32,
+        time: f64,
+        multipv: usize,
+        pv_idx: usize,
+    ) {
+        let root_move = &thread.root_moves[pv_idx];
 
         let score = root_move.score;
         assert_ne!(root_move.score, -SCORE_INF);
@@ -613,8 +662,14 @@ impl SearcherImpl {
         let ms = (time * 1000.0) as usize;
         let nps = ((thread.nodes as f64) / time) as usize;
 
+        print!("info ");
+
+        if multipv > 1 {
+            print!("multipv {} ", pv_idx + 1);
+        }
+
         print!(
-            "info depth {} seldepth {} time {} nodes {} nps {} score ",
+            "depth {} seldepth {} time {} nodes {} nps {} score ",
             depth, root_move.seldepth, ms, thread.nodes, nps
         );
 
@@ -653,8 +708,14 @@ impl SearcherImpl {
         println!();
     }
 
-    fn final_report(&self, thread: &ThreadData, depth: i32, time: f64) {
-        self.report(thread, depth, time);
+    fn report(&self, thread: &ThreadData, depth: i32, time: f64, multipv: usize) {
+        for pv_idx in 0..multipv {
+            self.report_single(thread, depth, time, multipv, pv_idx);
+        }
+    }
+
+    fn final_report(&self, thread: &ThreadData, depth: i32, time: f64, multipv: usize) {
+        self.report(thread, depth, time, multipv);
 
         let mv = thread.pv_move().pv[0];
         println!("bestmove {}", mv);
@@ -681,13 +742,19 @@ impl Searcher {
         start_time: Instant,
         limits: Limits,
         max_depth: i32,
+        options: &TeiOptions,
     ) {
         let thread = &mut self.data;
 
         thread.reset(key_history);
         thread.max_depth = max_depth;
 
-        let mut ctx = SearchContext::new(limits);
+        self.searcher.init_root_moves(pos);
+
+        let multipv = options.multipv.min(self.searcher.root_moves.len());
+        println!("info string multipv: {}", multipv);
+
+        let mut ctx = SearchContext::new(limits, multipv);
         self.searcher.run_search(&mut ctx, thread, pos, start_time);
     }
 
