@@ -38,6 +38,7 @@ pub fn update_pv(pv: &mut PvList, mv: Move, child: &PvList) {
     pv.try_extend_from_slice(child).unwrap();
 }
 
+#[derive(Clone, Debug)]
 pub struct RootMove {
     pub display_score: Score,
     pub score: Score,
@@ -46,6 +47,13 @@ pub struct RootMove {
     pub seldepth: i32,
     pub pv: PvList,
     pub nodes: usize,
+}
+
+impl RootMove {
+    #[must_use]
+    pub fn mv(&self) -> Move {
+        self.pv[0]
+    }
 }
 
 impl Default for RootMove {
@@ -74,6 +82,7 @@ pub struct ThreadData {
     pub max_depth: i32,
     pub seldepth: i32,
     pub nodes: usize,
+    pub pv_idx: usize,
     pub root_moves: Vec<RootMove>,
     pub stack: Vec<StackEntry>,
     pub corrhist: CorrectionHistory,
@@ -90,6 +99,7 @@ impl ThreadData {
             max_depth: 0,
             seldepth: 0,
             nodes: 0,
+            pv_idx: 0,
             root_moves: Vec::with_capacity(1024),
             stack: vec![StackEntry::default(); MAX_PLY as usize + 1],
             corrhist: CorrectionHistory::new(),
@@ -114,8 +124,19 @@ impl ThreadData {
         self.seldepth = self.seldepth.max(ply + 1);
     }
 
+    #[must_use]
+    pub fn is_legal_root_move(&self, mv: Move) -> bool {
+        self.root_moves[self.pv_idx..]
+            .iter()
+            .any(|root_move| root_move.pv[0] == mv)
+    }
+
     pub fn sort_root_moves(&mut self) {
         self.root_moves.sort_by(|a, b| b.score.cmp(&a.score));
+    }
+
+    pub fn sort_remaining_root_moves(&mut self) {
+        self.root_moves[self.pv_idx..].sort_by(|a, b| b.score.cmp(&a.score));
     }
 
     pub fn apply_move(&mut self, ply: i32, pos: &Position, mv: Move) -> Position {
@@ -157,7 +178,7 @@ impl ThreadData {
 
     #[must_use]
     pub fn get_root_move(&self, mv: Move) -> &RootMove {
-        for root_move in self.root_moves.iter() {
+        for root_move in self.root_moves[self.pv_idx..].iter() {
             if root_move.pv[0] == mv {
                 return root_move;
             }
@@ -168,7 +189,7 @@ impl ThreadData {
 
     #[must_use]
     pub fn get_root_move_mut(&mut self, mv: Move) -> &mut RootMove {
-        for root_move in self.root_moves.iter_mut() {
+        for root_move in self.root_moves[self.pv_idx..].iter_mut() {
             if root_move.pv[0] == mv {
                 return root_move;
             }
