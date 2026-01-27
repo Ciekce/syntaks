@@ -758,7 +758,6 @@ impl Searcher {
         self.searcher.init_root_moves(pos);
 
         let multipv = options.multipv.min(self.searcher.root_moves.len());
-        println!("info string multipv: {}", multipv);
 
         let mut ctx = SearchContext::new(limits, multipv);
         self.searcher.run_search(&mut ctx, thread, pos, start_time);
