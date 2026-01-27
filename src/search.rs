@@ -191,8 +191,11 @@ impl SearcherImpl {
         let mut pvs = vec![PvList::new(); MAX_PLY as usize];
 
         loop {
-            thread.pv_idx = 0;
+            for root_move in thread.root_moves.iter_mut() {
+                root_move.previous_score = root_move.score;
+            }
 
+            thread.pv_idx = 0;
             while !ctx.has_stopped() && thread.pv_idx < ctx.multipv {
                 thread.reset_seldepth();
 
@@ -657,9 +660,9 @@ impl SearcherImpl {
         let root_move = &thread.root_moves[pv_idx];
 
         let (depth, score) = if root_move.score == -SCORE_INF {
-            ((depth - 1).max(1), root_move.display_score)
+            ((depth - 1).max(1), root_move.previous_score)
         } else {
-            (depth, root_move.score)
+            (depth, root_move.display_score)
         };
 
         assert_ne!(depth, 0);

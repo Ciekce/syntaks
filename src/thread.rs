@@ -42,6 +42,7 @@ pub fn update_pv(pv: &mut PvList, mv: Move, child: &PvList) {
 pub struct RootMove {
     pub display_score: Score,
     pub score: Score,
+    pub previous_score: Score,
     pub upper_bound: bool,
     pub lower_bound: bool,
     pub seldepth: i32,
@@ -61,6 +62,7 @@ impl Default for RootMove {
         Self {
             display_score: -SCORE_INF,
             score: -SCORE_INF,
+            previous_score: -SCORE_INF,
             upper_bound: false,
             lower_bound: false,
             seldepth: 0,
