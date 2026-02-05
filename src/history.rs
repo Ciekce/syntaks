@@ -54,6 +54,12 @@ struct CombinedHist {
 
 impl CombinedHist {
     const ENTRIES: usize = 1 << Move::TOTAL_BITS;
+
+    fn clear(&mut self) {
+        for entry in self.entries.iter_mut() {
+            entry.value = 0;
+        }
+    }
 }
 
 impl Default for CombinedHist {
@@ -81,6 +87,14 @@ impl IndexMut<Move> for CombinedHist {
 #[derive(Copy, Clone)]
 struct ConthistSubTable {
     entries: [Entry; ConthistTable::ENTRIES],
+}
+
+impl ConthistSubTable {
+    fn clear(&mut self) {
+        for entry in self.entries.iter_mut() {
+            entry.value = 0;
+        }
+    }
 }
 
 impl Default for ConthistSubTable {
@@ -124,6 +138,12 @@ impl ConthistTable {
         };
         type_idx * Square::COUNT + mv.sq().idx()
     }
+
+    fn clear(&mut self) {
+        for subtable in self.entries.iter_mut() {
+            subtable.clear();
+        }
+    }
 }
 
 impl Default for ConthistTable {
@@ -166,6 +186,13 @@ impl History {
         Self {
             tables: Default::default(),
         }
+    }
+
+    #[must_use]
+    pub fn new_boxed() -> Box<Self> {
+        //SAFETY: history tables all ultimately boil down to i16s,
+        // for which all-zeroes is a valid bit pattern.
+        unsafe { Box::new_zeroed().assume_init() }
     }
 
     pub fn clear(&mut self) {

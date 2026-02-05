@@ -54,7 +54,8 @@ impl TimeManager {
 #[derive(Copy, Clone, Debug)]
 pub struct Limits {
     start_time: Instant,
-    nodes: Option<usize>,
+    hard_nodes: Option<usize>,
+    soft_nodes: Option<usize>,
     movetime: Option<f64>,
     time_manager: Option<TimeManager>,
 }
@@ -63,16 +64,27 @@ impl Limits {
     pub fn new(start_time: Instant) -> Self {
         Self {
             start_time,
-            nodes: None,
+            hard_nodes: None,
+            soft_nodes: None,
             movetime: None,
             time_manager: None,
         }
     }
 
-    pub fn set_nodes(&mut self, nodes: usize) -> bool {
-        match self.nodes {
+    pub fn set_soft_nodes(&mut self, nodes: usize) -> bool {
+        match self.soft_nodes {
             None => {
-                self.nodes = Some(nodes);
+                self.soft_nodes = Some(nodes);
+                true
+            }
+            Some(_) => false,
+        }
+    }
+
+    pub fn set_hard_nodes(&mut self, nodes: usize) -> bool {
+        match self.hard_nodes {
+            None => {
+                self.hard_nodes = Some(nodes);
                 true
             }
             Some(_) => false,
@@ -101,7 +113,7 @@ impl Limits {
 
     #[must_use]
     pub fn should_stop_soft(&self, nodes: usize, best_move_nodes_fraction: f64) -> bool {
-        if let Some(max_nodes) = self.nodes
+        if let Some(max_nodes) = self.soft_nodes
             && nodes >= max_nodes
         {
             return true;
@@ -126,7 +138,7 @@ impl Limits {
 
     #[must_use]
     pub fn should_stop_hard(&self, nodes: usize) -> bool {
-        if let Some(max_nodes) = self.nodes
+        if let Some(max_nodes) = self.hard_nodes
             && nodes >= max_nodes
         {
             return true;

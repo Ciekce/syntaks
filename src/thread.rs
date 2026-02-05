@@ -89,8 +89,8 @@ pub struct ThreadData {
     pub pv_idx: usize,
     pub root_moves: Vec<RootMove>,
     pub stack: Vec<StackEntry>,
-    pub corrhist: CorrectionHistory,
-    pub history: History,
+    pub corrhist: Box<CorrectionHistory>,
+    pub history: Box<History>,
     pub killers: [KillerTable; MAX_PLY as usize],
 }
 
@@ -106,8 +106,8 @@ impl ThreadData {
             pv_idx: 0,
             root_moves: Vec::with_capacity(1024),
             stack: vec![StackEntry::default(); MAX_PLY as usize + 1],
-            corrhist: CorrectionHistory::new(),
-            history: History::new(),
+            corrhist: CorrectionHistory::new_boxed(),
+            history: History::new_boxed(),
             killers: [Default::default(); MAX_PLY as usize],
         }
     }
@@ -210,7 +210,7 @@ impl ThreadData {
     pub fn reset(&mut self, key_history: &[u64]) {
         self.key_history.clear();
         self.key_history
-            .reserve(key_history.len() + MAX_PLY as usize);
+            .reserve((key_history.len() + MAX_PLY as usize).next_multiple_of(512));
 
         self.key_history.extend_from_slice(key_history);
     }

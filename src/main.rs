@@ -33,13 +33,28 @@ mod limit;
 mod movegen;
 mod movepick;
 mod perft;
+mod prng;
 mod road;
 mod search;
 mod takmove;
-mod tei;
 mod thread;
 mod ttable;
 
+#[cfg(feature = "datagen")]
+mod datagen;
+
+#[cfg(not(feature = "datagen"))]
+mod tei;
+
 fn main() {
-    tei::run();
+    #[cfg(feature = "datagen")]
+    {
+        let exit_code = datagen::run();
+        std::process::exit(exit_code);
+    }
+
+    #[cfg(not(feature = "datagen"))]
+    {
+        tei::run();
+    }
 }

@@ -27,7 +27,7 @@ use crate::eval::static_eval;
 use crate::limit::Limits;
 use crate::perft::{perft, split_perft};
 use crate::search;
-use crate::search::Searcher;
+use crate::search::{MAX_MULTIPV, SearchOptions, Searcher};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
 use std::time::Instant;
 
@@ -35,24 +35,11 @@ const NAME: &str = "syntaks";
 const AUTHORS: &str = "Ciekce";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub const MAX_MULTIPV: usize = 2048;
-
-#[derive(Copy, Clone, Debug)]
-pub struct TeiOptions {
-    pub multipv: usize,
-}
-
-impl Default for TeiOptions {
-    fn default() -> Self {
-        Self { multipv: 1 }
-    }
-}
-
 struct TeiHandler {
     pos: Position,
     key_history: Vec<u64>,
     searcher: Searcher,
-    options: TeiOptions,
+    options: SearchOptions,
 }
 
 impl TeiHandler {
@@ -61,8 +48,8 @@ impl TeiHandler {
         Self {
             pos: Position::startpos(),
             key_history: Vec::with_capacity(1024),
-            searcher: Searcher::new(),
-            options: TeiOptions::default(),
+            searcher: Searcher::new(DEFAULT_TT_SIZE_MIB),
+            options: SearchOptions::default(),
         }
     }
 
@@ -308,7 +295,7 @@ impl TeiHandler {
                     }
 
                     if let Ok(nodes) = args[i].parse() {
-                        if !limits.set_nodes(nodes) {
+                        if !limits.set_hard_nodes(nodes) {
                             eprintln!("Duplicate node limits");
                             return;
                         }

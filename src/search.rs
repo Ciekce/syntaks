@@ -28,9 +28,8 @@ use crate::limit::Limits;
 use crate::movegen::generate_moves;
 use crate::movepick::Movepicker;
 use crate::takmove::Move;
-use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, ThreadData, update_pv};
-use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable, TtFlag};
+use crate::ttable::{TranspositionTable, TtFlag};
 use std::time::Instant;
 
 pub type Score = i32;
@@ -41,6 +40,19 @@ pub const SCORE_WIN: Score = 25000;
 pub const SCORE_MAX_MATE: Score = SCORE_MATE - MAX_PLY as Score;
 
 pub const MAX_PLY: i32 = 255;
+
+pub const MAX_MULTIPV: usize = 2048;
+
+#[derive(Copy, Clone, Debug)]
+pub struct SearchOptions {
+    pub multipv: usize,
+}
+
+impl Default for SearchOptions {
+    fn default() -> Self {
+        Self { multipv: 1 }
+    }
+}
 
 #[derive(Debug)]
 struct SearchContext {
@@ -134,13 +146,15 @@ const WIDEN_REPORT_DELAY: f64 = 1.0;
 struct SearcherImpl {
     tt: TranspositionTable,
     root_moves: Vec<RootMove>,
+    silent: bool,
 }
 
 impl SearcherImpl {
-    fn new() -> Self {
+    fn new(tt_size_mib: usize) -> Self {
         Self {
-            tt: TranspositionTable::new(DEFAULT_TT_SIZE_MIB),
+            tt: TranspositionTable::new(tt_size_mib),
             root_moves: Vec::with_capacity(1024),
+            silent: false,
         }
     }
 
@@ -150,6 +164,10 @@ impl SearcherImpl {
 
     fn set_tt_size(&mut self, size_mib: usize) {
         self.tt.resize(size_mib);
+    }
+
+    fn set_silent(&mut self, silent: bool) {
+        self.silent = silent;
     }
 
     fn init_root_moves(&mut self, root_pos: &Position) {
@@ -230,7 +248,7 @@ impl SearcherImpl {
                         break;
                     }
 
-                    if thread.is_main_thread() && ctx.multipv == 1 {
+                    if !self.silent && thread.is_main_thread() && ctx.multipv == 1 {
                         let time = start_time.elapsed().as_secs_f64();
                         if time >= WIDEN_REPORT_DELAY {
                             self.report_single(
@@ -286,6 +304,7 @@ impl SearcherImpl {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::collapsible_if)]
     fn search<NT: NodeType>(
         &mut self,
         ctx: &mut SearchContext,
@@ -425,7 +444,10 @@ impl SearcherImpl {
                 continue;
             }
 
-            if !NT::ROOT_NODE && best_score > -SCORE_WIN {
+            if !NT::ROOT_NODE
+                && best_score > -SCORE_WIN
+                && (!NT::PV_NODE || !cfg!(feature = "datagen"))
+            {
                 if depth <= 6 && move_count as i32 >= 5 + 2 * depth * depth {
                     break;
                 }
@@ -658,6 +680,10 @@ impl SearcherImpl {
         multipv: usize,
         pv_idx: usize,
     ) {
+        if self.silent {
+            return;
+        }
+
         let root_move = &thread.root_moves[pv_idx];
 
         let (depth, score) = if root_move.score == -SCORE_INF {
@@ -719,12 +745,20 @@ impl SearcherImpl {
     }
 
     fn report(&self, thread: &ThreadData, depth: i32, time: f64, multipv: usize) {
+        if self.silent {
+            return;
+        }
+
         for pv_idx in 0..multipv {
             self.report_single(thread, depth, time, multipv, pv_idx);
         }
     }
 
     fn final_report(&self, thread: &ThreadData, depth: i32, time: f64, multipv: usize) {
+        if self.silent {
+            return;
+        }
+
         self.report(thread, depth, time, multipv);
 
         let mv = thread.pv_move().mv();
@@ -738,11 +772,15 @@ pub struct Searcher {
 }
 
 impl Searcher {
-    pub fn new() -> Self {
+    pub fn new(tt_size_mib: usize) -> Self {
         Self {
-            searcher: SearcherImpl::new(),
+            searcher: SearcherImpl::new(tt_size_mib),
             data: ThreadData::new(0),
         }
+    }
+
+    pub fn thread(&self) -> &ThreadData {
+        &self.data
     }
 
     pub fn start_search(
@@ -752,7 +790,7 @@ impl Searcher {
         start_time: Instant,
         limits: Limits,
         max_depth: i32,
-        options: &TeiOptions,
+        options: &SearchOptions,
     ) {
         let thread = &mut self.data;
 
@@ -767,6 +805,25 @@ impl Searcher {
         self.searcher.run_search(&mut ctx, thread, pos, start_time);
     }
 
+    pub fn run_datagen_search(
+        &mut self,
+        pos: &Position,
+        key_history: &[u64],
+        limits: Limits,
+        max_depth: i32,
+    ) {
+        let thread = &mut self.data;
+
+        thread.reset(key_history);
+        thread.max_depth = max_depth;
+
+        self.searcher.init_root_moves(pos);
+
+        let mut ctx = SearchContext::new(limits, 1);
+        self.searcher
+            .run_search(&mut ctx, thread, pos, Instant::now());
+    }
+
     pub fn reset(&mut self) {
         self.searcher.reset();
         self.data.corrhist.clear();
@@ -776,5 +833,9 @@ impl Searcher {
 
     pub fn set_tt_size(&mut self, size_mib: usize) {
         self.searcher.set_tt_size(size_mib);
+    }
+
+    pub fn set_silent(&mut self, silent: bool) {
+        self.searcher.set_silent(silent);
     }
 }
