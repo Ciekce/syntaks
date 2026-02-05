@@ -26,8 +26,8 @@ use crate::search::Score;
 use crate::takmove::Move;
 use std::io::Write;
 
-#[derive(Copy, Clone, Debug)]
-#[repr(C, packed)]
+#[derive(Copy, Clone, Debug, bytemuck::NoUninit)]
+#[repr(C)]
 struct ScoredMove {
     mv: u16,
     score: i16,
@@ -44,9 +44,6 @@ impl ScoredMove {
         }
     }
 }
-
-unsafe impl bytemuck::Zeroable for ScoredMove {}
-unsafe impl bytemuck::Pod for ScoredMove {}
 
 pub(super) struct SynpackWriter {
     unscored_moves: Vec<u16>,
@@ -84,7 +81,7 @@ impl SynpackWriter {
 
         #[cfg(not(target_endian = "little"))]
         {
-            unimplemented!();
+            error!("not little endian");
         }
 
         let outcome = match outcome {
