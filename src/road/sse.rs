@@ -25,10 +25,10 @@ use crate::bitboard::Bitboard;
 use std::arch::x86_64::*;
 
 #[must_use]
-#[target_feature(enable = "avx2")]
+#[target_feature(enable = "sse4.2")]
 pub(super) fn has_road(road_occ: u64, up: u64, down: u64, left: u64, right: u64) -> bool {
-    let mut masks_lo = _mm_set_epi64x(up as i64, left as i64);
-    let mut masks_hi = _mm_set_epi64x(down as i64, right as i64);
+    let mut masks_ul = _mm_set_epi64x(up as i64, left as i64);
+    let mut masks_dr = _mm_set_epi64x(down as i64, right as i64);
 
     let left_edge = _mm_set1_epi64x(Bitboard::LEFT_EDGE.raw() as i64);
     let right_edge = _mm_set1_epi64x(Bitboard::RIGHT_EDGE.raw() as i64);
@@ -49,25 +49,25 @@ pub(super) fn has_road(road_occ: u64, up: u64, down: u64, left: u64, right: u64)
         _mm_and_si128(next_masks, road_occ)
     };
 
-    masks_lo = calc_next_masks(masks_lo);
-    masks_hi = calc_next_masks(masks_hi);
+    masks_ul = calc_next_masks(masks_ul);
+    masks_dr = calc_next_masks(masks_dr);
 
     loop {
-        let next_masks_lo = calc_next_masks(masks_lo);
-        let next_masks_hi = calc_next_masks(masks_hi);
+        let next_masks_ul = calc_next_masks(masks_ul);
+        let next_masks_dr = calc_next_masks(masks_dr);
 
-        if _mm_testz_si128(next_masks_lo, next_masks_hi) == 0 {
+        if _mm_testz_si128(next_masks_ul, next_masks_dr) == 0 {
             return true;
         }
 
-        let new_lo = _mm_cmpgt_epi64(next_masks_lo, masks_lo);
-        let new_hi = _mm_cmpgt_epi64(next_masks_hi, masks_hi);
+        let new_ul = _mm_cmpgt_epi64(next_masks_ul, masks_ul);
+        let new_dr = _mm_cmpgt_epi64(next_masks_dr, masks_dr);
 
-        if _mm_testz_si128(new_lo, new_hi) != 0 {
+        if _mm_testz_si128(new_ul, new_dr) != 0 {
             return false;
         }
 
-        masks_lo = next_masks_lo;
-        masks_hi = next_masks_hi;
+        masks_ul = next_masks_ul;
+        masks_dr = next_masks_dr;
     }
 }
