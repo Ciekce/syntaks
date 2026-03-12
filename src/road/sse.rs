@@ -27,11 +27,6 @@ use std::arch::x86_64::*;
 #[must_use]
 #[target_feature(enable = "avx2")]
 pub(super) fn has_road(road_occ: u64, up: u64, down: u64, left: u64, right: u64) -> bool {
-    // https://github.com/rust-lang/rust/issues/111147
-    const fn mm_shuffle(z: u32, y: u32, x: u32, w: u32) -> i32 {
-        ((z << 6) | (y << 4) | (x << 2) | w) as i32
-    }
-
     let mut masks_lo = _mm_set_epi64x(up as i64, left as i64);
     let mut masks_hi = _mm_set_epi64x(down as i64, right as i64);
 
@@ -57,10 +52,13 @@ pub(super) fn has_road(road_occ: u64, up: u64, down: u64, left: u64, right: u64)
     let next_masks_lo = calc_next_masks(masks_lo);
     let next_masks_hi = calc_next_masks(masks_hi);
 
-    let new_lo = _mm_cmpeq_epi64(masks_lo, next_masks_lo);
-    let new_hi = _mm_cmpeq_epi64(masks_hi, next_masks_hi);
+    let new_lo = _mm_andnot_si128(masks_lo, next_masks_lo);
+    let new_lo = _mm_cmpeq_epi64(new_lo, _mm_setzero_si128());
 
-    if _mm_testz_si128(new_lo, new_hi) > 0 {
+    let new_hi = _mm_andnot_si128(masks_hi, next_masks_hi);
+    let new_hi = _mm_cmpeq_epi64(new_hi, _mm_setzero_si128());
+
+    if _mm_testz_si128(new_lo, new_hi) != 0 {
         return false;
     }
 
@@ -75,10 +73,10 @@ pub(super) fn has_road(road_occ: u64, up: u64, down: u64, left: u64, right: u64)
             return true;
         }
 
-        let new_lo = _mm_cmpeq_epi64(masks_lo, next_masks_lo);
-        let new_hi = _mm_cmpeq_epi64(masks_hi, next_masks_hi);
+        let new_lo = _mm_cmpgt_epi64(next_masks_lo, masks_lo);
+        let new_hi = _mm_cmpgt_epi64(next_masks_hi, masks_hi);
 
-        if _mm_testz_si128(new_lo, new_hi) > 0 {
+        if _mm_testz_si128(new_lo, new_hi) != 0 {
             return false;
         }
 
