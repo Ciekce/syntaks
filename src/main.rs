@@ -21,6 +21,9 @@
  * SOFTWARE.
  */
 
+use crate::board::Position;
+use crate::core::Player;
+
 mod bitboard;
 mod board;
 mod core;
@@ -41,5 +44,10 @@ mod thread;
 mod ttable;
 
 fn main() {
+    let pos = "x3,2,x,1/x,2,2,x2,2/x3,1,2,1/1,1,21,1,221C,1/x2,1,21,12,x/2,x2,1,112C,1 2 23"
+        .parse::<Position>()
+        .unwrap();
+    assert!(pos.has_road(Player::P1));
+    assert!(!pos.has_road(Player::P2));
     tei::run();
 }
