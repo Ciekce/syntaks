@@ -282,6 +282,7 @@ impl TeiHandler {
         while i < args.len() {
             let limit_str = args[i];
             match limit_str {
+                "infinite" => {}
                 "depth" => {
                     i += 1;
                     if i >= args.len() {
