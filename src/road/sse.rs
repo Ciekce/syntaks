@@ -49,23 +49,8 @@ pub(super) fn has_road(road_occ: u64, up: u64, down: u64, left: u64, right: u64)
         _mm_and_si128(next_masks, road_occ)
     };
 
-    /*
-    let next_masks_lo = calc_next_masks(masks_lo);
-    let next_masks_hi = calc_next_masks(masks_hi);
-
-    let new_lo = _mm_andnot_si128(masks_lo, next_masks_lo);
-    let new_lo = _mm_cmpeq_epi64(new_lo, _mm_setzero_si128());
-
-    let new_hi = _mm_andnot_si128(masks_hi, next_masks_hi);
-    let new_hi = _mm_cmpeq_epi64(new_hi, _mm_setzero_si128());
-
-    if _mm_testz_si128(new_lo, new_hi) != 0 {
-        return false;
-    }
-
-    masks_lo = next_masks_lo;
-    masks_hi = next_masks_hi;
-     */
+    masks_lo = calc_next_masks(masks_lo);
+    masks_hi = calc_next_masks(masks_hi);
 
     loop {
         let next_masks_lo = calc_next_masks(masks_lo);
