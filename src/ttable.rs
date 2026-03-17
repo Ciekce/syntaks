@@ -20,9 +20,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
 use crate::search::{SCORE_WIN, Score};
 use crate::takmove::Move;
 use std::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const DEFAULT_TT_SIZE_MIB: usize = 64;
 pub const MAX_TT_SIZE_MIB: usize = 131072;
@@ -43,6 +45,34 @@ struct Entry {
     mv: Option<Move>,
     depth: u8,
     flag: Option<TtFlag>,
+}
+
+#[derive(Debug, Default)]
+#[repr(C)]
+struct EntryStorage {
+    storage: AtomicU64,
+}
+
+impl EntryStorage {
+    fn new() -> Self {
+        Self {
+            storage: AtomicU64::new(0),
+        }
+    }
+
+    fn load(&self) -> Entry {
+        let value = self.storage.load(Ordering::Relaxed);
+        unsafe { std::mem::transmute::<u64, Entry>(value) }
+    }
+
+    fn store(&self, entry: Entry) {
+        let value = unsafe { std::mem::transmute::<Entry, u64>(entry) };
+        self.storage.store(value, Ordering::Relaxed);
+    }
+
+    fn clear(&self) {
+        self.storage.store(0, Ordering::Relaxed);
+    }
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -87,7 +117,7 @@ fn score_from_tt(score: i16, ply: i32) -> Score {
 }
 
 pub struct TranspositionTable {
-    entries: Vec<Entry>,
+    entries: Vec<EntryStorage>,
 }
 
 impl TranspositionTable {
@@ -108,7 +138,7 @@ impl TranspositionTable {
         self.entries.shrink_to_fit();
 
         let entry_count = calc_entry_count(size_mib);
-        self.entries.resize(entry_count, Default::default());
+        self.entries.resize_with(entry_count, EntryStorage::new);
 
         self.clear();
     }
@@ -131,7 +161,7 @@ impl TranspositionTable {
         let mut probed = Default::default();
 
         //SAFETY: calc_index() cannot return an out-of-bounds index
-        let entry = *unsafe { self.entries.get_unchecked(idx) };
+        let entry = unsafe { self.entries.get_unchecked(idx) }.load();
 
         if entry.key != entry_key {
             return (false, probed);
@@ -146,7 +176,7 @@ impl TranspositionTable {
     }
 
     pub fn store(
-        &mut self,
+        &self,
         key: u64,
         score: Score,
         mv: Option<Move>,
@@ -158,7 +188,9 @@ impl TranspositionTable {
         let entry_key = pack_entry_key(key);
 
         //SAFETY: calc_index() cannot return an out-of-bounds index
-        let mut entry = *unsafe { self.entries.get_unchecked(idx) };
+        let storage = unsafe { self.entries.get_unchecked(idx) };
+
+        let mut entry = storage.load();
 
         if mv.is_some() || entry.key != entry_key {
             entry.mv = mv;
@@ -169,17 +201,20 @@ impl TranspositionTable {
         entry.depth = depth as u8;
         entry.flag = Some(flag);
 
-        *unsafe { self.entries.get_unchecked_mut(idx) } = entry;
+        storage.store(entry);
     }
 
     pub fn clear(&mut self) {
-        self.entries.fill(Default::default());
+        for storage in self.entries.iter_mut() {
+            storage.clear();
+        }
     }
 
     pub fn estimate_full_permille(&self) -> usize {
         let mut filled = 0;
 
-        for &entry in self.entries[0..1000].iter() {
+        for storage in self.entries[0..1000].iter() {
+            let entry = storage.load();
             if entry.flag.is_some() {
                 filled += 1;
             }
