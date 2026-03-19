@@ -482,6 +482,8 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
     assert!(thread.shared.is_none());
     thread.shared = Some(shared);
 
+    let counter = thread.shared().get_counter();
+
     thread.root_moves.clear();
     thread.root_moves.reserve(ctx.root_moves.len());
 
@@ -493,7 +495,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
     thread.key_history.reserve(ctx.key_history.len());
     thread.key_history.extend_from_slice(&ctx.key_history);
 
-    thread.shared().register_thread();
+    counter.register_thread();
 
     thread.nodes = 0;
     thread.root_depth = 1;
@@ -584,17 +586,17 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
     }
 
     if thread.is_main_thread() {
-        thread.shared().unregister_and_wait();
+        counter.unregister_and_wait();
 
         let time = thread.shared().elapsed();
         final_report(thread, thread.root_depth, time, ctx.multipv);
 
-        thread.shared().complete_search();
+        thread.shared = None;
+        counter.complete_search();
     } else {
-        thread.shared().unregister_thread();
+        thread.shared = None;
+        counter.unregister_thread();
     }
-
-    thread.shared = None;
 }
 
 fn report_single(thread: &ThreadData, depth: i32, time: f64, multipv: usize, pv_idx: usize) {
