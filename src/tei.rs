@@ -27,7 +27,7 @@ use crate::eval::static_eval;
 use crate::limit::Limits;
 use crate::perft::{perft, split_perft};
 use crate::search;
-use crate::search::{Searcher, MAX_THREADS};
+use crate::search::{MAX_THREADS, Searcher};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
 use std::time::Instant;
 
@@ -118,8 +118,14 @@ impl TeiHandler {
             DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB
         );
 
-        println!("option name Threads type spin default 1 min 1 max {}", MAX_THREADS);
-        println!("option name MultiPV type spin default 1 min 1 max {}", MAX_MULTIPV);
+        println!(
+            "option name Threads type spin default 1 min 1 max {}",
+            MAX_THREADS
+        );
+        println!(
+            "option name MultiPV type spin default 1 min 1 max {}",
+            MAX_MULTIPV
+        );
 
         println!("teiok");
     }

@@ -23,6 +23,7 @@
 
 use crate::limit::Limits;
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable};
+use crate::util::counter::Counter;
 use crate::{
     board::Position,
     correction::CorrectionHistory,
@@ -84,6 +85,7 @@ pub struct SharedContext {
     limits: Limits,
     stopped: AtomicBool,
     counter: Arc<SearcherCount>,
+    nodes: Counter,
 }
 
 impl SharedContext {
@@ -95,7 +97,12 @@ impl SharedContext {
             limits: Limits::new(time),
             stopped: AtomicBool::new(false),
             counter: Arc::new(SearcherCount::new()),
+            nodes: Counter::new(1),
         }
+    }
+
+    pub fn set_threads(&mut self, threads: u32) {
+        self.nodes.resize(threads as usize);
     }
 
     pub fn init_search(&mut self, start_time: Instant, limits: Limits) {
@@ -103,6 +110,7 @@ impl SharedContext {
         self.limits = limits;
         self.stopped.store(false, Ordering::Relaxed);
         self.counter.start();
+        self.nodes.reset();
     }
 
     pub fn get_counter(&self) -> Arc<SearcherCount> {
@@ -132,6 +140,11 @@ impl SharedContext {
         }
 
         false
+    }
+
+    #[must_use]
+    pub fn total_nodes(&self) -> usize {
+        self.nodes.total()
     }
 
     #[must_use]
@@ -203,7 +216,6 @@ pub struct ThreadData {
     pub key_history: Vec<u64>,
     pub root_depth: i32,
     pub seldepth: i32,
-    pub nodes: usize,
     pub pv_idx: usize,
     pub root_moves: Vec<RootMove>,
     pub stack: Vec<StackEntry>,
@@ -220,7 +232,6 @@ impl ThreadData {
             key_history: Vec::with_capacity(1024),
             root_depth: 0,
             seldepth: 0,
-            nodes: 0,
             pv_idx: 0,
             root_moves: Vec::with_capacity(1024),
             stack: vec![StackEntry::default(); MAX_PLY as usize + 1],
@@ -240,7 +251,11 @@ impl ThreadData {
     }
 
     pub fn inc_nodes(&mut self) {
-        self.nodes += 1;
+        self.shared().nodes.increment(self.id as usize);
+    }
+
+    pub fn nodes(&self) -> usize {
+        self.shared().nodes.get(self.id as usize)
     }
 
     pub fn reset_seldepth(&mut self) {

@@ -22,7 +22,6 @@
  */
 
 use crate::board::{FlatCountOutcome, Position};
-use crate::command_channel::{Receiver, Sender, channel};
 use crate::core::PieceType;
 use crate::eval::static_eval;
 use crate::limit::Limits;
@@ -32,6 +31,7 @@ use crate::takmove::Move;
 use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, SharedContext, ThreadData, update_pv};
 use crate::ttable::TtFlag;
+use crate::util::command_channel::{Receiver, Sender, channel};
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
@@ -138,7 +138,7 @@ fn search<NT: NodeType>(
     if !NT::ROOT_NODE
         && thread.is_main_thread()
         && thread.root_depth > 1
-        && thread.shared().check_stop_hard(thread.nodes)
+        && thread.shared().check_stop_hard(thread.nodes())
     {
         return 0;
     }
@@ -168,11 +168,11 @@ fn search<NT: NodeType>(
     if !NT::PV_NODE
         && tt_entry.depth >= depth
         && match tt_entry.flag {
-        None => unreachable!(),
-        Some(TtFlag::UpperBound) => tt_entry.score <= alpha,
-        Some(TtFlag::LowerBound) => tt_entry.score >= beta,
-        Some(TtFlag::Exact) => true,
-    }
+            None => unreachable!(),
+            Some(TtFlag::UpperBound) => tt_entry.score <= alpha,
+            Some(TtFlag::LowerBound) => tt_entry.score >= beta,
+            Some(TtFlag::Exact) => true,
+        }
     {
         return tt_entry.score;
     }
@@ -280,7 +280,7 @@ fn search<NT: NodeType>(
             extension += 1;
         }
 
-        let nodes_before = thread.nodes;
+        let nodes_before = thread.nodes();
 
         let score = 'recurse: {
             if new_pos.has_road(pos.stm()) {
@@ -382,7 +382,7 @@ fn search<NT: NodeType>(
             score
         };
 
-        let nodes_after = thread.nodes;
+        let nodes_after = thread.nodes();
 
         thread.pop_move();
 
@@ -497,7 +497,6 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
 
     counter.register_thread();
 
-    thread.nodes = 0;
     thread.root_depth = 1;
 
     let mut movelists = vec![Vec::with_capacity(256); MAX_PLY as usize];
@@ -572,8 +571,8 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
 
         if thread.is_main_thread() {
             if thread.shared().check_stop_soft(
-                thread.nodes,
-                thread.pv_move().nodes as f64 / (thread.nodes as f64),
+                thread.nodes(),
+                thread.pv_move().nodes as f64 / (thread.nodes() as f64),
             ) {
                 break;
             }
@@ -611,8 +610,10 @@ fn report_single(thread: &ThreadData, depth: i32, time: f64, multipv: usize, pv_
     assert_ne!(depth, 0);
     assert_ne!(score, -SCORE_INF);
 
+    let nodes = thread.shared().total_nodes();
+
     let ms = (time * 1000.0) as usize;
-    let nps = ((thread.nodes as f64) / time) as usize;
+    let nps = ((nodes as f64) / time) as usize;
 
     print!("info ");
 
@@ -622,7 +623,7 @@ fn report_single(thread: &ThreadData, depth: i32, time: f64, multipv: usize, pv_
 
     print!(
         "depth {} seldepth {} time {} nodes {} nps {} score ",
-        depth, root_move.seldepth, ms, thread.nodes, nps
+        depth, root_move.seldepth, ms, nodes, nps
     );
 
     if score.abs() >= SCORE_MAX_MATE {
@@ -703,7 +704,7 @@ impl Searcher {
                 if std::panic::catch_unwind(move || {
                     Self::run_thread(0, receiver);
                 })
-                    .is_err()
+                .is_err()
                 {
                     std::process::exit(-1);
                 }
@@ -772,7 +773,8 @@ impl Searcher {
             self.key_history.clone(),
         );
 
-        self.sender.send(ThreadCommand::StartSearch(self.shared_ctx.clone(), ctx));
+        self.sender
+            .send(ThreadCommand::StartSearch(self.shared_ctx.clone(), ctx));
     }
 
     pub fn stop(&mut self) {
@@ -787,7 +789,9 @@ impl Searcher {
         self.stop();
         if !self.threads.is_empty() {
             self.sender.send(ThreadCommand::Quit);
-            self.threads.drain(..).for_each(|thread| thread.join().unwrap());
+            self.threads
+                .drain(..)
+                .for_each(|thread| thread.join().unwrap());
         }
     }
 
@@ -816,6 +820,10 @@ impl Searcher {
     pub fn set_threads(&mut self, count: u32) {
         self.kill_threads();
 
+        self.modify_shared_ctx(|ctx| {
+            ctx.set_threads(count);
+        });
+
         self.threads.reserve(count as usize);
 
         let (sender, mut receiver) = channel(count);
@@ -827,7 +835,7 @@ impl Searcher {
                     if std::panic::catch_unwind(move || {
                         Self::run_thread(id, receiver);
                     })
-                        .is_err()
+                    .is_err()
                     {
                         std::process::exit(-1);
                     }

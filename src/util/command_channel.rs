@@ -1,3 +1,26 @@
+/*
+ * syntaks, a TEI Tak engine
+ * Copyright (c) 2026 Ciekce
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 // Borrowed from icarus, with permission
 // https://github.com/Sp00ph/icarus/blob/bc1e3b8b84263ff0c14d9e7ef89816f5d01af3f5/src/util/command_channel.rs
 
@@ -35,7 +58,7 @@ pub struct Receiver<M: Sync> {
 /// the singular sender, and an iterator yielding the `num_receivers` receivers. Note that
 /// sending a message will block the sender until all receivers have handled the message,
 /// so dropping any of the receivers will lead to a deadlock in the sender thread.
-pub fn channel<M: Sync>(num_receivers: u32) -> (Sender<M>, impl Iterator<Item=Receiver<M>>) {
+pub fn channel<M: Sync>(num_receivers: u32) -> (Sender<M>, impl Iterator<Item = Receiver<M>>) {
     let shared = Arc::new(Shared {
         msg_ptr: AtomicPtr::new(ptr::null_mut()),
         futex: AtomicU32::new(0),

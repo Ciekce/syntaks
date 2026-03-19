@@ -21,26 +21,5 @@
  * SOFTWARE.
  */
 
-mod bitboard;
-mod board;
-mod core;
-mod correction;
-mod eval;
-mod history;
-mod hits;
-mod keys;
-mod limit;
-mod movegen;
-mod movepick;
-mod perft;
-mod road;
-mod search;
-mod takmove;
-mod tei;
-mod thread;
-mod ttable;
-mod util;
-
-fn main() {
-    tei::run();
-}
+pub mod command_channel;
+pub mod counter;
