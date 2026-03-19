@@ -39,6 +39,7 @@ mod takmove;
 mod tei;
 mod thread;
 mod ttable;
+mod command_channel;
 
 fn main() {
     tei::run();

@@ -21,6 +21,8 @@
  * SOFTWARE.
  */
 
+use crate::limit::Limits;
+use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable};
 use crate::{
     board::Position,
     correction::CorrectionHistory,
@@ -29,6 +31,69 @@ use crate::{
     search::{MAX_PLY, SCORE_INF, Score},
     takmove::Move,
 };
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
+
+pub struct SharedContext {
+    pub tt: TranspositionTable,
+    stopped: AtomicBool,
+    start_time: Instant,
+    limits: Limits,
+}
+
+impl SharedContext {
+    pub fn new() -> Self {
+        let time = Instant::now();
+        Self {
+            tt: TranspositionTable::new(DEFAULT_TT_SIZE_MIB),
+            stopped: AtomicBool::new(false),
+            start_time: time,
+            limits: Limits::new(time),
+        }
+    }
+
+    pub fn init_for_search(&mut self, start_time: Instant, limits: Limits) {
+        self.start_time = start_time;
+        self.limits = limits;
+        self.stopped.store(false, Ordering::SeqCst);
+    }
+
+    pub fn check_stop_soft(&self, nodes: usize, best_move_nodes_fraction: f64) -> bool {
+        if self
+            .limits
+            .should_stop_soft(nodes, best_move_nodes_fraction)
+        {
+            self.stopped.store(true, Ordering::Relaxed);
+            return true;
+        }
+
+        false
+    }
+
+    pub fn check_stop_hard(&self, nodes: usize) -> bool {
+        if self.limits.should_stop_hard(nodes) {
+            self.stopped.store(true, Ordering::Relaxed);
+            return true;
+        }
+
+        false
+    }
+
+    #[must_use]
+    pub fn elapsed(&self) -> f64 {
+        self.start_time.elapsed().as_secs_f64()
+    }
+
+    pub fn stop(&self) {
+        self.stopped.store(true, Ordering::Relaxed);
+    }
+
+    #[must_use]
+    pub fn has_stopped(&self) -> bool {
+        self.stopped.load(Ordering::Relaxed)
+    }
+}
 
 pub type PvList = arrayvec::ArrayVec<Move, { MAX_PLY as usize }>;
 
@@ -83,37 +148,41 @@ pub struct ThreadData {
     pub id: u32,
     pub key_history: Vec<u64>,
     pub root_depth: i32,
-    pub max_depth: i32,
     pub seldepth: i32,
     pub nodes: usize,
     pub pv_idx: usize,
     pub root_moves: Vec<RootMove>,
     pub stack: Vec<StackEntry>,
-    pub corrhist: CorrectionHistory,
-    pub history: History,
+    pub corrhist: Box<CorrectionHistory>,
+    pub history: Box<History>,
     pub killers: [KillerTable; MAX_PLY as usize],
+    pub shared: Option<Arc<SharedContext>>,
 }
 
 impl ThreadData {
-    pub fn new(id: u32) -> Self {
+    pub fn new(id: u32, shared: Arc<SharedContext>) -> Self {
         Self {
             id,
             key_history: Vec::with_capacity(1024),
             root_depth: 0,
-            max_depth: 0,
             seldepth: 0,
             nodes: 0,
             pv_idx: 0,
             root_moves: Vec::with_capacity(1024),
             stack: vec![StackEntry::default(); MAX_PLY as usize + 1],
-            corrhist: CorrectionHistory::new(),
-            history: History::new(),
+            corrhist: CorrectionHistory::boxed(),
+            history: History::boxed(),
             killers: [Default::default(); MAX_PLY as usize],
+            shared: Some(shared),
         }
     }
 
     pub fn is_main_thread(&self) -> bool {
         self.id == 0
+    }
+
+    pub fn shared(&self) -> &SharedContext {
+        self.shared.as_deref().unwrap()
     }
 
     pub fn inc_nodes(&mut self) {
@@ -205,13 +274,5 @@ impl ThreadData {
     #[must_use]
     pub fn pv_move(&self) -> &RootMove {
         &self.root_moves[0]
-    }
-
-    pub fn reset(&mut self, key_history: &[u64]) {
-        self.key_history.clear();
-        self.key_history
-            .reserve(key_history.len() + MAX_PLY as usize);
-
-        self.key_history.extend_from_slice(key_history);
     }
 }

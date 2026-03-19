@@ -90,6 +90,7 @@ impl TeiHandler {
                 "isready" => self.handle_isready(),
                 "position" => self.handle_position(args),
                 "go" => self.handle_go(args, start_time),
+                "stop" => self.handle_stop(),
                 "d" => self.handle_d(),
                 "perft" => self.handle_perft(args),
                 "splitperft" => self.handle_splitperft(args),
@@ -396,6 +397,10 @@ impl TeiHandler {
             max_depth,
             &self.options,
         );
+    }
+
+    fn handle_stop(&mut self) {
+        self.searcher.stop();
     }
 
     fn handle_d(&self) {

@@ -54,6 +54,10 @@ struct HashedTable {
 
 impl HashedTable {
     const ENTRIES: usize = 16384;
+
+    fn clear(&mut self) {
+        self.entries.fill(Default::default());
+    }
 }
 
 impl Default for HashedTable {
@@ -87,6 +91,16 @@ struct SidedTables {
     wall: HashedTable,
 }
 
+impl SidedTables {
+    fn clear(&mut self) {
+        self.blocker.clear();
+        self.road.clear();
+        self.tops.clear();
+        self.cap.clear();
+        self.wall.clear();
+    }
+}
+
 pub struct CorrectionHistory {
     tables: [SidedTables; Player::COUNT],
 }
@@ -94,14 +108,17 @@ pub struct CorrectionHistory {
 impl CorrectionHistory {
     const MAX_BONUS: i32 = Entry::LIMIT / 4;
 
-    pub fn new() -> Self {
-        Self {
-            tables: Default::default(),
-        }
+    #[must_use]
+    pub fn boxed() -> Box<Self> {
+        //SAFETY: corrhist tables are all just u16s,
+        // for which all-zeroes is a valid bitpattern
+        unsafe { Box::new_zeroed().assume_init() }
     }
 
     pub fn clear(&mut self) {
-        self.tables = Default::default();
+        for table in self.tables.iter_mut() {
+            table.clear();
+        }
     }
 
     pub fn update(&mut self, pos: &Position, depth: i32, search_score: Score, static_eval: Score) {
@@ -117,6 +134,7 @@ impl CorrectionHistory {
         tables.wall[pos.wall_key()].update(bonus);
     }
 
+    #[must_use]
     pub fn correction(&self, pos: &Position) -> i32 {
         let tables = &self.tables[pos.stm().idx()];
 
