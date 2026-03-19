@@ -771,6 +771,14 @@ impl Searcher {
         self.shared_ctx.stop();
     }
 
+    pub fn kill_threads(&mut self) {
+        self.stop();
+        if !self.threads.is_empty() {
+            self.sender.send(ThreadCommand::Quit);
+            self.threads.drain(..).for_each(|thread| thread.join().unwrap());
+        }
+    }
+
     fn modify_shared_ctx<F>(&mut self, func: F)
     where
         F: Fn(&mut SharedContext),
@@ -814,5 +822,11 @@ impl Searcher {
             root_move.pv.push(mv);
             root_moves.push(root_move);
         }
+    }
+}
+
+impl Drop for Searcher {
+    fn drop(&mut self) {
+        self.kill_threads();
     }
 }
