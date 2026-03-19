@@ -37,6 +37,8 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
+pub const MAX_THREADS: u32 = 2048;
+
 pub type Score = i32;
 
 pub const SCORE_INF: Score = 32767;
@@ -476,7 +478,10 @@ fn search<NT: NodeType>(
     best_score
 }
 
-fn run_search(ctx: &SearchContext, thread: &mut ThreadData) {
+fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut ThreadData) {
+    assert!(thread.shared.is_none());
+    thread.shared = Some(shared);
+
     thread.root_moves.clear();
     thread.root_moves.reserve(ctx.root_moves.len());
 
@@ -588,6 +593,8 @@ fn run_search(ctx: &SearchContext, thread: &mut ThreadData) {
     } else {
         thread.shared().unregister_thread();
     }
+
+    thread.shared = None;
 }
 
 fn report_single(thread: &ThreadData, depth: i32, time: f64, multipv: usize, pv_idx: usize) {
@@ -669,9 +676,7 @@ const WIDEN_REPORT_DELAY: f64 = 1.0;
 #[derive(Clone)]
 enum ThreadCommand {
     Ping,
-    DropSharedCtx,
-    SetSharedCtx(Arc<SharedContext>),
-    StartSearch(SearchContext),
+    StartSearch(Arc<SharedContext>, SearchContext),
     Clear,
     Quit,
 }
@@ -691,11 +696,10 @@ impl Searcher {
         let (mut sender, mut receiver) = channel(1);
 
         let thread = thread::spawn({
-            let shared_ctx = shared_ctx.clone();
             let receiver = receiver.next().unwrap();
             move || {
                 if std::panic::catch_unwind(move || {
-                    Self::run_thread(0, shared_ctx, receiver);
+                    Self::run_thread(0, receiver);
                 })
                     .is_err()
                 {
@@ -715,27 +719,19 @@ impl Searcher {
         }
     }
 
-    fn run_thread(id: u32, shared_ctx: Arc<SharedContext>, mut receiver: Receiver<ThreadCommand>) {
-        let mut data = ThreadData::new(id, shared_ctx);
+    fn run_thread(id: u32, mut receiver: Receiver<ThreadCommand>) {
+        let mut data = ThreadData::new(id);
 
         loop {
             match receiver.recv(|cmd| cmd.clone()) {
                 ThreadCommand::Ping => {}
-                ThreadCommand::DropSharedCtx => {
-                    assert!(data.shared.is_some());
-                    data.shared = None;
-                }
-                ThreadCommand::SetSharedCtx(shared) => {
-                    assert!(data.shared.is_none());
-                    data.shared = Some(shared);
-                }
-                ThreadCommand::StartSearch(ctx) => run_search(&ctx, &mut data),
+                ThreadCommand::StartSearch(shared, ctx) => run_search(shared, &ctx, &mut data),
                 ThreadCommand::Clear => {
                     data.corrhist.clear();
                     data.history.clear();
                     data.killers.fill(Default::default());
                 }
-                ThreadCommand::Quit => return,
+                ThreadCommand::Quit => break,
             }
         }
     }
@@ -774,7 +770,7 @@ impl Searcher {
             self.key_history.clone(),
         );
 
-        self.sender.send(ThreadCommand::StartSearch(ctx));
+        self.sender.send(ThreadCommand::StartSearch(self.shared_ctx.clone(), ctx));
     }
 
     pub fn stop(&mut self) {
@@ -785,7 +781,7 @@ impl Searcher {
         self.shared_ctx.is_searching()
     }
 
-    pub fn kill_threads(&mut self) {
+    fn kill_threads(&mut self) {
         self.stop();
         if !self.threads.is_empty() {
             self.sender.send(ThreadCommand::Quit);
@@ -797,13 +793,8 @@ impl Searcher {
     where
         F: Fn(&mut SharedContext),
     {
-        self.sender.send(ThreadCommand::DropSharedCtx);
-        {
-            let ctx = Arc::get_mut(&mut self.shared_ctx).unwrap();
-            func(ctx);
-        }
-        self.sender
-            .send(ThreadCommand::SetSharedCtx(self.shared_ctx.clone()));
+        let ctx = Arc::get_mut(&mut self.shared_ctx).unwrap();
+        func(ctx);
     }
 
     pub fn reset(&mut self) {
@@ -818,6 +809,34 @@ impl Searcher {
         self.modify_shared_ctx(|ctx| {
             ctx.tt.resize(size_mib);
         });
+    }
+
+    pub fn set_threads(&mut self, count: u32) {
+        self.kill_threads();
+
+        self.threads.reserve(count as usize);
+
+        let (sender, mut receiver) = channel(count);
+
+        for id in 0..count {
+            let thread = thread::spawn({
+                let receiver = receiver.next().unwrap();
+                move || {
+                    if std::panic::catch_unwind(move || {
+                        Self::run_thread(id, receiver);
+                    })
+                        .is_err()
+                    {
+                        std::process::exit(-1);
+                    }
+                }
+            });
+            self.threads.push(thread);
+        }
+
+        self.sender = sender;
+
+        self.sender.send(ThreadCommand::Ping);
     }
 
     fn init_root_moves(&mut self, root_pos: &Position) {

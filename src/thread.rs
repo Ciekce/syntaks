@@ -194,7 +194,7 @@ pub struct ThreadData {
 }
 
 impl ThreadData {
-    pub fn new(id: u32, shared: Arc<SharedContext>) -> Self {
+    pub fn new(id: u32) -> Self {
         Self {
             id,
             key_history: Vec::with_capacity(1024),
@@ -207,7 +207,7 @@ impl ThreadData {
             corrhist: CorrectionHistory::boxed(),
             history: History::boxed(),
             killers: [Default::default(); MAX_PLY as usize],
-            shared: Some(shared),
+            shared: None,
         }
     }
 
