@@ -8,4 +8,5 @@ pext = []
 
 [dependencies]
 arrayvec = "0.7.6"
+atomic-wait = "1.1.0"
 static_init = "1.0.4"

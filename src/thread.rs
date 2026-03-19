@@ -21,6 +21,9 @@
  * SOFTWARE.
  */
 
+use crate::limit::Limits;
+use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable};
+use crate::util::counter::Counter;
 use crate::{
     board::Position,
     correction::CorrectionHistory,
@@ -29,6 +32,135 @@ use crate::{
     search::{MAX_PLY, SCORE_INF, Score},
     takmove::Move,
 };
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::time::Instant;
+
+pub struct SearcherCount {
+    count: AtomicU32,
+}
+
+impl SearcherCount {
+    fn new() -> Self {
+        Self {
+            count: AtomicU32::new(0),
+        }
+    }
+
+    fn start(&self) {
+        self.count.store(1, Ordering::Relaxed);
+    }
+
+    pub fn register_thread(&self) {
+        self.count.fetch_add(1, Ordering::Release);
+    }
+
+    pub fn unregister_thread(&self) {
+        let remaining = self.count.fetch_sub(1, Ordering::AcqRel);
+        if remaining == 2 {
+            atomic_wait::wake_all(&self.count);
+        }
+    }
+
+    pub fn unregister_and_wait(&self) {
+        let remaining = self.count.fetch_sub(1, Ordering::AcqRel);
+        if remaining > 2 {
+            let mut count = self.count.load(Ordering::Acquire);
+            while count > 1 {
+                atomic_wait::wait(&self.count, count);
+                count = self.count.load(Ordering::Acquire);
+            }
+        }
+    }
+
+    pub fn complete_search(&self) {
+        let count = self.count.fetch_sub(1, Ordering::AcqRel);
+        assert_eq!(count, 1);
+    }
+}
+
+pub struct SharedContext {
+    pub tt: TranspositionTable,
+    start_time: Instant,
+    limits: Limits,
+    stopped: AtomicBool,
+    counter: Arc<SearcherCount>,
+    nodes: Counter,
+}
+
+impl SharedContext {
+    pub fn new() -> Self {
+        let time = Instant::now();
+        Self {
+            tt: TranspositionTable::new(DEFAULT_TT_SIZE_MIB),
+            start_time: time,
+            limits: Limits::new(time),
+            stopped: AtomicBool::new(false),
+            counter: Arc::new(SearcherCount::new()),
+            nodes: Counter::new(1),
+        }
+    }
+
+    pub fn set_threads(&mut self, threads: u32) {
+        self.nodes.resize(threads as usize);
+    }
+
+    pub fn init_search(&mut self, start_time: Instant, limits: Limits) {
+        self.start_time = start_time;
+        self.limits = limits;
+        self.stopped.store(false, Ordering::Relaxed);
+        self.counter.start();
+        self.nodes.reset();
+    }
+
+    pub fn get_counter(&self) -> Arc<SearcherCount> {
+        self.counter.clone()
+    }
+
+    pub fn is_searching(&self) -> bool {
+        self.counter.count.load(Ordering::Relaxed) > 0
+    }
+
+    pub fn check_stop_soft(&self, nodes: usize, best_move_nodes_fraction: f64) -> bool {
+        if self
+            .limits
+            .should_stop_soft(nodes, best_move_nodes_fraction)
+        {
+            self.stopped.store(true, Ordering::Relaxed);
+            return true;
+        }
+
+        false
+    }
+
+    pub fn check_stop_hard(&self, nodes: usize) -> bool {
+        if self.limits.should_stop_hard(nodes) {
+            self.stopped.store(true, Ordering::Relaxed);
+            return true;
+        }
+
+        false
+    }
+
+    #[must_use]
+    pub fn total_nodes(&self) -> usize {
+        self.nodes.total()
+    }
+
+    #[must_use]
+    pub fn elapsed(&self) -> f64 {
+        self.start_time.elapsed().as_secs_f64()
+    }
+
+    pub fn stop(&self) {
+        self.stopped.store(true, Ordering::Relaxed);
+    }
+
+    #[must_use]
+    pub fn has_stopped(&self) -> bool {
+        self.stopped.load(Ordering::Relaxed)
+    }
+}
 
 pub type PvList = arrayvec::ArrayVec<Move, { MAX_PLY as usize }>;
 
@@ -83,15 +215,14 @@ pub struct ThreadData {
     pub id: u32,
     pub key_history: Vec<u64>,
     pub root_depth: i32,
-    pub max_depth: i32,
     pub seldepth: i32,
-    pub nodes: usize,
     pub pv_idx: usize,
     pub root_moves: Vec<RootMove>,
     pub stack: Vec<StackEntry>,
-    pub corrhist: CorrectionHistory,
-    pub history: History,
+    pub corrhist: Box<CorrectionHistory>,
+    pub history: Box<History>,
     pub killers: [KillerTable; MAX_PLY as usize],
+    pub shared: Option<Arc<SharedContext>>,
 }
 
 impl ThreadData {
@@ -100,15 +231,14 @@ impl ThreadData {
             id,
             key_history: Vec::with_capacity(1024),
             root_depth: 0,
-            max_depth: 0,
             seldepth: 0,
-            nodes: 0,
             pv_idx: 0,
             root_moves: Vec::with_capacity(1024),
             stack: vec![StackEntry::default(); MAX_PLY as usize + 1],
-            corrhist: CorrectionHistory::new(),
-            history: History::new(),
+            corrhist: CorrectionHistory::boxed(),
+            history: History::boxed(),
             killers: [Default::default(); MAX_PLY as usize],
+            shared: None,
         }
     }
 
@@ -116,8 +246,16 @@ impl ThreadData {
         self.id == 0
     }
 
+    pub fn shared(&self) -> &SharedContext {
+        self.shared.as_deref().unwrap()
+    }
+
     pub fn inc_nodes(&mut self) {
-        self.nodes += 1;
+        self.shared().nodes.increment(self.id as usize);
+    }
+
+    pub fn nodes(&self) -> usize {
+        self.shared().nodes.get(self.id as usize)
     }
 
     pub fn reset_seldepth(&mut self) {
@@ -205,13 +343,5 @@ impl ThreadData {
     #[must_use]
     pub fn pv_move(&self) -> &RootMove {
         &self.root_moves[0]
-    }
-
-    pub fn reset(&mut self, key_history: &[u64]) {
-        self.key_history.clear();
-        self.key_history
-            .reserve(key_history.len() + MAX_PLY as usize);
-
-        self.key_history.extend_from_slice(key_history);
     }
 }

@@ -27,7 +27,7 @@ use crate::eval::static_eval;
 use crate::limit::Limits;
 use crate::perft::{perft, split_perft};
 use crate::search;
-use crate::search::Searcher;
+use crate::search::{MAX_THREADS, Searcher};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
 use std::time::Instant;
 
@@ -90,6 +90,7 @@ impl TeiHandler {
                 "isready" => self.handle_isready(),
                 "position" => self.handle_position(args),
                 "go" => self.handle_go(args, start_time),
+                "stop" => self.handle_stop(),
                 "d" => self.handle_d(),
                 "perft" => self.handle_perft(args),
                 "splitperft" => self.handle_splitperft(args),
@@ -118,6 +119,10 @@ impl TeiHandler {
         );
 
         println!(
+            "option name Threads type spin default 1 min 1 max {}",
+            MAX_THREADS
+        );
+        println!(
             "option name MultiPV type spin default 1 min 1 max {}",
             MAX_MULTIPV
         );
@@ -126,6 +131,11 @@ impl TeiHandler {
     }
 
     fn handle_teinewgame(&mut self, args: &[&str]) {
+        if self.searcher.is_searching() {
+            eprintln!("Search running");
+            return;
+        }
+
         if args.is_empty() {
             println!("info string Missing size, assuming 6x6");
         } else {
@@ -144,6 +154,11 @@ impl TeiHandler {
     }
 
     fn handle_setoption(&mut self, args: &[&str]) {
+        if self.searcher.is_searching() {
+            eprintln!("Search running");
+            return;
+        }
+
         if args.len() < 2 || args[0] != "name" {
             return;
         }
@@ -193,6 +208,12 @@ impl TeiHandler {
                     self.searcher.set_tt_size(size);
                 }
             }
+            "threads" => {
+                if let Ok(threads) = value.parse::<u32>() {
+                    let threads = threads.clamp(1, MAX_THREADS);
+                    self.searcher.set_threads(threads);
+                }
+            }
             "multipv" => {
                 if let Ok(multipv) = value.parse::<usize>() {
                     let multipv = multipv.clamp(1, MAX_MULTIPV);
@@ -208,6 +229,11 @@ impl TeiHandler {
     }
 
     fn handle_position(&mut self, args: &[&str]) {
+        if self.searcher.is_searching() {
+            eprintln!("Search running");
+            return;
+        }
+
         if args.is_empty() {
             return;
         }
@@ -270,6 +296,11 @@ impl TeiHandler {
     }
 
     fn handle_go(&mut self, args: &[&str], start_time: Instant) {
+        if self.searcher.is_searching() {
+            eprintln!("Search running");
+            return;
+        }
+
         let mut limits = Limits::new(start_time);
         let mut max_depth = None;
 
@@ -396,6 +427,10 @@ impl TeiHandler {
             max_depth,
             &self.options,
         );
+    }
+
+    fn handle_stop(&mut self) {
+        self.searcher.stop();
     }
 
     fn handle_d(&self) {

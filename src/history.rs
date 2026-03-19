@@ -54,6 +54,10 @@ struct CombinedHist {
 
 impl CombinedHist {
     const ENTRIES: usize = 1 << Move::TOTAL_BITS;
+
+    fn clear(&mut self) {
+        self.entries.fill(Default::default());
+    }
 }
 
 impl Default for CombinedHist {
@@ -81,6 +85,12 @@ impl IndexMut<Move> for CombinedHist {
 #[derive(Copy, Clone)]
 struct ConthistSubTable {
     entries: [Entry; ConthistTable::ENTRIES],
+}
+
+impl ConthistSubTable {
+    fn clear(&mut self) {
+        self.entries.fill(Default::default());
+    }
 }
 
 impl Default for ConthistSubTable {
@@ -124,6 +134,12 @@ impl ConthistTable {
         };
         type_idx * Square::COUNT + mv.sq().idx()
     }
+
+    fn clear(&mut self) {
+        for subtable in self.entries.iter_mut() {
+            subtable.clear();
+        }
+    }
 }
 
 impl Default for ConthistTable {
@@ -154,6 +170,13 @@ struct SidedTables {
     conthist: ConthistTable,
 }
 
+impl SidedTables {
+    fn clear(&mut self) {
+        self.hist.clear();
+        self.conthist.clear();
+    }
+}
+
 pub struct History {
     tables: [SidedTables; Player::COUNT],
 }
@@ -162,14 +185,16 @@ impl History {
     const MAX_BONUS: i32 = Entry::LIMIT / 4;
 
     #[must_use]
-    pub fn new() -> Self {
-        Self {
-            tables: Default::default(),
-        }
+    pub fn boxed() -> Box<Self> {
+        //SAFETY: history tables are all just u16s,
+        // for which all-zeroes is a valid bitpattern
+        unsafe { Box::new_zeroed().assume_init() }
     }
 
     pub fn clear(&mut self) {
-        self.tables = Default::default();
+        for table in self.tables.iter_mut() {
+            table.clear();
+        }
     }
 
     pub fn update(&mut self, pos: &Position, mv: Move, prev: Option<Move>, bonus: i32) {
