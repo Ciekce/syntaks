@@ -488,6 +488,8 @@ fn run_search(ctx: &SearchContext, thread: &mut ThreadData) {
     thread.key_history.reserve(ctx.key_history.len());
     thread.key_history.extend_from_slice(&ctx.key_history);
 
+    thread.shared().register_thread();
+
     thread.nodes = 0;
     thread.root_depth = 1;
 
@@ -577,8 +579,14 @@ fn run_search(ctx: &SearchContext, thread: &mut ThreadData) {
     }
 
     if thread.is_main_thread() {
+        thread.shared().unregister_and_wait();
+
         let time = thread.shared().elapsed();
         final_report(thread, thread.root_depth, time, ctx.multipv);
+
+        thread.shared().complete_search();
+    } else {
+        thread.shared().unregister_thread();
     }
 }
 
@@ -742,7 +750,7 @@ impl Searcher {
         options: &TeiOptions,
     ) {
         self.modify_shared_ctx(|ctx| {
-            ctx.init_for_search(start_time, limits);
+            ctx.init_search(start_time, limits);
         });
 
         self.init_root_moves(pos);
@@ -771,6 +779,10 @@ impl Searcher {
 
     pub fn stop(&mut self) {
         self.shared_ctx.stop();
+    }
+
+    pub fn is_searching(&self) -> bool {
+        self.shared_ctx.is_searching()
     }
 
     pub fn kill_threads(&mut self) {

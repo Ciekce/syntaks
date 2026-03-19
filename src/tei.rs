@@ -127,6 +127,11 @@ impl TeiHandler {
     }
 
     fn handle_teinewgame(&mut self, args: &[&str]) {
+        if self.searcher.is_searching() {
+            eprintln!("Search running");
+            return;
+        }
+
         if args.is_empty() {
             println!("info string Missing size, assuming 6x6");
         } else {
@@ -145,6 +150,11 @@ impl TeiHandler {
     }
 
     fn handle_setoption(&mut self, args: &[&str]) {
+        if self.searcher.is_searching() {
+            eprintln!("Search running");
+            return;
+        }
+
         if args.len() < 2 || args[0] != "name" {
             return;
         }
@@ -209,6 +219,11 @@ impl TeiHandler {
     }
 
     fn handle_position(&mut self, args: &[&str]) {
+        if self.searcher.is_searching() {
+            eprintln!("Search running");
+            return;
+        }
+
         if args.is_empty() {
             return;
         }
@@ -271,6 +286,11 @@ impl TeiHandler {
     }
 
     fn handle_go(&mut self, args: &[&str], start_time: Instant) {
+        if self.searcher.is_searching() {
+            eprintln!("Search running");
+            return;
+        }
+
         let mut limits = Limits::new(start_time);
         let mut max_depth = None;
 

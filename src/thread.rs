@@ -32,14 +32,15 @@ use crate::{
     takmove::Move,
 };
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Instant;
 
 pub struct SharedContext {
     pub tt: TranspositionTable,
-    stopped: AtomicBool,
     start_time: Instant,
     limits: Limits,
+    stopped: AtomicBool,
+    searching_count: AtomicU32,
 }
 
 impl SharedContext {
@@ -47,16 +48,49 @@ impl SharedContext {
         let time = Instant::now();
         Self {
             tt: TranspositionTable::new(DEFAULT_TT_SIZE_MIB),
-            stopped: AtomicBool::new(false),
             start_time: time,
             limits: Limits::new(time),
+            stopped: AtomicBool::new(false),
+            searching_count: AtomicU32::new(0),
         }
     }
 
-    pub fn init_for_search(&mut self, start_time: Instant, limits: Limits) {
+    pub fn init_search(&mut self, start_time: Instant, limits: Limits) {
         self.start_time = start_time;
         self.limits = limits;
-        self.stopped.store(false, Ordering::SeqCst);
+        self.stopped.store(false, Ordering::Relaxed);
+        self.searching_count.store(1, Ordering::Relaxed);
+    }
+
+    pub fn register_thread(&self) {
+        self.searching_count.fetch_add(1, Ordering::Release);
+    }
+
+    pub fn unregister_thread(&self) {
+        let remaining = self.searching_count.fetch_sub(1, Ordering::AcqRel);
+        if remaining == 2 {
+            atomic_wait::wake_all(&self.searching_count);
+        }
+    }
+
+    pub fn unregister_and_wait(&self) {
+        let remaining = self.searching_count.fetch_sub(1, Ordering::AcqRel);
+        if remaining > 2 {
+            let mut count = self.searching_count.load(Ordering::Acquire);
+            while count > 1 {
+                atomic_wait::wait(&self.searching_count, count);
+                count = self.searching_count.load(Ordering::Acquire);
+            }
+        }
+    }
+
+    pub fn complete_search(&self) {
+        let count = self.searching_count.fetch_sub(1, Ordering::AcqRel);
+        assert_eq!(count, 1);
+    }
+
+    pub fn is_searching(&self) -> bool {
+        self.searching_count.load(Ordering::Relaxed) > 0
     }
 
     pub fn check_stop_soft(&self, nodes: usize, best_move_nodes_fraction: f64) -> bool {
