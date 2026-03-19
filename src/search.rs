@@ -477,14 +477,16 @@ fn search<NT: NodeType>(
 }
 
 fn run_search(ctx: &SearchContext, thread: &mut ThreadData) {
-    {
-        thread.root_moves.clear();
-        thread.root_moves.reserve(ctx.root_moves.len());
+    thread.root_moves.clear();
+    thread.root_moves.reserve(ctx.root_moves.len());
 
-        for mv in ctx.root_moves.iter() {
-            thread.root_moves.push(mv.clone());
-        }
+    for mv in ctx.root_moves.iter() {
+        thread.root_moves.push(mv.clone());
     }
+
+    thread.key_history.clear();
+    thread.key_history.reserve(ctx.key_history.len());
+    thread.key_history.extend_from_slice(&ctx.key_history);
 
     thread.nodes = 0;
     thread.root_depth = 1;
