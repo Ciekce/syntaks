@@ -91,6 +91,7 @@ impl TeiHandler {
                 "position" => self.handle_position(args),
                 "go" => self.handle_go(args, start_time),
                 "stop" => self.handle_stop(),
+                "wait" => self.handle_wait(),
                 "d" => self.handle_d(),
                 "perft" => self.handle_perft(args),
                 "splitperft" => self.handle_splitperft(args),
@@ -122,6 +123,7 @@ impl TeiHandler {
             "option name Threads type spin default 1 min 1 max {}",
             MAX_THREADS
         );
+
         println!(
             "option name MultiPV type spin default 1 min 1 max {}",
             MAX_MULTIPV
@@ -431,6 +433,10 @@ impl TeiHandler {
 
     fn handle_stop(&mut self) {
         self.searcher.stop();
+    }
+
+    fn handle_wait(&mut self) {
+        self.searcher.wait();
     }
 
     fn handle_d(&self) {

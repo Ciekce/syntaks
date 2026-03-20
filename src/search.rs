@@ -785,6 +785,10 @@ impl Searcher {
         self.shared_ctx.is_searching()
     }
 
+    pub fn wait(&self) {
+        self.shared_ctx.get_counter().wait();
+    }
+
     fn kill_threads(&mut self) {
         self.stop();
         if !self.threads.is_empty() {

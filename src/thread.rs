@@ -65,17 +65,26 @@ impl SearcherCount {
     pub fn unregister_and_wait(&self) {
         let remaining = self.count.fetch_sub(1, Ordering::AcqRel);
         if remaining > 2 {
-            let mut count = self.count.load(Ordering::Acquire);
-            while count > 1 {
-                atomic_wait::wait(&self.count, count);
-                count = self.count.load(Ordering::Acquire);
-            }
+            self.wait_for(1);
         }
     }
 
     pub fn complete_search(&self) {
         let count = self.count.fetch_sub(1, Ordering::AcqRel);
         assert_eq!(count, 1);
+        atomic_wait::wake_all(&self.count);
+    }
+
+    pub fn wait(&self) {
+        self.wait_for(0);
+    }
+
+    fn wait_for(&self, target: u32) {
+        let mut count = self.count.load(Ordering::Acquire);
+        while count > target {
+            atomic_wait::wait(&self.count, count);
+            count = self.count.load(Ordering::Acquire);
+        }
     }
 }
 
