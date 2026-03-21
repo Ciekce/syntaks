@@ -282,8 +282,8 @@ impl ThreadData {
             .any(|root_move| root_move.pv[0] == mv)
     }
 
-    pub fn sort_root_moves(&mut self) {
-        self.root_moves.sort_by(|a, b| b.score.cmp(&a.score));
+    pub fn sort_searched_root_moves(&mut self) {
+        self.root_moves[..=self.pv_idx].sort_by(|a, b| b.score.cmp(&a.score));
     }
 
     pub fn sort_remaining_root_moves(&mut self) {

@@ -48,6 +48,9 @@ pub const SCORE_MAX_MATE: Score = SCORE_MATE - MAX_PLY as Score;
 
 pub const MAX_PLY: i32 = 255;
 
+const WIDEN_REPORT_DELAY: f64 = 1.0;
+const VERBOSE_MULTIPV_DELAY: f64 = 1.0;
+
 #[derive(Clone, Debug)]
 pub struct SearchContext {
     max_depth: i32,
@@ -497,10 +500,10 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
 
     counter.register_thread();
 
-    thread.root_depth = 1;
-
     let mut movelists = vec![Vec::with_capacity(256); MAX_PLY as usize];
     let mut pvs = vec![PvList::new(); MAX_PLY as usize];
+
+    thread.root_depth = 1;
 
     loop {
         for root_move in thread.root_moves.iter_mut() {
@@ -508,7 +511,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
         }
 
         thread.pv_idx = 0;
-        while !thread.shared().has_stopped() && thread.pv_idx < ctx.multipv {
+        while thread.pv_idx < ctx.multipv {
             thread.reset_seldepth();
 
             let mut delta = 25;
@@ -556,29 +559,44 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                 }
             }
 
-            thread.sort_root_moves();
+            thread.sort_searched_root_moves();
+
+            if thread.is_main_thread() {
+                let last_pv = thread.pv_idx + 1 == ctx.multipv;
+
+                if last_pv
+                    && !thread.shared().has_stopped()
+                    && (thread.root_depth >= ctx.max_depth
+                        || thread.shared().check_stop_soft(
+                            thread.nodes(),
+                            thread.pv_move().nodes as f64 / (thread.nodes() as f64),
+                        ))
+                {
+                    thread.shared().stop();
+                }
+
+                if last_pv
+                    || thread.shared().has_stopped()
+                    || thread.shared().elapsed() >= VERBOSE_MULTIPV_DELAY
+                {
+                    report(
+                        thread,
+                        thread.root_depth,
+                        thread.shared().elapsed(),
+                        ctx.multipv,
+                    );
+                }
+            }
+
+            if thread.shared().has_stopped() {
+                break;
+            }
 
             thread.pv_idx += 1;
         }
 
         if thread.shared().has_stopped() {
             break;
-        }
-
-        if thread.root_depth >= ctx.max_depth {
-            break;
-        }
-
-        if thread.is_main_thread() {
-            if thread.shared().check_stop_soft(
-                thread.nodes(),
-                thread.pv_move().nodes as f64 / (thread.nodes() as f64),
-            ) {
-                break;
-            }
-
-            let time = thread.shared().elapsed();
-            report(thread, thread.root_depth, time, ctx.multipv);
         }
 
         thread.root_depth += 1;
@@ -667,14 +685,10 @@ fn report(thread: &ThreadData, depth: i32, time: f64, multipv: usize) {
     }
 }
 
-fn final_report(thread: &ThreadData, depth: i32, time: f64, multipv: usize) {
-    report(thread, depth, time, multipv);
-
+fn final_report(thread: &ThreadData, _depth: i32, _time: f64, _multipv: usize) {
     let mv = thread.pv_move().mv();
     println!("bestmove {}", mv);
 }
-
-const WIDEN_REPORT_DELAY: f64 = 1.0;
 
 #[derive(Clone)]
 enum ThreadCommand {
