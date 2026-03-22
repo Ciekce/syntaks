@@ -206,11 +206,22 @@ fn search<NT: NodeType>(
     let correction = thread.corrhist.correction(pos);
     let static_eval = raw_eval + correction;
 
+    let eval = if match tt_entry.flag {
+        None => false,
+        Some(TtFlag::UpperBound) => tt_entry.score < static_eval,
+        Some(TtFlag::LowerBound) => tt_entry.score > static_eval,
+        Some(TtFlag::Exact) => true,
+    } {
+        tt_entry.score
+    } else {
+        static_eval
+    };
+
     if !NT::PV_NODE {
         // reverse futility pruning (rfp)
         let rfp_margin = 100 * depth + 100 - (expected_cutnode as i32 * 50);
-        if depth <= 6 && static_eval - rfp_margin >= beta {
-            return static_eval;
+        if depth <= 6 && eval - rfp_margin >= beta {
+            return eval;
         }
 
         // nullmove pruning (nmp)
