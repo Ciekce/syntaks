@@ -514,7 +514,8 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                 if thread.is_main_thread() && !thread.shared().options.minimal && ctx.multipv == 1 {
                     let time = thread.shared().elapsed();
                     if time >= WIDEN_REPORT_DELAY {
-                        report_single(thread, thread.root_depth, time, ctx.multipv, thread.pv_idx);
+                        let nodes = thread.shared().total_nodes();
+                        report_single(thread, thread.root_depth, time, nodes, ctx.multipv, thread.pv_idx);
                     }
                 }
 
@@ -577,7 +578,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
     }
 }
 
-fn report_single(thread: &ThreadData, depth: i32, time: f64, multipv: usize, pv_idx: usize) -> bool {
+fn report_single(thread: &ThreadData, depth: i32, time: f64, nodes: usize, multipv: usize, pv_idx: usize) -> bool {
     let root_move = &thread.root_moves[pv_idx];
 
     let (depth, score) = if root_move.score == -SCORE_INF {
@@ -593,8 +594,6 @@ fn report_single(thread: &ThreadData, depth: i32, time: f64, multipv: usize, pv_
 
     assert_ne!(depth, 0);
     assert_ne!(score, -SCORE_INF);
-
-    let nodes = thread.shared().total_nodes();
 
     let ms = (time * 1000.0) as usize;
     let nps = ((nodes as f64) / time) as usize;
@@ -648,8 +647,9 @@ fn report_single(thread: &ThreadData, depth: i32, time: f64, multipv: usize, pv_
 }
 
 fn report(thread: &ThreadData, depth: i32, time: f64, multipv: usize) {
+    let nodes = thread.shared().total_nodes();
     for pv_idx in 0..multipv {
-        if !report_single(thread, depth, time, multipv, pv_idx) {
+        if !report_single(thread, depth, time, nodes, multipv, pv_idx) {
             break;
         }
     }
