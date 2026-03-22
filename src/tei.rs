@@ -317,6 +317,8 @@ impl TeiHandler {
         let mut winc = None;
         let mut binc = None;
 
+        let mut moves_to_search = Vec::new();
+
         let mut i = 0;
         while i < args.len() {
             let limit_str = args[i];
@@ -403,6 +405,26 @@ impl TeiHandler {
                         return;
                     }
                 }
+                "searchmoves" => {
+                    while i + 1 < args.len() {
+                        let candidate = args[i + 1];
+                        if let Ok(mv) = candidate.parse() {
+                            if moves_to_search.contains(&mv) {
+                                continue;
+                            }
+
+                            if !self.pos.is_legal(mv) {
+                                println!("info string searchmoves: Skipping illegal move '{}'", mv);
+                            }
+
+                            moves_to_search.push(mv);
+
+                            i += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                }
                 unsupported => eprintln!("Unsupported limit '{}'", unsupported),
             }
 
@@ -431,6 +453,7 @@ impl TeiHandler {
             start_time,
             limits,
             max_depth,
+            &moves_to_search,
             &self.options,
         );
     }

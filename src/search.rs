@@ -723,6 +723,7 @@ impl Searcher {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn start_search(
         &mut self,
         pos: &Position,
@@ -730,13 +731,14 @@ impl Searcher {
         start_time: Instant,
         limits: Limits,
         max_depth: i32,
+        moves_to_search: &[Move],
         options: &TeiOptions,
     ) {
         self.modify_shared_ctx(|ctx| {
             ctx.init_search(options, start_time, limits);
         });
 
-        self.init_root_moves(pos);
+        self.init_root_moves(pos, moves_to_search);
 
         {
             let key_history = Arc::get_mut(&mut self.key_history).unwrap();
@@ -835,10 +837,22 @@ impl Searcher {
         self.sender.send(ThreadCommand::Ping);
     }
 
-    fn init_root_moves(&mut self, root_pos: &Position) {
+    fn init_root_moves(&mut self, root_pos: &Position, moves_to_search: &[Move]) {
         let root_moves = Arc::get_mut(&mut self.root_moves).unwrap();
 
         root_moves.clear();
+
+        if !moves_to_search.is_empty() {
+            print!("info string searchmoves:");
+            for &mv in moves_to_search {
+                assert!(root_pos.is_legal(mv));
+                print!(" {}", mv);
+                let root_move = RootMove::new(mv);
+                root_moves.push(root_move);
+            }
+            println!();
+            return;
+        }
 
         let mut new_root_moves = Vec::with_capacity(1024);
         generate_moves(&mut new_root_moves, root_pos);
@@ -847,8 +861,7 @@ impl Searcher {
         root_moves.reserve(new_root_moves.len());
 
         for mv in new_root_moves {
-            let mut root_move = RootMove::default();
-            root_move.pv.push(mv);
+            let root_move = RootMove::new(mv);
             root_moves.push(root_move);
         }
     }

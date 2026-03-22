@@ -196,14 +196,8 @@ pub struct RootMove {
 
 impl RootMove {
     #[must_use]
-    pub fn mv(&self) -> Move {
-        self.pv[0]
-    }
-}
-
-impl Default for RootMove {
-    fn default() -> Self {
-        Self {
+    pub fn new(mv: Move) -> Self {
+        let mut result = Self {
             score: -SCORE_INF,
             window_score: -SCORE_INF,
             display_score: -SCORE_INF,
@@ -213,7 +207,14 @@ impl Default for RootMove {
             seldepth: 0,
             pv: PvList::new(),
             nodes: 0,
-        }
+        };
+        result.pv.push(mv);
+        result
+    }
+
+    #[must_use]
+    pub fn mv(&self) -> Move {
+        self.pv[0]
     }
 }
 
