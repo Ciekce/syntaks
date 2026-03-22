@@ -288,6 +288,10 @@ impl TeiHandler {
         for &move_str in &args[(next + 1)..] {
             match move_str.parse() {
                 Ok(mv) => {
+                    if !self.pos.is_legal(mv) {
+                        eprintln!("Illegal move '{}'", mv);
+                        return;
+                    }
                     self.key_history.push(self.pos.key());
                     self.pos = self.pos.apply_move(mv);
                 }
