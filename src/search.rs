@@ -44,10 +44,8 @@ pub type Score = i32;
 pub const SCORE_INF: Score = 32767;
 pub const SCORE_MATE: Score = SCORE_INF - 1;
 pub const SCORE_WIN: Score = 25000;
-pub const SCORE_MAX_MATE: Score = SCORE_MATE - MAX_PLY as Score;
 
 pub const MAX_DEPTH: i32 = 255;
-pub const MAX_PLY: i32 = MAX_DEPTH + 1;
 
 const WIDEN_REPORT_DELAY: f64 = 1.0;
 const VERBOSE_MULTIPV_DELAY: f64 = 1.0;
@@ -618,7 +616,7 @@ fn report_single(thread: &ThreadData, depth: i32, time: f64, nodes: usize, multi
         depth, root_move.seldepth, ms, nodes, nps
     );
 
-    if score.abs() >= SCORE_MAX_MATE {
+    if score.abs() > SCORE_WIN {
         print!(
             "mate {}",
             if score > 0 {
