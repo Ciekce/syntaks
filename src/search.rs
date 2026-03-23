@@ -815,16 +815,19 @@ impl Searcher {
     }
 
     pub fn reset(&mut self) {
+        let thread_count = self.threads.len();
+
         self.modify_shared_ctx(|ctx| {
-            ctx.tt.clear();
+            ctx.tt.clear(thread_count);
         });
 
         self.sender.send(ThreadCommand::Clear);
     }
 
     pub fn set_tt_size(&mut self, size_mib: usize) {
+        let thread_count = self.threads.len();
         self.modify_shared_ctx(|ctx| {
-            ctx.tt.resize(size_mib);
+            ctx.tt.resize(size_mib, thread_count);
         });
     }
 

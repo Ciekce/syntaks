@@ -24,6 +24,7 @@
 use crate::search::{SCORE_WIN, Score};
 use crate::takmove::Move;
 use std::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
+use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const DEFAULT_TT_SIZE_MIB: usize = 64;
@@ -54,12 +55,6 @@ struct EntryStorage {
 }
 
 impl EntryStorage {
-    fn new() -> Self {
-        Self {
-            storage: AtomicU64::new(0),
-        }
-    }
-
     fn load(&self) -> Entry {
         let value = self.storage.load(Ordering::Relaxed);
         unsafe { std::mem::transmute::<u64, Entry>(value) }
@@ -68,10 +63,6 @@ impl EntryStorage {
     fn store(&self, entry: Entry) {
         let value = unsafe { std::mem::transmute::<Entry, u64>(entry) };
         self.storage.store(value, Ordering::Relaxed);
-    }
-
-    fn clear(&self) {
-        self.storage.store(0, Ordering::Relaxed);
     }
 }
 
@@ -116,11 +107,37 @@ fn score_from_tt(score: i16, ply: i32) -> Score {
     }
 }
 
+//SAFETY: all-zeroes must be a valid bit pattern for T, and [ptr, ptr+len) must be in bounds
+unsafe fn clear_threaded<T: Send>(ptr: *mut MaybeUninit<T>, len: usize, threads: usize) {
+    assert!(threads > 0);
+
+    if len == 0 {
+        return;
+    }
+
+    let threads = threads.min(len);
+    let slice = unsafe { std::slice::from_raw_parts_mut(ptr, len) };
+
+    if threads == 1 {
+        unsafe { slice.as_mut_ptr().write_bytes(0, slice.len()) };
+        return;
+    }
+
+    let chunk_count = len.div_ceil(threads);
+
+    std::thread::scope(|s| {
+        for chunk in slice.chunks_mut(chunk_count) {
+            s.spawn(|| unsafe { chunk.as_mut_ptr().write_bytes(0, chunk.len()) });
+        }
+    });
+}
+
 pub struct TranspositionTable {
     entries: Vec<EntryStorage>,
 }
 
 impl TranspositionTable {
+    #[must_use]
     pub fn new(size_mib: usize) -> TranspositionTable {
         assert!(size_mib > 0);
 
@@ -128,19 +145,27 @@ impl TranspositionTable {
             entries: Vec::default(),
         };
 
-        result.resize(size_mib);
+        result.resize(size_mib, 1);
 
         result
     }
 
-    pub fn resize(&mut self, size_mib: usize) {
-        self.entries.clear();
-        self.entries.shrink_to_fit();
+    pub fn resize(&mut self, size_mib: usize, threads: usize) {
+        assert!(size_mib > 0);
+        assert!(threads > 0);
+
+        // ensure the entire old TT is deallocated
+        self.entries = Vec::new();
 
         let entry_count = calc_entry_count(size_mib);
-        self.entries.resize_with(entry_count, EntryStorage::new);
+        self.entries = Vec::with_capacity(entry_count);
 
-        self.clear();
+        unsafe {
+            //SAFETY: all-zeroes is a valid bitpattern for EntryStorage, and the range is fully in bounds
+            clear_threaded::<EntryStorage>(self.entries.as_mut_ptr().cast(), entry_count, threads);
+            //SAFETY: we just initialised these values
+            self.entries.set_len(entry_count);
+        }
     }
 
     pub fn prefetch(&self, key: u64) {
@@ -154,6 +179,7 @@ impl TranspositionTable {
         }
     }
 
+    #[must_use]
     pub fn probe(&self, key: u64, ply: i32) -> (bool, ProbedEntry) {
         let idx = self.calc_index(key);
         let entry_key = pack_entry_key(key);
@@ -196,12 +222,14 @@ impl TranspositionTable {
         storage.store(entry);
     }
 
-    pub fn clear(&mut self) {
-        for storage in self.entries.iter_mut() {
-            storage.clear();
-        }
+    pub fn clear(&mut self, threads: usize) {
+        assert!(threads > 0);
+
+        //SAFETY: all-zeroes is a valid bitpattern for EntryStorage, and the range is fully in bounds
+        unsafe { clear_threaded::<EntryStorage>(self.entries.as_mut_ptr().cast(), self.entries.len(), threads) };
     }
 
+    #[must_use]
     pub fn estimate_full_permille(&self) -> usize {
         let mut filled = 0;
 
