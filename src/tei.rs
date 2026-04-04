@@ -95,6 +95,7 @@ impl TeiHandler {
                 "position" => self.handle_position(args),
                 "go" => self.handle_go(args, start_time),
                 "stop" => self.handle_stop(),
+                "move" => self.handle_move(args),
                 "wait" => self.handle_wait(),
                 "d" => self.handle_d(),
                 "perft" => self.handle_perft(args),
@@ -460,6 +461,24 @@ impl TeiHandler {
 
     fn handle_stop(&mut self) {
         self.searcher.stop();
+    }
+
+    fn handle_move(&mut self, args: &[&str]) {
+        if args.is_empty() {
+            eprintln!("Missing move");
+        }
+
+        match args[0].parse() {
+            Ok(mv) => {
+                if !self.pos.is_legal(mv) {
+                    eprintln!("Illegal move '{}'", mv);
+                    return;
+                }
+                self.key_history.push(self.pos.key());
+                self.pos = self.pos.apply_move(mv);
+            }
+            Err(err) => eprintln!("Invalid move '{}': {:?}", args[0], err),
+        }
     }
 
     fn handle_wait(&mut self) {
