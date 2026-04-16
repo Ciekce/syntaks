@@ -223,6 +223,7 @@ pub struct StackEntry {
     pub mv: Option<Move>,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum TerminalState {
     Win,
     Draw,

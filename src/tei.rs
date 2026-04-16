@@ -21,7 +21,7 @@
  * SOFTWARE.
  */
 
-use crate::board::Position;
+use crate::board::*;
 use crate::core::Player;
 use crate::eval::static_eval;
 use crate::limit::Limits;
@@ -29,6 +29,7 @@ use crate::perft::{perft, split_perft};
 use crate::search;
 use crate::search::{MAX_THREADS, Searcher};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 const NAME: &str = "syntaks";
@@ -118,16 +119,20 @@ impl TeiHandler {
             "option name HalfKomi type spin default {} min {} max {}",
             half_komi, half_komi, half_komi
         );
-
+        println!(
+            "option name Flats type spin default {} min {} max {}",
+            DEFAULT_FLATS, MIN_FLATS, MAX_FLATS
+        );
+        println!(
+            "option name Caps type spin default {} min {} max {}",
+            DEFAULT_CAPS, MIN_CAPS, MAX_CAPS
+        );
         println!(
             "option name Hash type spin default {} min 1 max {}",
             DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB
         );
-
         println!("option name Threads type spin default 1 min 1 max {}", MAX_THREADS);
-
         println!("option name MultiPV type spin default 1 min 1 max {}", MAX_MULTIPV);
-
         println!("option name Minimal type check default false");
 
         println!("teiok");
@@ -203,6 +208,18 @@ impl TeiHandler {
                     && half_komi != Position::KOMI * 2
                 {
                     eprintln!("Unsupported komi value");
+                }
+            }
+            "flats" => {
+                if let Ok(flats) = value.parse::<u8>() {
+                    let flats = flats.clamp(MIN_FLATS, MAX_FLATS);
+                    FLATS.store(flats, Ordering::Release);
+                }
+            }
+            "caps" => {
+                if let Ok(caps) = value.parse::<u8>() {
+                    let caps = caps.clamp(MIN_CAPS, MAX_CAPS);
+                    CAPS.store(caps, Ordering::Release);
                 }
             }
             "hash" => {

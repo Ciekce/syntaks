@@ -29,6 +29,19 @@ use crate::road::has_road;
 use crate::takmove::Move;
 use std::cmp::Ordering;
 use std::str::FromStr;
+use std::sync::atomic;
+use std::sync::atomic::AtomicU8;
+
+pub const DEFAULT_FLATS: u8 = 30;
+pub const MIN_FLATS: u8 = 2;
+pub const MAX_FLATS: u8 = 36;
+
+pub const DEFAULT_CAPS: u8 = 1;
+pub const MIN_CAPS: u8 = 0;
+pub const MAX_CAPS: u8 = 4;
+
+pub static FLATS: AtomicU8 = AtomicU8::new(DEFAULT_FLATS);
+pub static CAPS: AtomicU8 = AtomicU8::new(DEFAULT_CAPS);
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
 struct Keys {
@@ -242,8 +255,8 @@ impl Position {
             stacks: Stacks::default(),
             players: [Bitboard::empty(); Player::COUNT],
             pieces: [Bitboard::empty(); PieceType::COUNT],
-            flats_in_hand: [30; Player::COUNT],
-            caps_in_hand: [1; Player::COUNT],
+            flats_in_hand: [FLATS.load(atomic::Ordering::Relaxed); Player::COUNT],
+            caps_in_hand: [CAPS.load(atomic::Ordering::Relaxed); Player::COUNT],
             stm: Player::P1,
             ply: 0,
             player_key: 0,
