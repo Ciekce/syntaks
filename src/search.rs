@@ -173,7 +173,7 @@ fn search<NT: NodeType>(
 
     if depth <= 0 {
         let static_eval = static_eval(pos);
-        let correction = thread.corrhist.correction(pos);
+        let correction = thread.corrhist.correction(pos, &thread.key_history);
         return static_eval + correction;
     }
 
@@ -183,7 +183,7 @@ fn search<NT: NodeType>(
 
     if ply > MAX_DEPTH {
         let static_eval = static_eval(pos);
-        let correction = thread.corrhist.correction(pos);
+        let correction = thread.corrhist.correction(pos, &thread.key_history);
         return static_eval + correction;
     }
 
@@ -210,7 +210,7 @@ fn search<NT: NodeType>(
     };
 
     let raw_eval = static_eval(pos);
-    let correction = thread.corrhist.correction(pos);
+    let correction = thread.corrhist.correction(pos, &thread.key_history);
     let static_eval = raw_eval + correction;
 
     if !NT::PV_NODE {
@@ -444,7 +444,9 @@ fn search<NT: NodeType>(
         || (tt_flag == TtFlag::UpperBound && best_score < static_eval)
         || (tt_flag == TtFlag::LowerBound && best_score > static_eval)
     {
-        thread.corrhist.update(pos, depth, best_score, static_eval);
+        thread
+            .corrhist
+            .update(pos, &thread.key_history, depth, best_score, static_eval);
     }
 
     if !NT::ROOT_NODE || thread.pv_idx == 0 {
