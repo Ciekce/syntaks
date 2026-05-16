@@ -220,6 +220,15 @@ fn search<NT: NodeType>(
             return static_eval;
         }
 
+        if depth >= 7 && static_eval >= beta {
+            let r = 1 + depth / 2;
+            let mpc_beta = beta + 128 + 10 * depth;
+            let score = search::<NonPvNode>(thread, data_stack, pos, depth - r, ply, mpc_beta - 1, mpc_beta, true);
+            if score >= mpc_beta {
+                return score;
+            }
+        }
+
         // nullmove pruning (nmp)
         if expected_cutnode && depth >= 4 && static_eval >= beta && thread.stack[ply as usize - 1].mv.is_some() {
             let r = 3 + depth / 4;
