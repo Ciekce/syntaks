@@ -590,10 +590,16 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
 fn report_single(thread: &ThreadData, depth: i32, time: f64, nodes: usize, multipv: usize, pv_idx: usize) -> bool {
     let root_move = &thread.root_moves[pv_idx];
 
-    let (depth, score) = if root_move.score == -SCORE_INF {
-        ((depth - 1).max(1), root_move.previous_score)
+    // previous scores are exact, as the depth was completed
+    let (depth, score, upper_bound, lower_bound) = if root_move.score == -SCORE_INF {
+        ((depth - 1).max(1), root_move.previous_score, false, false)
     } else {
-        (depth, root_move.display_score)
+        (
+            depth,
+            root_move.display_score,
+            root_move.upper_bound,
+            root_move.lower_bound,
+        )
     };
 
     if score == -SCORE_INF {
@@ -628,13 +634,13 @@ fn report_single(thread: &ThreadData, depth: i32, time: f64, nodes: usize, multi
         print!("cp {}", score);
     }
 
-    if root_move.upper_bound {
-        assert!(!root_move.lower_bound);
+    if upper_bound {
+        assert!(!lower_bound);
         print!(" upperbound");
     }
 
-    if root_move.lower_bound {
-        assert!(!root_move.upper_bound);
+    if lower_bound {
+        assert!(!upper_bound);
         print!(" lowerbound");
     }
 
