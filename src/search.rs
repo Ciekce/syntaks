@@ -326,6 +326,7 @@ fn search<NT: NodeType>(
                 }
 
                 r -= thread.history.score(pos, mv, prev_move) / 8;
+                r -= correction * 104858 / 8192;
 
                 r /= 1024;
 
