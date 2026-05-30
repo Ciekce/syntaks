@@ -326,6 +326,7 @@ fn search<NT: NodeType>(
                 }
 
                 r -= thread.history.score(pos, mv, prev_move) / 8;
+                r += 1024 * i32::from(!improving);
 
                 r /= 1024;
 
