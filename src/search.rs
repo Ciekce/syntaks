@@ -30,7 +30,7 @@ use crate::movepick::Movepicker;
 use crate::takmove::Move;
 use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, update_pv};
-use crate::ttable::TtFlag;
+use crate::ttable::{ProbedEntry, TtFlag};
 use crate::util::command_channel::{Receiver, Sender, channel};
 use std::sync::Arc;
 use std::thread;
@@ -189,18 +189,28 @@ fn search<NT: NodeType>(
 
     let depth = depth.min(MAX_DEPTH);
 
-    let (_tt_hit, tt_entry) = thread.shared().tt.probe(pos.key(), ply);
+    let excluded = thread.stack[ply as usize].excluded;
 
-    if !NT::PV_NODE
-        && tt_entry.depth >= depth
-        && match tt_entry.flag {
-            None => unreachable!(),
-            Some(TtFlag::UpperBound) => tt_entry.score <= alpha,
-            Some(TtFlag::LowerBound) => tt_entry.score >= beta,
-            Some(TtFlag::Exact) => true,
+    let _tt_hit;
+    let tt_entry;
+
+    if excluded.is_some() {
+        _tt_hit = false;
+        tt_entry = ProbedEntry::default();
+    } else {
+        (_tt_hit, tt_entry) = thread.shared().tt.probe(pos.key(), ply);
+
+        if !NT::PV_NODE
+            && tt_entry.depth >= depth
+            && match tt_entry.flag {
+                None => unreachable!(),
+                Some(TtFlag::UpperBound) => tt_entry.score <= alpha,
+                Some(TtFlag::LowerBound) => tt_entry.score >= beta,
+                Some(TtFlag::Exact) => true,
+            }
+        {
+            return tt_entry.score;
         }
-    {
-        return tt_entry.score;
     }
 
     let tt_move = if NT::ROOT_NODE && thread.root_depth > 1 {
@@ -217,7 +227,7 @@ fn search<NT: NodeType>(
 
     let improving = ply < 2 || static_eval > thread.stack[ply as usize - 2].static_eval;
 
-    if !NT::PV_NODE {
+    if !NT::PV_NODE && excluded.is_none() {
         // reverse futility pruning (rfp)
         let rfp_margin = (100 * depth + 100 - 50 * i32::from(expected_cutnode) - 100 * i32::from(improving)).max(0);
         if depth <= 6 && static_eval - rfp_margin >= beta {
@@ -281,15 +291,48 @@ fn search<NT: NodeType>(
             continue;
         }
 
+        if Some(mv) == excluded {
+            continue;
+        }
+
         if !NT::ROOT_NODE && best_score > -SCORE_WIN {
             if depth <= 6 && move_count as i32 >= 5 + 2 * depth * depth {
                 break;
             }
         }
 
+        move_count += 1;
+
         let mut extension = 0;
 
-        move_count += 1;
+        if !NT::ROOT_NODE
+            && Some(mv) == tt_move
+            && excluded.is_none()
+            && depth >= 10
+            && tt_entry.depth >= depth - 3
+            && tt_entry.flag != Some(TtFlag::UpperBound)
+            && tt_entry.score.abs() < SCORE_WIN
+        {
+            let s_beta = tt_entry.score - depth * 3;
+            let s_depth = (depth - 1) / 2;
+
+            thread.stack[ply as usize].excluded = Some(mv);
+            let score = search::<NonPvNode>(
+                thread,
+                child_data,
+                pos,
+                s_depth,
+                ply,
+                s_beta - 1,
+                s_beta,
+                expected_cutnode,
+            );
+            thread.stack[ply as usize].excluded = None;
+
+            if score < s_beta {
+                extension += 1;
+            }
+        }
 
         if NT::PV_NODE {
             child_data[0].pv.clear();
@@ -300,7 +343,7 @@ fn search<NT: NodeType>(
 
         let is_crush = mv.is_spread() && pos.stacks().top(mv.spread_dest()) == Some(PieceType::Wall);
 
-        if is_crush {
+        if extension == 0 && is_crush {
             extension += 1;
         }
 
@@ -444,20 +487,22 @@ fn search<NT: NodeType>(
         }
     }
 
-    if tt_flag == TtFlag::Exact
-        || (tt_flag == TtFlag::UpperBound && best_score < static_eval)
-        || (tt_flag == TtFlag::LowerBound && best_score > static_eval)
-    {
-        thread
-            .corrhist
-            .update(pos, &thread.key_history, depth, best_score, static_eval);
-    }
+    if excluded.is_none() {
+        if tt_flag == TtFlag::Exact
+            || (tt_flag == TtFlag::UpperBound && best_score < static_eval)
+            || (tt_flag == TtFlag::LowerBound && best_score > static_eval)
+        {
+            thread
+                .corrhist
+                .update(pos, &thread.key_history, depth, best_score, static_eval);
+        }
 
-    if !NT::ROOT_NODE || thread.pv_idx == 0 {
-        thread
-            .shared()
-            .tt
-            .store(pos.key(), best_score, best_move, depth, ply, tt_flag);
+        if !NT::ROOT_NODE || thread.pv_idx == 0 {
+            thread
+                .shared()
+                .tt
+                .store(pos.key(), best_score, best_move, depth, ply, tt_flag);
+        }
     }
 
     best_score
