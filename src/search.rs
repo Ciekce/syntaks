@@ -213,9 +213,13 @@ fn search<NT: NodeType>(
     let correction = thread.corrhist.correction(pos, &thread.key_history);
     let static_eval = raw_eval + correction;
 
+    thread.stack[ply as usize].static_eval = static_eval;
+
+    let improving = ply < 2 || static_eval > thread.stack[ply as usize - 2].static_eval;
+
     if !NT::PV_NODE {
         // reverse futility pruning (rfp)
-        let rfp_margin = 100 * depth + 100 - (expected_cutnode as i32 * 50);
+        let rfp_margin = (100 * depth + 100 - 50 * i32::from(expected_cutnode) - 100 * i32::from(improving)).max(0);
         if depth <= 6 && static_eval - rfp_margin >= beta {
             return static_eval;
         }

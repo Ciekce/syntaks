@@ -221,6 +221,7 @@ impl RootMove {
 #[derive(Copy, Clone, Debug, Default)]
 pub struct StackEntry {
     pub mv: Option<Move>,
+    pub static_eval: Score,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
