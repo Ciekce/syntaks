@@ -308,12 +308,12 @@ fn search<NT: NodeType>(
         if !NT::ROOT_NODE
             && Some(mv) == tt_move
             && excluded.is_none()
-            && depth >= 10
+            && depth >= 4
             && tt_entry.depth >= depth - 3
             && tt_entry.flag != Some(TtFlag::UpperBound)
             && tt_entry.score.abs() < SCORE_WIN
         {
-            let s_beta = tt_entry.score - depth * 3;
+            let s_beta = tt_entry.score - 2 * depth;
             let s_depth = (depth - 1) / 2;
 
             thread.stack[ply as usize].excluded = Some(mv);
