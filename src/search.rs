@@ -320,12 +320,13 @@ fn search<NT: NodeType>(
             if depth >= 2 && move_count >= 5 + 2 * usize::from(NT::ROOT_NODE) {
                 let mut r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
 
+                r += 1024 * i32::from(!NT::PV_NODE);
+                r -= thread.history.score(pos, mv, prev_move) / 8;
+
                 if mv.is_spread() {
                     let gain = new_pos.fcd(pos.stm()) - pos.fcd(pos.stm());
                     r += (1 - gain).clamp(0, 3) * 1024;
                 }
-
-                r -= thread.history.score(pos, mv, prev_move) / 8;
 
                 r /= 1024;
 
