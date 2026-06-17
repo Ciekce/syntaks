@@ -49,6 +49,7 @@ pub const MAX_DEPTH: i32 = 255;
 
 const WIDEN_REPORT_DELAY: f64 = 1.0;
 const VERBOSE_MULTIPV_DELAY: f64 = 1.0;
+const CURRMOVE_REPORT_DELAY: f64 = 2.5;
 
 #[derive(Clone, Debug)]
 pub struct SearchContext {
@@ -290,6 +291,16 @@ fn search<NT: NodeType>(
         let mut extension = 0;
 
         move_count += 1;
+
+        if NT::ROOT_NODE
+            && thread.shared().options.show_curr_move
+            && !thread.shared().options.minimal
+            && thread.is_main_thread()
+            && thread.shared().elapsed() > CURRMOVE_REPORT_DELAY
+        {
+            let move_number = thread.pv_idx + move_count;
+            println!("info depth {} currmove {} currmovenumber {}", depth, mv, move_number);
+        }
 
         if NT::PV_NODE {
             child_data[0].pv.clear();
