@@ -45,6 +45,21 @@ pub const SCORE_INF: Score = 32767;
 pub const SCORE_MATE: Score = SCORE_INF - 1;
 pub const SCORE_WIN: Score = 25000;
 
+#[must_use]
+pub const fn is_win(score: Score) -> bool {
+    score > SCORE_WIN
+}
+
+#[must_use]
+pub const fn is_loss(score: Score) -> bool {
+    score < -SCORE_WIN
+}
+
+#[must_use]
+pub const fn is_decisive(score: Score) -> bool {
+    score.abs() > SCORE_WIN
+}
+
 pub const MAX_DEPTH: i32 = 255;
 
 const WIDEN_REPORT_DELAY: f64 = 1.0;
@@ -247,7 +262,7 @@ fn search<NT: NodeType>(
             thread.pop_move();
 
             if score >= beta {
-                return if score > SCORE_WIN { beta } else { score };
+                return if is_win(score) { beta } else { score };
             }
         }
     }
@@ -285,7 +300,7 @@ fn search<NT: NodeType>(
         }
 
         #[allow(clippy::collapsible_if)]
-        if !NT::ROOT_NODE && best_score > -SCORE_WIN {
+        if !NT::ROOT_NODE && !is_loss(best_score) {
             if depth <= 6 && move_count as i32 >= 5 + 2 * depth * depth {
                 break;
             }
@@ -640,7 +655,7 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
         root_move.searched_depth, root_move.seldepth, ms, nodes, nps
     );
 
-    if score.abs() > SCORE_WIN {
+    if is_decisive(score) {
         if score > 0 {
             print!("mate {}", (SCORE_MATE - score + 1) / 2);
         } else {
@@ -660,7 +675,7 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
         print!(" lowerbound");
     }
 
-    if score.abs() > SCORE_WIN {
+    if is_decisive(score) {
         if score > 0 {
             print!(" wdl 1000 0 0");
         } else {
