@@ -331,7 +331,7 @@ fn search<NT: NodeType>(
 
             let new_depth = depth + extension - 1;
 
-            if depth >= 2 && move_count >= 5 + 2 * usize::from(NT::ROOT_NODE) {
+            if depth >= 2 && move_count >= 3 + usize::from(NT::ROOT_NODE) {
                 let mut r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
 
                 r += 1024 * i32::from(!NT::PV_NODE);
