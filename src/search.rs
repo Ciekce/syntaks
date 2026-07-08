@@ -187,22 +187,18 @@ fn search<NT: NodeType>(
         }
     }
 
-    thread.inc_nodes();
-
     if depth <= 0 {
-        let static_eval = static_eval(pos);
-        let correction = thread.corrhist.correction(pos, &thread.key_history);
-        return static_eval + correction;
+        return qsearch::<NT>(thread, data_stack, pos, 1, ply, alpha, beta);
     }
+
+    thread.inc_nodes();
 
     if NT::PV_NODE {
         thread.update_seldepth(ply);
     }
 
-    if ply > MAX_DEPTH {
-        let static_eval = static_eval(pos);
-        let correction = thread.corrhist.correction(pos, &thread.key_history);
-        return static_eval + correction;
+    if ply >= MAX_DEPTH {
+        return thread.static_eval(pos);
     }
 
     let depth = depth.min(MAX_DEPTH);
@@ -491,6 +487,153 @@ fn search<NT: NodeType>(
             .shared()
             .tt
             .store(pos.key(), best_score, best_move, depth, ply, tt_flag);
+    }
+
+    best_score
+}
+
+fn qsearch<NT: NodeType>(
+    thread: &mut ThreadData,
+    data_stack: &mut [PlyData],
+    pos: &Position,
+    depth: i32,
+    ply: i32,
+    mut alpha: Score,
+    beta: Score,
+) -> Score {
+    if thread.shared().has_stopped() {
+        return 0;
+    }
+
+    if !NT::ROOT_NODE
+        && thread.is_main_thread()
+        && thread.root_depth > 1
+        && thread.shared().check_stop_hard(thread.nodes())
+    {
+        return 0;
+    }
+
+    thread.inc_nodes();
+
+    if depth <= 0 {
+        return thread.static_eval(pos);
+    }
+
+    if NT::PV_NODE {
+        thread.update_seldepth(ply);
+    }
+
+    if ply >= MAX_DEPTH {
+        return thread.static_eval(pos);
+    }
+
+    let (_tt_hit, tt_entry) = thread.shared().tt.probe(pos.key(), ply);
+
+    if !NT::PV_NODE
+        && match tt_entry.flag {
+            None => false,
+            Some(TtFlag::UpperBound) => tt_entry.score <= alpha,
+            Some(TtFlag::LowerBound) => tt_entry.score >= beta,
+            Some(TtFlag::Exact) => true,
+        }
+    {
+        return tt_entry.score;
+    }
+
+    let tt_move = tt_entry.mv;
+
+    /*
+    let null_eval = {
+        let pos = thread.apply_nullmove(ply, pos);
+        let static_eval = thread.static_eval(&pos);
+        thread.pop_move();
+        -static_eval
+    };
+     */
+
+    let eval = {
+        let static_eval = thread.static_eval(pos);
+        if match tt_entry.flag {
+            None => false,
+            Some(TtFlag::UpperBound) => tt_entry.score < static_eval,
+            Some(TtFlag::LowerBound) => tt_entry.score > static_eval,
+            Some(TtFlag::Exact) => true,
+        } {
+            tt_entry.score
+        } else {
+            static_eval
+        }
+    };
+
+    if eval >= beta {
+        return eval;
+    }
+
+    if eval > alpha {
+        alpha = eval;
+    }
+
+    let (data, child_data) = data_stack.split_first_mut().unwrap();
+
+    let mut best_score = eval;
+
+    let prev_move = if ply > 0 {
+        thread.stack[(ply - 1) as usize].mv
+    } else {
+        None
+    };
+
+    let mut movepicker = Movepicker::new(
+        pos,
+        &mut data.movelist,
+        &mut data.scores,
+        tt_move,
+        thread.killers[ply as usize],
+        prev_move,
+    );
+
+    //let mut move_count = 0;
+
+    while let Some(mv) = movepicker.next(&thread.history) {
+        debug_assert!(pos.is_legal(mv));
+
+        //if !is_loss(best_score) && move_count >= 2 {
+        //    break;
+        //}
+
+        //move_count += 1;
+
+        let is_crush = mv.is_spread() && pos.stacks().top(mv.spread_dest()) == Some(PieceType::Wall);
+
+        if Some(mv) != tt_move && !is_crush {
+            continue;
+        }
+
+        let new_pos = thread.apply_move(ply, pos, mv);
+
+        let score = if let Some(state) = thread.check_terminal_state(ply, &new_pos, mv) {
+            match state {
+                TerminalState::Win => SCORE_MATE - ply - 1,
+                TerminalState::Draw => 0,
+                TerminalState::Loss => -SCORE_MATE + ply + 1,
+            }
+        } else {
+            -qsearch::<NT>(thread, child_data, &new_pos, depth - 1, ply + 1, -beta, -alpha)
+        };
+
+        thread.pop_move();
+
+        if score > best_score {
+            best_score = score;
+        }
+
+        if score > alpha {
+            alpha = score;
+        }
+
+        if score >= beta {
+            break;
+        }
     }
 
     best_score

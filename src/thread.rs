@@ -22,6 +22,7 @@
  */
 
 use crate::board::FlatCountOutcome;
+use crate::eval::static_eval;
 use crate::limit::Limits;
 use crate::node_counter::NodeCounter;
 use crate::tei::TeiOptions;
@@ -370,6 +371,13 @@ impl ThreadData {
         }
 
         None
+    }
+
+    #[must_use]
+    pub fn static_eval(&self, pos: &Position) -> Score {
+        let static_eval = static_eval(pos);
+        let correction = self.corrhist.correction(pos, &self.key_history);
+        static_eval + correction
     }
 
     #[must_use]
