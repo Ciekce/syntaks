@@ -21,62 +21,25 @@
  * SOFTWARE.
  */
 
+pub mod nnue;
+
 use crate::board::Position;
-use crate::core::{PieceType, Player, Square};
+use crate::eval::nnue::*;
 use crate::search::{SCORE_WIN, Score};
 
-const HL: usize = 32;
-const QA: i32 = 255;
-const QB: i32 = 64;
-const SCALE: i32 = 400;
-
-#[repr(C, align(64))]
-struct Network {
-    l0w: [[i16; HL]; 216],
-    l0b: [i16; HL],
-    l1w: [[[i16; HL]; 2]; 2],
-    l1b: [i16; 2],
-}
-
-static NET: Network = unsafe { std::mem::transmute(*include_bytes!(env!("EVALFILE"))) };
-
-fn feature(perspective: Player, side: Player, pt: PieceType, sq: Square) -> usize {
-    // TODO: was tired and got side and piecetype backwards
-    pt.idx() * 72 + usize::from(side != perspective) * 36 + sq.idx()
+#[must_use]
+fn adjust_static(eval: i32) -> Score {
+    (eval as Score).clamp(-SCORE_WIN, SCORE_WIN)
 }
 
 #[must_use]
-pub fn static_eval(pos: &Position) -> Score {
-    let stm = pos.stm();
-    let stacks = pos.stacks();
+pub fn static_eval(nnue_state: &mut NnueState, pos: &Position) -> Score {
+    let eval = nnue_state.evaluate(pos);
+    adjust_static(eval)
+}
 
-    let mut accs = [NET.l0b; 2];
-
-    for side in [Player::P1, Player::P2] {
-        for sq in pos.player_bb(side) {
-            let pt = stacks.top(sq).unwrap();
-
-            for perspective in [Player::P1, Player::P2] {
-                for (a, w) in accs[perspective.idx()]
-                    .iter_mut()
-                    .zip(&NET.l0w[feature(perspective, side, pt, sq)])
-                {
-                    *a += w;
-                }
-            }
-        }
-    }
-
-    let mut sum = 0;
-
-    for (perspective, weights) in [stm, stm.flip()].iter().zip(&NET.l1w[stm.idx()]) {
-        for (&a, &w) in accs[perspective.idx()].iter().zip(weights) {
-            let c = a.clamp(0, QA as i16);
-            sum += i32::from(c) * i32::from(c * w);
-        }
-    }
-
-    let eval = (sum / QA + i32::from(NET.l1b[stm.idx()])) * SCALE / (QA * QB);
-
-    (eval as Score).clamp(-SCORE_WIN, SCORE_WIN)
+#[must_use]
+pub fn static_eval_once(pos: &Position) -> Score {
+    let eval = evaluate_once(pos);
+    adjust_static(eval)
 }

@@ -551,7 +551,7 @@ impl Position {
     }
 
     #[must_use]
-    pub fn apply_move(&self, mv: Move) -> Self {
+    pub fn apply_move_with_observer<O: BoardObserver>(&self, mv: Move, observer: &mut O) -> Self {
         let mut new_pos = *self;
 
         if mv.is_spread() {
@@ -620,6 +620,25 @@ impl Position {
                 new_pos.pieces[top.idx()].set_sq(sq);
             }
 
+            for piece_idx in 0..Piece::COUNT {
+                let piece = Piece::from_raw(piece_idx as u8).unwrap();
+
+                let prev_bb = self.player_piece_bb(piece);
+                let new_bb = new_pos.player_piece_bb(piece);
+
+                if prev_bb == new_bb {
+                    continue;
+                }
+
+                for added in new_bb & !prev_bb {
+                    observer.top_added(&new_pos, piece, added);
+                }
+
+                for removed in prev_bb & !new_bb {
+                    observer.top_removed(&new_pos, piece, removed);
+                }
+            }
+
             debug_assert_eq!(
                 new_pos.pieces[PieceType::Flat.idx()]
                     & new_pos.pieces[PieceType::Wall.idx()]
@@ -653,12 +672,16 @@ impl Position {
                 PieceType::Capstone => new_pos.caps_in_hand[dropped_player.idx()] -= 1,
                 _ => new_pos.flats_in_hand[dropped_player.idx()] -= 1,
             }
+
+            observer.top_added(&new_pos, mv.pt().with_player(dropped_player), mv.sq());
         }
 
         new_pos.stm = new_pos.stm.flip();
         new_pos.ply += 1;
 
         new_pos.player_key ^= keys::p2_key();
+
+        observer.finalize(&new_pos);
 
         #[cfg(debug_assertions)]
         {
@@ -668,6 +691,11 @@ impl Position {
         }
 
         new_pos
+    }
+
+    #[must_use]
+    pub fn apply_move(&self, mv: Move) -> Self {
+        self.apply_move_with_observer(mv, &mut NullObserver)
     }
 
     #[must_use]
@@ -817,5 +845,33 @@ impl FromStr for Position {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split_ascii_whitespace().collect();
         Self::from_tps_parts(&parts)
+    }
+}
+
+pub trait BoardObserver {
+    fn top_added(&mut self, pos: &Position, top: Piece, sq: Square);
+    fn top_removed(&mut self, pos: &Position, top: Piece, sq: Square);
+    fn top_mutated(&mut self, pos: &Position, old_top: Piece, new_top: Piece, sq: Square);
+
+    fn finalize(&mut self, pos: &Position);
+}
+
+pub struct NullObserver;
+
+impl BoardObserver for NullObserver {
+    fn top_added(&mut self, _pos: &Position, _top: Piece, _sq: Square) {
+        // no-op
+    }
+
+    fn top_removed(&mut self, _pos: &Position, _top: Piece, _sq: Square) {
+        // no-op
+    }
+
+    fn top_mutated(&mut self, _pos: &Position, _old_top: Piece, _new_top: Piece, _sq: Square) {
+        // no-op
+    }
+
+    fn finalize(&mut self, _pos: &Position) {
+        // no-op
     }
 }

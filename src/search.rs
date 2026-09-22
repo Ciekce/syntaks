@@ -190,7 +190,7 @@ fn search<NT: NodeType>(
     thread.inc_nodes();
 
     if depth <= 0 {
-        let static_eval = static_eval(pos);
+        let static_eval = static_eval(&mut thread.nnue_state, pos);
         let correction = thread.corrhist.correction(pos, &thread.key_history);
         return static_eval + correction;
     }
@@ -200,7 +200,7 @@ fn search<NT: NodeType>(
     }
 
     if ply > MAX_DEPTH {
-        let static_eval = static_eval(pos);
+        let static_eval = static_eval(&mut thread.nnue_state, pos);
         let correction = thread.corrhist.correction(pos, &thread.key_history);
         return static_eval + correction;
     }
@@ -227,7 +227,7 @@ fn search<NT: NodeType>(
         tt_entry.mv
     };
 
-    let raw_eval = static_eval(pos);
+    let raw_eval = static_eval(&mut thread.nnue_state, pos);
     let correction = thread.corrhist.correction(pos, &thread.key_history);
     let static_eval = raw_eval + correction;
 
@@ -259,7 +259,7 @@ fn search<NT: NodeType>(
                 false,
             );
 
-            thread.pop_move();
+            thread.pop_nullmove();
 
             if score >= beta {
                 return if is_win(score) { beta } else { score };
@@ -514,6 +514,8 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
     thread.key_history.extend_from_slice(&ctx.key_history);
 
     counter.register_thread();
+
+    thread.nnue_state.reset(&ctx.root_pos);
 
     let mut data_stack = vec![PlyData::new(); MAX_DEPTH as usize * 2];
 
