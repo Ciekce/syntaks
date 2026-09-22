@@ -107,25 +107,26 @@ impl NnueState {
     }
 
     fn ensure_up_to_date(&mut self, _pos: &Position) {
-        for player in [Player::P1, Player::P2] {
-            if !self.acc_stacc[self.top_idx].is_dirty(player) {
-                continue;
-            }
+        if !self.acc_stacc[self.top_idx].is_dirty() {
+            return;
+        }
 
-            let mut curr = self.top_idx - 1;
-            while self.acc_stacc[curr].is_dirty(player) {
-                curr -= 1;
-            }
+        let mut curr = self.top_idx - 1;
+        while self.acc_stacc[curr].is_dirty() {
+            curr -= 1;
+        }
 
-            loop {
-                let [prev_acc, curr_acc] = self.acc_stacc.get_disjoint_mut([curr, curr + 1]).unwrap();
+        loop {
+            let [prev_acc, curr_acc] = self.acc_stacc.get_disjoint_mut([curr, curr + 1]).unwrap();
 
-                curr_acc.apply_updates(prev_acc, player);
+            curr_acc.apply_updates(prev_acc, Player::P1);
+            curr_acc.apply_updates(prev_acc, Player::P2);
 
-                curr += 1;
-                if curr == self.top_idx {
-                    break;
-                }
+            curr_acc.set_updated();
+
+            curr += 1;
+            if curr == self.top_idx {
+                break;
             }
         }
     }
@@ -151,7 +152,7 @@ pub struct UpdateContext {
 struct Accumulator {
     values: [[i16; L1_SIZE]; Player::COUNT],
     ctx: UpdateContext,
-    dirty: [bool; Player::COUNT],
+    dirty: bool,
 }
 
 impl Accumulator {
@@ -180,26 +181,26 @@ impl Accumulator {
                 }
             }
         }
-
-        self.set_updated(player);
     }
 
     fn reset_both(&mut self, pos: &Position) {
         self.reset(pos, Player::P1);
         self.reset(pos, Player::P2);
+
+        self.set_updated();
     }
 
     fn set_dirty(&mut self) {
-        self.dirty.fill(true);
+        self.dirty = true;
     }
 
-    fn set_updated(&mut self, player: Player) {
-        self.dirty[player.idx()] = false;
+    fn set_updated(&mut self) {
+        self.dirty = false;
     }
 
     #[must_use]
-    fn is_dirty(&self, player: Player) -> bool {
-        self.dirty[player.idx()]
+    fn is_dirty(&self) -> bool {
+        self.dirty
     }
 
     fn apply_updates(&mut self, src: &Self, player: Player) {
@@ -210,7 +211,6 @@ impl Accumulator {
 
         if updates.adds.is_empty() && updates.subs.is_empty() {
             *dst = *src;
-            self.set_updated(player);
             return;
         }
 
@@ -266,8 +266,6 @@ impl Accumulator {
 
             sub_idx += 1;
         }
-
-        self.set_updated(player);
     }
 
     fn add_sub(dst: &mut [i16; L1_SIZE], src: &[i16; L1_SIZE], add: usize, sub: usize) {
@@ -306,7 +304,7 @@ impl Default for Accumulator {
         Self {
             values: [[0; _]; _],
             ctx: Default::default(),
-            dirty: [false; _],
+            dirty: false,
         }
     }
 }
