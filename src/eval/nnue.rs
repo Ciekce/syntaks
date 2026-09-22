@@ -107,8 +107,6 @@ impl NnueState {
     }
 
     fn ensure_up_to_date(&mut self, _pos: &Position) {
-        //self.acc_stacc[self.top_idx].reset_both(_pos);
-
         for player in [Player::P1, Player::P2] {
             if !self.acc_stacc[self.top_idx].is_dirty(player) {
                 continue;
