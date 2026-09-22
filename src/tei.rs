@@ -23,7 +23,7 @@
 
 use crate::board::*;
 use crate::core::Player;
-use crate::eval::static_eval;
+use crate::eval::static_eval_once;
 use crate::limit::Limits;
 use crate::perft::{perft, split_perft};
 use crate::search;
@@ -516,7 +516,7 @@ impl TeiHandler {
         println!("TPS: {}", self.pos.tps());
         println!("Key: {:016x}", self.pos.key());
 
-        let static_eval = static_eval(&self.pos);
+        let static_eval = static_eval_once(&self.pos);
         let static_eval = match self.pos.stm() {
             Player::P1 => static_eval,
             Player::P2 => -static_eval,

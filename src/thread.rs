@@ -22,6 +22,7 @@
  */
 
 use crate::board::FlatCountOutcome;
+use crate::eval::nnue::NnueState;
 use crate::limit::Limits;
 use crate::node_counter::NodeCounter;
 use crate::tei::TeiOptions;
@@ -255,6 +256,7 @@ pub struct ThreadData {
     pub corrhist: Box<CorrectionHistory>,
     pub history: Box<History>,
     pub killers: [KillerTable; MAX_DEPTH as usize],
+    pub nnue_state: NnueState,
     pub shared: Option<Arc<SharedContext>>,
 }
 
@@ -271,6 +273,7 @@ impl ThreadData {
             corrhist: CorrectionHistory::boxed(),
             history: History::boxed(),
             killers: [Default::default(); MAX_DEPTH as usize],
+            nnue_state: NnueState::new(),
             shared: None,
         }
     }
@@ -317,7 +320,8 @@ impl ThreadData {
     pub fn apply_move(&mut self, ply: i32, pos: &Position, mv: Move) -> Position {
         self.key_history.push(pos.key());
         self.stack[ply as usize].mv = Some(mv);
-        pos.apply_move(mv)
+        let mut observer = self.nnue_state.push();
+        pos.apply_move_with_observer(mv, &mut observer)
     }
 
     pub fn apply_nullmove(&mut self, ply: i32, pos: &Position) -> Position {
@@ -327,6 +331,11 @@ impl ThreadData {
     }
 
     pub fn pop_move(&mut self) {
+        self.key_history.pop();
+        self.nnue_state.pop();
+    }
+
+    pub fn pop_nullmove(&mut self) {
         self.key_history.pop();
     }
 
