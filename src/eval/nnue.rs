@@ -20,10 +20,29 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
 use crate::board::{BoardObserver, Position};
 use crate::core::{Piece, PieceType, Player, Square};
 use crate::search::MAX_DEPTH;
 use arrayvec::ArrayVec;
+
+cfg_select! {
+    all(target_feature = "avx512f", target_feature = "avx512bw") => {
+        #[path = "simd/avx512.rs"]
+        mod simd;
+    }
+    target_feature = "avx2" => {
+        #[path = "simd/avx2.rs"]
+        mod simd;
+    }
+    target_feature = "sse4.1" => {
+        #[path = "simd/sse41.rs"]
+        mod simd;
+    }
+    _ => {
+        compiler_error!("No supported SIMD arch");
+    }
+}
 
 pub const L1_SIZE: usize = 256;
 
@@ -46,16 +65,42 @@ pub static NET: Network = unsafe { std::mem::transmute(*include_bytes!(env!("EVA
 
 #[must_use]
 fn forward(acc: &Accumulator, stm: Player) -> i32 {
-    let mut sum = 0;
+    use simd::*;
 
-    for (perspective, weights) in [stm, stm.flip()].iter().zip(&NET.l1w[stm.idx()]) {
-        for (&a, &w) in acc.values[perspective.idx()].iter().zip(weights) {
-            let c = a.clamp(0, FT_Q as i16);
-            sum += i32::from(c) * i32::from(c * w);
+    let zero = zero_i16();
+    let one = set1_i16(FT_Q as i16);
+
+    let mut sum = zero_i32();
+
+    for (values, weights) in [stm, stm.flip()]
+        .iter()
+        .map(|player| &acc.values[player.idx()])
+        .zip(&NET.l1w[stm.idx()])
+    {
+        let values = values as *const i16;
+        let weights = weights as *const i16;
+
+        for i in (0..L1_SIZE).step_by(CHUNK_SIZE_I16) {
+            let v = unsafe { load_i16(values.offset(i as isize)) };
+            let w = unsafe { load_i16(weights.offset(i as isize)) };
+
+            let v = max_i16(v, zero);
+            let v = min_i16(v, one);
+
+            let p = mul_i16(v, w);
+
+            let r = madd_i16(p, v);
+
+            sum = add_i32(sum, r);
         }
     }
 
-    (sum / FT_Q + i32::from(NET.l1b[stm.idx()])) * SCALE / (FT_Q * L1_Q)
+    let mut sum = hsum_i32(sum);
+
+    sum /= FT_Q;
+    sum += i32::from(NET.l1b[stm.idx()]);
+
+    sum * SCALE / (FT_Q * L1_Q)
 }
 
 #[must_use]
@@ -149,6 +194,7 @@ pub struct UpdateContext {
 }
 
 #[derive(Clone)]
+#[repr(align(64))]
 struct Accumulator {
     values: [[i16; L1_SIZE]; Player::COUNT],
     ctx: UpdateContext,
