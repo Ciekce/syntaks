@@ -21,29 +21,48 @@
  * SOFTWARE.
  */
 
-mod accumulator;
-mod forward;
-pub mod nnue;
-pub mod nnue_state;
-
-use crate::board::Position;
+use crate::core::Player;
+use crate::eval::accumulator::Accumulator;
 use crate::eval::nnue::*;
-use crate::eval::nnue_state::NnueState;
-use crate::search::{SCORE_WIN, Score};
 
 #[must_use]
-fn adjust_static(eval: i32) -> Score {
-    (eval as Score).clamp(-SCORE_WIN, SCORE_WIN)
-}
+pub(super) fn forward(acc: &Accumulator, stm: Player) -> i32 {
+    use super::simd::*;
 
-#[must_use]
-pub fn static_eval(nnue_state: &mut NnueState, pos: &Position) -> Score {
-    let eval = nnue_state.evaluate(pos);
-    adjust_static(eval)
-}
+    let bucket = stm.idx();
 
-#[must_use]
-pub fn static_eval_once(pos: &Position) -> Score {
-    let eval = evaluate_once(pos);
-    adjust_static(eval)
+    let zero = zero_i16();
+    let one = set1_i16(FT_Q as i16);
+
+    let mut sum = zero_i32();
+
+    for (values, weights) in [stm, stm.flip()]
+        .iter()
+        .map(|player| &acc.values[player.idx()])
+        .zip(&NET.l1w[bucket])
+    {
+        let values = values as *const i16;
+        let weights = weights as *const i16;
+
+        for i in (0..L1_SIZE).step_by(CHUNK_SIZE_I16) {
+            let v = unsafe { load_i16(values.offset(i as isize)) };
+            let w = unsafe { load_i16(weights.offset(i as isize)) };
+
+            let v = max_i16(v, zero);
+            let v = min_i16(v, one);
+
+            let p = mul_i16(v, w);
+
+            let r = madd_i16(p, v);
+
+            sum = add_i32(sum, r);
+        }
+    }
+
+    let mut sum = hsum_i32(sum);
+
+    sum /= FT_Q;
+    sum += i32::from(NET.l1b[bucket]);
+
+    sum * SCALE / (FT_Q * L1_Q)
 }

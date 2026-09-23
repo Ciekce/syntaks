@@ -851,7 +851,6 @@ impl FromStr for Position {
 pub trait BoardObserver {
     fn top_added(&mut self, pos: &Position, top: Piece, sq: Square);
     fn top_removed(&mut self, pos: &Position, top: Piece, sq: Square);
-    fn top_mutated(&mut self, pos: &Position, old_top: Piece, new_top: Piece, sq: Square);
 
     fn finalize(&mut self, pos: &Position);
 }
@@ -864,10 +863,6 @@ impl BoardObserver for NullObserver {
     }
 
     fn top_removed(&mut self, _pos: &Position, _top: Piece, _sq: Square) {
-        // no-op
-    }
-
-    fn top_mutated(&mut self, _pos: &Position, _old_top: Piece, _new_top: Piece, _sq: Square) {
         // no-op
     }
 

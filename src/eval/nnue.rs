@@ -21,23 +21,24 @@
  * SOFTWARE.
  */
 
+use super::forward::forward;
 use crate::board::{BoardObserver, Position};
 use crate::core::{Piece, PieceType, Player, Square};
-use crate::search::MAX_DEPTH;
+use crate::eval::accumulator::Accumulator;
 use arrayvec::ArrayVec;
 
 cfg_select! {
     all(target_feature = "avx512f", target_feature = "avx512bw") => {
         #[path = "simd/avx512.rs"]
-        mod simd;
+        pub(super) mod simd;
     }
     target_feature = "avx2" => {
         #[path = "simd/avx2.rs"]
-        mod simd;
+        pub(super) mod simd;
     }
     target_feature = "sse4.1" => {
         #[path = "simd/sse41.rs"]
-        mod simd;
+        pub(super) mod simd;
     }
     _ => {
         compiler_error!("No supported SIMD arch");
@@ -54,54 +55,14 @@ pub const L1_Q: i32 = 64;
 pub const SCALE: i32 = 400;
 
 #[repr(C, align(64))]
-pub struct Network {
+pub(super) struct Network {
     pub ftw: [[i16; L1_SIZE]; 216],
     pub ftb: [i16; L1_SIZE],
     pub l1w: [[[i16; L1_SIZE]; 2]; OUTPUT_BUCKETS],
     pub l1b: [i16; OUTPUT_BUCKETS],
 }
 
-pub static NET: Network = unsafe { std::mem::transmute(*include_bytes!(env!("EVALFILE"))) };
-
-#[must_use]
-fn forward(acc: &Accumulator, stm: Player) -> i32 {
-    use simd::*;
-
-    let zero = zero_i16();
-    let one = set1_i16(FT_Q as i16);
-
-    let mut sum = zero_i32();
-
-    for (values, weights) in [stm, stm.flip()]
-        .iter()
-        .map(|player| &acc.values[player.idx()])
-        .zip(&NET.l1w[stm.idx()])
-    {
-        let values = values as *const i16;
-        let weights = weights as *const i16;
-
-        for i in (0..L1_SIZE).step_by(CHUNK_SIZE_I16) {
-            let v = unsafe { load_i16(values.offset(i as isize)) };
-            let w = unsafe { load_i16(weights.offset(i as isize)) };
-
-            let v = max_i16(v, zero);
-            let v = min_i16(v, one);
-
-            let p = mul_i16(v, w);
-
-            let r = madd_i16(p, v);
-
-            sum = add_i32(sum, r);
-        }
-    }
-
-    let mut sum = hsum_i32(sum);
-
-    sum /= FT_Q;
-    sum += i32::from(NET.l1b[stm.idx()]);
-
-    sum * SCALE / (FT_Q * L1_Q)
-}
+pub(super) static NET: Network = unsafe { std::mem::transmute(*include_bytes!(env!("EVALFILE"))) };
 
 #[must_use]
 pub(super) fn evaluate_once(pos: &Position) -> i32 {
@@ -110,249 +71,20 @@ pub(super) fn evaluate_once(pos: &Position) -> i32 {
     forward(&acc, pos.stm())
 }
 
-pub struct NnueState {
-    acc_stacc: Vec<Accumulator>,
-    top_idx: usize,
-}
-
-impl NnueState {
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            acc_stacc: vec![Default::default(); (MAX_DEPTH + 1) as usize],
-            top_idx: 0,
-        }
-    }
-
-    pub fn reset(&mut self, pos: &Position) {
-        self.acc_stacc[0].reset_both(pos);
-        self.top_idx = 0;
-    }
-
-    #[must_use]
-    pub fn push(&mut self) -> NnueObserver<'_> {
-        self.top_idx += 1;
-
-        let top = &mut self.acc_stacc[self.top_idx];
-
-        top.ctx = Default::default();
-        top.set_dirty();
-
-        NnueObserver::new(&mut top.ctx)
-    }
-
-    pub fn pop(&mut self) {
-        self.top_idx -= 1;
-    }
-
-    #[must_use]
-    pub fn evaluate(&mut self, pos: &Position) -> i32 {
-        self.ensure_up_to_date(pos);
-        forward(&self.acc_stacc[self.top_idx], pos.stm())
-    }
-
-    fn ensure_up_to_date(&mut self, _pos: &Position) {
-        if !self.acc_stacc[self.top_idx].is_dirty() {
-            return;
-        }
-
-        let mut curr = self.top_idx - 1;
-        while self.acc_stacc[curr].is_dirty() {
-            curr -= 1;
-        }
-
-        loop {
-            let [prev_acc, curr_acc] = self.acc_stacc.get_disjoint_mut([curr, curr + 1]).unwrap();
-
-            curr_acc.apply_updates(prev_acc, Player::P1);
-            curr_acc.apply_updates(prev_acc, Player::P2);
-
-            curr_acc.set_updated();
-
-            curr += 1;
-            if curr == self.top_idx {
-                break;
-            }
-        }
-    }
-}
-
-fn feature_idx(perspective: Player, side: Player, pt: PieceType, sq: Square) -> usize {
+pub(super) fn feature_idx(perspective: Player, side: Player, pt: PieceType, sq: Square) -> usize {
     // TODO: was tired and got side and piecetype backwards
     pt.idx() * 72 + usize::from(side != perspective) * 36 + sq.idx()
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct NnueUpdates {
-    adds: ArrayVec<(Piece, Square), 6>,
-    subs: ArrayVec<(Piece, Square), 6>,
+pub(super) struct NnueUpdates {
+    pub adds: ArrayVec<(Piece, Square), 6>,
+    pub subs: ArrayVec<(Piece, Square), 6>,
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct UpdateContext {
+pub(super) struct UpdateContext {
     pub updates: NnueUpdates,
-}
-
-#[derive(Clone)]
-#[repr(align(64))]
-struct Accumulator {
-    values: [[i16; L1_SIZE]; Player::COUNT],
-    ctx: UpdateContext,
-    dirty: bool,
-}
-
-impl Accumulator {
-    fn activate_single(&mut self, player: Player, feature: usize) {
-        for (v, w) in self.values[player.idx()].iter_mut().zip(&NET.ftw[feature]) {
-            *v += *w;
-        }
-    }
-
-    fn activate_both(&mut self, p1_feature: usize, p2_feature: usize) {
-        self.activate_single(Player::P1, p1_feature);
-        self.activate_single(Player::P2, p2_feature);
-    }
-
-    fn reset(&mut self, pos: &Position, player: Player) {
-        self.values[player.idx()] = NET.ftb;
-
-        let stacks = pos.stacks();
-
-        for side in [Player::P1, Player::P2] {
-            for sq in pos.player_bb(side) {
-                let pt = stacks.top(sq).unwrap();
-                let feature = feature_idx(player, side, pt, sq);
-                for (a, w) in self.values[player.idx()].iter_mut().zip(&NET.ftw[feature]) {
-                    *a += w;
-                }
-            }
-        }
-    }
-
-    fn reset_both(&mut self, pos: &Position) {
-        self.reset(pos, Player::P1);
-        self.reset(pos, Player::P2);
-
-        self.set_updated();
-    }
-
-    fn set_dirty(&mut self) {
-        self.dirty = true;
-    }
-
-    fn set_updated(&mut self) {
-        self.dirty = false;
-    }
-
-    #[must_use]
-    fn is_dirty(&self) -> bool {
-        self.dirty
-    }
-
-    fn apply_updates(&mut self, src: &Self, player: Player) {
-        let dst = &mut self.values[player.idx()];
-        let src = &src.values[player.idx()];
-
-        let updates = &self.ctx.updates;
-
-        if updates.adds.is_empty() && updates.subs.is_empty() {
-            *dst = *src;
-            return;
-        }
-
-        let mut add_idx = 0;
-        let mut sub_idx = 0;
-
-        match (updates.adds.is_empty(), updates.subs.is_empty()) {
-            (false, false) => {
-                let (add_piece, add_sq) = updates.adds[0];
-                let add = feature_idx(player, add_piece.player(), add_piece.piece_type(), add_sq);
-
-                let (sub_piece, sub_sq) = updates.subs[0];
-                let sub = feature_idx(player, sub_piece.player(), sub_piece.piece_type(), sub_sq);
-
-                Self::add_sub(dst, src, add, sub);
-
-                add_idx += 1;
-                sub_idx += 1;
-            }
-            (false, true) => {
-                let (add_piece, add_sq) = updates.adds[0];
-                let add = feature_idx(player, add_piece.player(), add_piece.piece_type(), add_sq);
-
-                Self::add(dst, src, add);
-
-                add_idx += 1;
-            }
-            (true, false) => {
-                let (sub_piece, sub_sq) = updates.subs[0];
-                let sub = feature_idx(player, sub_piece.player(), sub_piece.piece_type(), sub_sq);
-
-                Self::sub(dst, src, sub);
-
-                sub_idx += 1;
-            }
-            _ => {}
-        }
-
-        while add_idx < updates.adds.len() {
-            let (add_piece, add_sq) = updates.adds[add_idx];
-            let add = feature_idx(player, add_piece.player(), add_piece.piece_type(), add_sq);
-
-            Self::add_in_place(dst, add);
-
-            add_idx += 1;
-        }
-
-        while sub_idx < updates.subs.len() {
-            let (sub_piece, sub_sq) = updates.subs[sub_idx];
-            let sub = feature_idx(player, sub_piece.player(), sub_piece.piece_type(), sub_sq);
-
-            Self::sub_in_place(dst, sub);
-
-            sub_idx += 1;
-        }
-    }
-
-    fn add_sub(dst: &mut [i16; L1_SIZE], src: &[i16; L1_SIZE], add: usize, sub: usize) {
-        for (((dst, src), add), sub) in dst.iter_mut().zip(src).zip(&NET.ftw[add]).zip(&NET.ftw[sub]) {
-            *dst = *src + *add - *sub;
-        }
-    }
-
-    fn add(dst: &mut [i16; L1_SIZE], src: &[i16; L1_SIZE], add: usize) {
-        for ((dst, src), add) in dst.iter_mut().zip(src).zip(&NET.ftw[add]) {
-            *dst = *src + *add;
-        }
-    }
-
-    fn sub(dst: &mut [i16; L1_SIZE], src: &[i16; L1_SIZE], sub: usize) {
-        for ((dst, src), sub) in dst.iter_mut().zip(src).zip(&NET.ftw[sub]) {
-            *dst = *src - *sub;
-        }
-    }
-
-    fn add_in_place(v: &mut [i16; L1_SIZE], add: usize) {
-        for (v, add) in v.iter_mut().zip(&NET.ftw[add]) {
-            *v += *add;
-        }
-    }
-
-    fn sub_in_place(v: &mut [i16; L1_SIZE], sub: usize) {
-        for (v, sub) in v.iter_mut().zip(&NET.ftw[sub]) {
-            *v -= *sub;
-        }
-    }
-}
-
-impl Default for Accumulator {
-    fn default() -> Self {
-        Self {
-            values: [[0; _]; _],
-            ctx: Default::default(),
-            dirty: false,
-        }
-    }
 }
 
 pub struct NnueObserver<'a> {
@@ -360,7 +92,7 @@ pub struct NnueObserver<'a> {
 }
 
 impl<'a> NnueObserver<'a> {
-    fn new(ctx: &'a mut UpdateContext) -> Self {
+    pub(super) fn new(ctx: &'a mut UpdateContext) -> Self {
         Self { ctx }
     }
 }
@@ -372,11 +104,6 @@ impl<'a> BoardObserver for NnueObserver<'a> {
 
     fn top_removed(&mut self, _pos: &Position, top: Piece, sq: Square) {
         self.ctx.updates.subs.push((top, sq));
-    }
-
-    fn top_mutated(&mut self, _pos: &Position, old_top: Piece, new_top: Piece, sq: Square) {
-        self.ctx.updates.adds.push((new_top, sq));
-        self.ctx.updates.subs.push((old_top, sq));
     }
 
     fn finalize(&mut self, _pos: &Position) {

@@ -22,7 +22,7 @@
  */
 
 use crate::board::FlatCountOutcome;
-use crate::eval::nnue::NnueState;
+use crate::eval::nnue_state::NnueState;
 use crate::limit::Limits;
 use crate::node_counter::NodeCounter;
 use crate::tei::TeiOptions;
