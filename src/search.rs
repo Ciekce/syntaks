@@ -313,6 +313,7 @@ fn search<NT: NodeType>(
         if NT::ROOT_NODE
             && thread.shared().options.show_curr_move
             && !thread.shared().options.minimal
+            && !thread.shared().options.silent
             && thread.is_main_thread()
             && thread.shared().elapsed() > CURRMOVE_REPORT_DELAY
         {
