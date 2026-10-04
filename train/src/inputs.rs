@@ -1,66 +1,40 @@
+use std::ops::Deref;
 use bullet_lib::game::inputs::SparseInputType;
 use bullet_lib::game::outputs::OutputBuckets;
 use bullet_lib::value::loader::{GameResult as LoaderResult, LoadableDataType};
-use syntaks::board::Position;
-use syntaks::core::{Player, Square};
-use syntaks::format::GameResult;
+use syntaks::format::PackedTakBoard;
 
 pub const NUM_INPUTS: usize = 216;
 
-#[derive(Clone, Copy)]
-pub struct TakBoard {
-    tops: [u8; 36],
-    score: i16,
-    result: u8,
-    stm: u8,
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct LoadedTakBoard(pub PackedTakBoard);
+
+impl Deref for LoadedTakBoard {
+    type Target = PackedTakBoard;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
-impl TakBoard {
-    pub fn new(pos: &Position, p1_eval: i16, p1_result: GameResult) -> Self {
-        let stm = pos.stm();
+impl LoadableDataType for LoadedTakBoard {
+    fn score(&self) -> i16 {
+        self.stm_score() as i16
+    }
 
-        let mut tops = [0u8; 36];
-        for sq in Square::all() {
-            if let Some(pt) = pos.stacks().top(sq) {
-                let owner = pos.stacks().top_player(sq).unwrap();
-                tops[sq.idx()] = 1 + ((pt.raw() << 1) | u8::from(owner != stm));
-            }
-        }
-
-        let score = (p1_eval as i32 * stm.sign()).clamp(i16::MIN as i32, i16::MAX as i32) as i16;
-
-        let result = match stm {
-            Player::P1 => p1_result,
-            Player::P2 => p1_result.flip(),
-        };
-
-        Self {
-            tops,
-            score,
-            result: result.raw(),
-            stm: stm.raw(),
-        }
+    fn result(&self) -> LoaderResult {
+        [LoaderResult::Loss, LoaderResult::Draw, LoaderResult::Win][self.stm_result().unwrap() as usize]
     }
 }
 
 #[derive(Clone, Copy, Default)]
 pub struct StmBucket;
 
-impl OutputBuckets<TakBoard> for StmBucket {
+impl OutputBuckets<LoadedTakBoard> for StmBucket {
     const BUCKETS: usize = 2;
 
-    fn bucket(&self, pos: &TakBoard) -> u8 {
-        pos.stm
-    }
-}
-
-impl LoadableDataType for TakBoard {
-    fn score(&self) -> i16 {
-        self.score
-    }
-
-    fn result(&self) -> LoaderResult {
-        [LoaderResult::Loss, LoaderResult::Draw, LoaderResult::Win][self.result as usize]
+    fn bucket(&self, pos: &LoadedTakBoard) -> u8 {
+        pos.stm().raw()
     }
 }
 
@@ -68,7 +42,7 @@ impl LoadableDataType for TakBoard {
 pub struct Tak216;
 
 impl SparseInputType for Tak216 {
-    type RequiredDataType = TakBoard;
+    type RequiredDataType = LoadedTakBoard;
 
     fn num_inputs(&self) -> usize {
         NUM_INPUTS
@@ -78,15 +52,13 @@ impl SparseInputType for Tak216 {
         36
     }
 
-    fn map_features<F: FnMut(usize, usize)>(&self, pos: &TakBoard, mut f: F) {
-        for (sq, &top) in pos.tops.iter().enumerate() {
-            if top == 0 {
-                continue;
-            }
+    fn map_features<F: FnMut(usize, usize)>(&self, pos: &LoadedTakBoard, mut f: F) {
+        let pos = pos.decode_position().unwrap();
 
-            let top = (top - 1) as usize;
-            let ty = top >> 1;
-            let color = top & 1;
+        for sq in pos.occ() {
+            let ty = pos.stacks().top(sq).unwrap().idx();
+            let color = pos.stacks().top_player(sq).unwrap().idx();
+            let sq = sq.idx();
 
             f(ty * 72 + color * 36 + sq, ty * 72 + (1 - color) * 36 + sq);
         }

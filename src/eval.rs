@@ -27,9 +27,9 @@ pub mod nnue;
 pub mod nnue_state;
 
 use crate::board::Position;
+use crate::core::{SCORE_WIN, Score};
 use crate::eval::nnue::*;
 use crate::eval::nnue_state::NnueState;
-use crate::search::{SCORE_WIN, Score};
 
 #[must_use]
 fn adjust_static(eval: i32) -> Score {

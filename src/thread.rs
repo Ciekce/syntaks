@@ -29,10 +29,11 @@ use crate::tei::TeiOptions;
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable};
 use crate::{
     board::Position,
+    core::{SCORE_INF, Score},
     correction::CorrectionHistory,
     history::History,
     movepick::KillerTable,
-    search::{MAX_DEPTH, SCORE_INF, Score},
+    search::MAX_DEPTH,
     takmove::Move,
 };
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};

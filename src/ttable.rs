@@ -21,7 +21,7 @@
  * SOFTWARE.
  */
 
-use crate::search::{Score, is_loss, is_win};
+use crate::core::{Score, is_loss, is_win};
 use crate::takmove::Move;
 use std::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
 use std::mem::MaybeUninit;

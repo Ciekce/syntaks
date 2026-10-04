@@ -22,9 +22,9 @@
  */
 
 use crate::board::Position;
+use crate::core::Score;
 use crate::history::History;
 use crate::movegen::generate_moves;
-use crate::search::Score;
 use crate::takmove::Move;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
