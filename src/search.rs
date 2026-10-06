@@ -335,10 +335,15 @@ fn search<NT: NodeType>(
 
         let nodes_before = thread.nodes();
 
+        let mut immediate_draw = false;
+
         let score = if let Some(state) = thread.check_terminal_state(ply, &new_pos, mv) {
             match state {
                 TerminalState::Win => SCORE_MATE - ply - 1,
-                TerminalState::Draw => 0,
+                TerminalState::Draw => {
+                    immediate_draw = true;
+                    0
+                }
                 TerminalState::Loss => -SCORE_MATE + ply + 1,
             }
         } else {
@@ -418,6 +423,8 @@ fn search<NT: NodeType>(
 
                 root_move.display_score = score;
                 root_move.score = score;
+
+                root_move.immediate_draw = immediate_draw;
 
                 root_move.upper_bound = false;
                 root_move.lower_bound = false;
@@ -656,11 +663,14 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
     );
 
     if is_decisive(score) {
+        assert!(!root_move.immediate_draw);
         if score > 0 {
-            print!("mate {}", (SCORE_MATE - score + 1) / 2);
+            print!("solved win {}", SCORE_MATE - score);
         } else {
-            print!("mate {}", -(SCORE_MATE + score) / 2);
+            print!("solved loss {}", -(SCORE_MATE + score));
         }
+    } else if root_move.immediate_draw {
+        print!("solved draw 1");
     } else {
         print!("cp {}", score);
     }
@@ -676,11 +686,14 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
     }
 
     if is_decisive(score) {
+        assert!(!root_move.immediate_draw);
         if score > 0 {
             print!(" wdl 1000 0 0");
         } else {
             print!(" wdl 0 0 1000");
         }
+    } else if root_move.immediate_draw {
+        print!(" wdl 0 1000 0");
     } else {
         let p = |cp: Score| {
             let x = (-cp as f64 + 40.0) / 267.0;
