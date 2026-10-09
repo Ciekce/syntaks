@@ -6,22 +6,28 @@ use rand::seq::SliceRandom;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::mpsc::{self, SyncSender};
+use syntaks::board::Position;
 use syntaks::core::Score;
-use syntaks::format::{Game, PackedTakBoard, parse_game, read_game_bytes};
+use syntaks::format::{Game, GameResult, PackedTakBoard, parse_game, read_game_bytes};
+use syntaks::takmove::Move;
+
+pub type TakFilter = fn(&Position, Move, Score, GameResult) -> bool;
 
 #[derive(Clone)]
 pub struct TakReader {
     file_paths: Vec<String>,
     buffer_size: usize,
     threads: usize,
+    filter: TakFilter,
 }
 
 impl TakReader {
-    pub fn new(file_paths: Vec<String>, buffer_size_mb: usize, threads: usize) -> Self {
+    pub fn new(file_paths: Vec<String>, buffer_size_mb: usize, threads: usize, filter: TakFilter) -> Self {
         Self {
             file_paths,
             buffer_size: buffer_size_mb * 1024 * 1024 / size_of::<LoadedTakBoard>() / 2,
             threads,
+            filter,
         }
     }
 }
@@ -34,6 +40,7 @@ impl DataReader<LoadedTakBoard> for TakReader {
         let file_paths = self.file_paths.clone();
         let buffer_size = self.buffer_size;
         let threads = self.threads;
+        let filter = self.filter.clone();
 
         let (sender, receiver) = mpsc::sync_channel::<Vec<Vec<u8>>>(4);
         let (msg_sender, msg_receiver) = mpsc::sync_channel::<bool>(1);
@@ -75,7 +82,7 @@ impl DataReader<LoadedTakBoard> for TakReader {
                     break 'dataloading;
                 }
 
-                convert_buffer(threads, &game_sender, &games);
+                convert_buffer(threads, &game_sender, &games, &filter);
             }
         });
 
@@ -122,7 +129,7 @@ impl DataReader<LoadedTakBoard> for TakReader {
     }
 }
 
-fn convert_buffer(threads: usize, sender: &SyncSender<Vec<LoadedTakBoard>>, games: &[Vec<u8>]) {
+fn convert_buffer(threads: usize, sender: &SyncSender<Vec<LoadedTakBoard>>, games: &[Vec<u8>], filter: &TakFilter) {
     let chunk_size = games.len().div_ceil(threads);
 
     std::thread::scope(|s| {
@@ -133,7 +140,7 @@ fn convert_buffer(threads: usize, sender: &SyncSender<Vec<LoadedTakBoard>>, game
 
                 for game_bytes in chunk {
                     let game = parse_game(game_bytes).unwrap();
-                    splat(&game, &mut buffer);
+                    splat(&game, &mut buffer, filter);
                 }
 
                 this_sender.send(buffer)
@@ -142,15 +149,17 @@ fn convert_buffer(threads: usize, sender: &SyncSender<Vec<LoadedTakBoard>>, game
     });
 }
 
-fn splat(game: &Game, out: &mut Vec<LoadedTakBoard>) {
+fn splat(game: &Game, out: &mut Vec<LoadedTakBoard>, filter: &TakFilter) {
     let mut pos = game.root;
 
     for &(mv, eval) in &game.moves {
-        out.push(LoadedTakBoard(PackedTakBoard::encode_position_from_game(
-            &pos,
-            eval as Score,
-            game.result,
-        )));
+        if filter(&pos, mv, eval as Score, game.result) {
+            out.push(LoadedTakBoard(PackedTakBoard::encode_position_from_game(
+                &pos,
+                eval as Score,
+                game.result,
+            )));
+        }
         pos = pos.apply_move(mv);
     }
 }
