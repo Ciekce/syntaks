@@ -107,7 +107,7 @@ impl Stacks {
         if self.tops[sq.idx()].is_none() {
             None
         } else {
-            Some(Player::from_raw((self.players[sq.idx()] >> (self.heights[sq.idx()] - 1)) as u8).unwrap())
+            Some(Player::from_raw((self.players[sq.idx()] & 0x1) as u8).unwrap())
         }
     }
 
@@ -133,8 +133,11 @@ impl Stacks {
         let height = self.heights[sq.idx()];
         self.keys.toggle_player_key(height, player, sq);
 
-        self.players[sq.idx()] |= (player.raw() as u64) << self.heights[sq.idx()];
+        self.players[sq.idx()] <<= 1;
+        self.players[sq.idx()] |= player.raw() as u64;
+
         self.heights[sq.idx()] += 1;
+
         self.tops[sq.idx()] = Some(pt);
     }
 
@@ -143,29 +146,29 @@ impl Stacks {
         debug_assert!(count > 0);
         debug_assert!(count <= 6);
 
-        let players = (self.players[sq.idx()] >> (self.heights[sq.idx()] - count)) & ((1 << count) - 1);
+        let players = self.players[sq.idx()] & ((1 << count) - 1);
         let top = self.tops[sq.idx()].unwrap();
 
         self.keys.toggle_top_key(top, sq);
 
-        let old_height = self.heights[sq.idx()];
-        self.heights[sq.idx()] -= count;
-        let new_height = self.heights[sq.idx()];
+        let height = self.heights[sq.idx()];
 
-        for height in new_height..old_height {
-            let player = Player::from_raw(((self.players[sq.idx()] >> height) & 0x1) as u8).unwrap();
+        for i in 0..count {
+            let height = height - i - 1;
+            let player = Player::from_raw(((self.players[sq.idx()] >> i) & 0x1) as u8).unwrap();
             self.keys.toggle_player_key(height, player, sq);
         }
 
-        self.players[sq.idx()] &= (1 << new_height) - 1;
+        self.players[sq.idx()] >>= count;
+        self.heights[sq.idx()] -= count;
 
-        if new_height == 0 {
+        if count == height {
             self.tops[sq.idx()] = None;
             (players as u8, top, None)
         } else {
             self.keys.toggle_top_key(PieceType::Flat, sq);
             self.tops[sq.idx()] = Some(PieceType::Flat);
-            let new_top_player = Player::from_raw(((self.players[sq.idx()] >> (new_height - 1)) & 0x1) as u8).unwrap();
+            let new_top_player = Player::from_raw((self.players[sq.idx()] & 0x1) as u8).unwrap();
             (players as u8, top, Some(new_top_player))
         }
     }
@@ -174,24 +177,18 @@ impl Stacks {
         self.keys.reset();
 
         for sq in occ {
-            let players = self.players(sq);
+            let mut players = self.players(sq);
             let height = self.height(sq);
             let top = self.top(sq).unwrap();
 
             self.keys.toggle_top_key(top, sq);
 
             for i in 0..height {
-                let player = Player::from_raw(((players >> i) & 0x1) as u8).unwrap();
-                self.keys.toggle_player_key(i, player, sq);
+                let height = height - i - 1;
+                let player = Player::from_raw((players & 0x1) as u8).unwrap();
+                players >>= 1;
+                self.keys.toggle_player_key(height, player, sq);
             }
-        }
-    }
-
-    pub fn iter(&self, sq: Square) -> StackIterator {
-        StackIterator {
-            players: self.players[sq.idx()],
-            height: self.heights[sq.idx()],
-            idx: 0,
         }
     }
 }
@@ -204,26 +201,6 @@ impl Default for Stacks {
             tops: [None; Square::COUNT],
             keys: Default::default(),
         }
-    }
-}
-
-pub struct StackIterator {
-    players: u64,
-    height: u8,
-    idx: u8,
-}
-
-impl Iterator for StackIterator {
-    type Item = Player;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.idx == self.height {
-            return None;
-        }
-
-        let player = Player::from_raw(((self.players >> self.idx) & 0x1) as u8).unwrap();
-        self.idx += 1;
-        Some(player)
     }
 }
 
@@ -566,7 +543,9 @@ impl Position {
             let taken = 6 - dropped;
 
             let mut pattern = pattern >> dropped;
-            let (mut players, top, new_top_player) = new_pos.stacks.take(mv.sq(), taken as u8);
+            let (players, top, new_top_player) = new_pos.stacks.take(mv.sq(), taken as u8);
+
+            let mut player_idx = taken - 1;
 
             let mut new_flats_bb = Bitboard::empty();
             let mut new_player_bbs = [Bitboard::empty(); Player::COUNT];
@@ -585,13 +564,13 @@ impl Position {
             let mut sq = mv.sq().shift(dir).unwrap();
 
             for idx in 0..taken {
-                let player = Player::from_raw(players & 0x1).unwrap();
+                let player = Player::from_raw((players >> player_idx) & 0x1).unwrap();
                 let pt = if idx == taken - 1 { top } else { PieceType::Flat };
 
                 new_pos.stacks.push(sq, pt, player);
 
                 pattern >>= 1;
-                players >>= 1;
+                player_idx = player_idx.wrapping_sub(1);
 
                 if (pattern & 0x1) != 0 {
                     new_player_bbs[player.idx()].set_sq(sq);
@@ -737,7 +716,11 @@ impl Position {
                 } else {
                     let mut stack_str = String::with_capacity(self.stacks.height(sq) as usize + 1);
 
-                    for player in self.stacks.iter(sq) {
+                    let players = self.stacks.players(sq);
+                    let height = self.stacks.height(sq);
+                    for i in 0..height {
+                        let height = height - i - 1;
+                        let player = Player::from_raw(((players >> height) & 0x1) as u8).unwrap();
                         match player {
                             Player::P1 => stack_str.push('1'),
                             Player::P2 => stack_str.push('2'),
@@ -809,11 +792,11 @@ impl Position {
                 self.flats_in_hand[player.idx()] -= 1;
             }
 
-            let players = self.stacks.players(sq);
-            let covered = (1 << (self.stacks.height(sq) - 1)) - 1;
+            let covered = self.stacks.players(sq) >> 1;
+            let mask = (1 << (self.stacks.height(sq) - 1)) - 1;
 
-            self.flats_in_hand[0] -= (!players & covered).count_ones() as u8;
-            self.flats_in_hand[1] -= (players & covered).count_ones() as u8;
+            self.flats_in_hand[0] -= (!covered & mask).count_ones() as u8;
+            self.flats_in_hand[1] -= (covered & mask).count_ones() as u8;
         }
 
         self.stacks.regen_key(self.occ());
