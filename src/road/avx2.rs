@@ -79,5 +79,6 @@ pub(super) fn influence(road_occ: Bitboard, edges: &mut [Bitboard; 4]) -> bool {
     };
 
     *edges = unsafe { std::mem::transmute::<__m256i, [Bitboard; 4]>(influence_masks) };
+
     result
 }

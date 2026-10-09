@@ -175,9 +175,13 @@ impl SharedContext {
 
 pub type PvList = arrayvec::ArrayVec<Move, { MAX_DEPTH as usize }>;
 
-pub fn update_pv(pv: &mut PvList, mv: Move, child: &PvList) {
+pub fn set_pv(pv: &mut PvList, mv: Move) {
     pv.clear();
     pv.push(mv);
+}
+
+pub fn update_pv(pv: &mut PvList, mv: Move, child: &PvList) {
+    set_pv(pv, mv);
     pv.try_extend_from_slice(child).unwrap();
 }
 
@@ -345,14 +349,11 @@ impl ThreadData {
         // player we care about: the one that made the move
         let stm = pos.stm().flip();
 
-        if pos.influence(stm).0 {
+        if pos.has_road(stm) {
             return Some(TerminalState::Win);
         }
 
-        // todo: cache in position and update only if prev_move is spread
-        let (road_loss, nstm_infl) = pos.influence(stm.flip());
-
-        if road_loss {
+        if pos.has_road(stm.flip()) {
             return Some(TerminalState::Loss);
         }
 
@@ -370,13 +371,6 @@ impl ThreadData {
 
         if prev_move.is_spread() && self.is_drawn_by_repetition(pos.key(), ply) {
             return Some(TerminalState::Draw);
-        }
-
-        let criticals = (nstm_infl[0] & nstm_infl[1]) | (nstm_infl[2] & nstm_infl[3]);
-        let open_criticals = criticals & !pos.occ();
-
-        if !open_criticals.is_empty() {
-            return Some(TerminalState::Loss);
         }
 
         None

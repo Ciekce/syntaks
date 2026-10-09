@@ -220,6 +220,8 @@ pub struct Position {
     stm: Player,
     ply: u16,
     player_key: u64,
+    roads: [bool; Player::COUNT],
+    influence: [[Bitboard; 4]; Player::COUNT],
 }
 
 impl Position {
@@ -237,6 +239,8 @@ impl Position {
             stm: Player::P1,
             ply: 0,
             player_key: 0,
+            roads: Default::default(),
+            influence: Default::default(),
         }
     }
 
@@ -430,8 +434,13 @@ impl Position {
     }
 
     #[must_use]
-    pub fn influence(&self, player: Player) -> (bool, [Bitboard; 4]) {
-        influence(self.roads(player))
+    pub fn has_road(&self, player: Player) -> bool {
+        self.roads[player.idx()]
+    }
+
+    #[must_use]
+    pub fn influence(&self, player: Player) -> &[Bitboard; 4] {
+        &self.influence[player.idx()]
     }
 
     #[must_use]
@@ -599,6 +608,9 @@ impl Position {
                 new_pos.pieces[top.idx()].set_sq(sq);
             }
 
+            new_pos.update_influence(Player::P1);
+            new_pos.update_influence(Player::P2);
+
             debug_assert_eq!(
                 new_pos.pieces[PieceType::Flat.idx()]
                     & new_pos.pieces[PieceType::Wall.idx()]
@@ -632,6 +644,8 @@ impl Position {
                 PieceType::Capstone => new_pos.caps_in_hand[dropped_player.idx()] -= 1,
                 _ => new_pos.flats_in_hand[dropped_player.idx()] -= 1,
             }
+
+            new_pos.update_influence(dropped_player);
         }
 
         new_pos.stm = new_pos.stm.flip();
@@ -768,6 +782,15 @@ impl Position {
         } else {
             self.player_key = 0;
         }
+
+        self.update_influence(Player::P1);
+        self.update_influence(Player::P2);
+    }
+
+    fn update_influence(&mut self, player: Player) {
+        let (road, influence) = influence(self.roads(player));
+        self.roads[player.idx()] = road;
+        self.influence[player.idx()] = influence;
     }
 }
 
