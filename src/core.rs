@@ -360,3 +360,24 @@ impl Iterator for SquareIterator {
         sq
     }
 }
+
+pub type Score = i32;
+
+pub const SCORE_INF: Score = 32767;
+pub const SCORE_MATE: Score = SCORE_INF - 1;
+pub const SCORE_WIN: Score = 25000;
+
+#[must_use]
+pub const fn is_win(score: Score) -> bool {
+    score > SCORE_WIN
+}
+
+#[must_use]
+pub const fn is_loss(score: Score) -> bool {
+    score < -SCORE_WIN
+}
+
+#[must_use]
+pub const fn is_decisive(score: Score) -> bool {
+    score.abs() > SCORE_WIN
+}

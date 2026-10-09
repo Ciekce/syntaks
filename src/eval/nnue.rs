@@ -45,7 +45,10 @@ cfg_select! {
     }
 }
 
-pub const L1_SIZE: usize = 256;
+pub const TOP_INPUT_SIZE: usize = Player::COUNT * PieceType::COUNT * Square::COUNT;
+pub const STACK_INPUT_SIZE: usize = 12 * Square::COUNT * Player::COUNT;
+
+pub const L1_SIZE: usize = 64;
 
 pub const OUTPUT_BUCKETS: usize = 2;
 
@@ -56,7 +59,8 @@ pub const SCALE: i32 = 400;
 
 #[repr(C, align(64))]
 pub(super) struct Network {
-    pub ftw: [[i16; L1_SIZE]; 216],
+    pub ftw_top: [[i16; L1_SIZE]; TOP_INPUT_SIZE],
+    pub ftw_stack: [[i16; L1_SIZE]; STACK_INPUT_SIZE],
     pub ftb: [i16; L1_SIZE],
     pub l1w: [[[i16; L1_SIZE]; 2]; OUTPUT_BUCKETS],
     pub l1b: [i16; OUTPUT_BUCKETS],
@@ -71,15 +75,20 @@ pub(super) fn evaluate_once(pos: &Position) -> i32 {
     forward(&acc, pos.stm())
 }
 
-pub(super) fn feature_idx(perspective: Player, side: Player, pt: PieceType, sq: Square) -> usize {
-    // TODO: was tired and got side and piecetype backwards
-    pt.idx() * 72 + usize::from(side != perspective) * 36 + sq.idx()
+pub(super) fn top_feature_idx(perspective: Player, side: Player, pt: PieceType, sq: Square) -> usize {
+    (usize::from(side != perspective) * PieceType::COUNT + pt.idx()) * Square::COUNT + sq.idx()
+}
+
+pub(super) fn stack_feature_idx(perspective: Player, side: Player, depth: u8, sq: Square) -> usize {
+    debug_assert!(depth < 12);
+    (usize::from(side != perspective) * Square::COUNT + sq.idx()) * 12 + depth as usize
 }
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct NnueUpdates {
     pub adds: ArrayVec<(Piece, Square), 6>,
     pub subs: ArrayVec<(Piece, Square), 6>,
+    pub stacks: ArrayVec<(Square, u8, u8, u32, u32), 6>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -104,6 +113,24 @@ impl<'a> BoardObserver for NnueObserver<'a> {
 
     fn top_removed(&mut self, _pos: &Position, top: Piece, sq: Square) {
         self.ctx.updates.subs.push((top, sq));
+    }
+
+    fn stack_changed(
+        &mut self,
+        _pos: &Position,
+        sq: Square,
+        height_before: u8,
+        height_after: u8,
+        players_before: u64,
+        players_after: u64,
+    ) {
+        self.ctx.updates.stacks.push((
+            sq,
+            height_before,
+            height_after,
+            players_before as u32,
+            players_after as u32,
+        ));
     }
 
     fn finalize(&mut self, _pos: &Position) {

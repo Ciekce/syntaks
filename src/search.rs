@@ -22,7 +22,7 @@
  */
 
 use crate::board::Position;
-use crate::core::PieceType;
+use crate::core::*;
 use crate::eval::static_eval;
 use crate::limit::Limits;
 use crate::movegen::generate_moves;
@@ -38,28 +38,6 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 pub const MAX_THREADS: u32 = 2048;
-
-pub type Score = i32;
-
-pub const SCORE_INF: Score = 32767;
-pub const SCORE_MATE: Score = SCORE_INF - 1;
-pub const SCORE_WIN: Score = 25000;
-
-#[must_use]
-pub const fn is_win(score: Score) -> bool {
-    score > SCORE_WIN
-}
-
-#[must_use]
-pub const fn is_loss(score: Score) -> bool {
-    score < -SCORE_WIN
-}
-
-#[must_use]
-pub const fn is_decisive(score: Score) -> bool {
-    score.abs() > SCORE_WIN
-}
-
 pub const MAX_DEPTH: i32 = 255;
 
 const WIDEN_REPORT_DELAY: f64 = 1.0;

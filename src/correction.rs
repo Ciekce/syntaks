@@ -22,8 +22,7 @@
  */
 
 use crate::board::Position;
-use crate::core::Player;
-use crate::search::Score;
+use crate::core::{Player, Score};
 use std::ops::{Index, IndexMut};
 
 #[derive(Copy, Clone, Debug, Default)]
