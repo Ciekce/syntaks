@@ -98,23 +98,19 @@ fn static_eval_player(pos: &Position, player: Player, komi: u32) -> Score {
     let mut captive_score = 0;
 
     for sq in pos.player_bb(player) {
-        let mut height = stacks.height(sq);
+        let height = stacks.height(sq);
 
         if height == 1 {
             continue;
         }
 
-        let mut players = stacks.players(sq) ^ player_flip;
+        let covered = (stacks.players(sq) ^ player_flip) >> 1;
+        let count = height.min(7) - 1;
 
-        if height > 7 {
-            players >>= height - 7;
-            height = 7;
-        }
+        let mask = (1 << count) - 1;
 
-        let mask = (1 << (height - 1)) - 1;
-
-        let support_count = (!players & mask).count_ones() as Score;
-        let captive_count = (players & mask).count_ones() as Score;
+        let support_count = (!covered & mask).count_ones() as Score;
+        let captive_count = (covered & mask).count_ones() as Score;
 
         match stacks.top(sq).unwrap() {
             PieceType::Flat => {
