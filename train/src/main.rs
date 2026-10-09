@@ -1,9 +1,6 @@
 mod inputs;
 mod loader;
 
-use std::fmt::format;
-
-use crate::inputs::TakStacks;
 use bullet_lib::{
     nn::optimiser::AdamW,
     trainer::{

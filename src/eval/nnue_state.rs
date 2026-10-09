@@ -22,7 +22,7 @@
  */
 
 use crate::board::Position;
-use crate::core::{Player, Square};
+use crate::core::Player;
 use crate::eval::accumulator::Accumulator;
 use crate::eval::forward::forward;
 use crate::eval::nnue::*;
