@@ -68,7 +68,7 @@ impl PackedTakBoard {
                     let players = stacks.players(sq);
 
                     for level in (0..height).rev() {
-                        let color = ((players >> level) & 1) as u8;
+                        let color = ((players >> (height - level - 1)) & 1) as u8;
                         let terminal = u8::from(level == 0);
                         put_token(&mut out, &mut bit, (terminal << 1) | color);
                     }
