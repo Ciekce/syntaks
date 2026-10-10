@@ -29,7 +29,7 @@ use crate::movegen::generate_moves;
 use crate::movepick::Movepicker;
 use crate::takmove::Move;
 use crate::tei::TeiOptions;
-use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, update_pv};
+use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, set_pv, update_pv};
 use crate::ttable::TtFlag;
 use crate::util::command_channel::{Receiver, Sender, channel};
 use std::sync::Arc;
@@ -188,6 +188,30 @@ fn search<NT: NodeType>(
     }
 
     thread.inc_nodes();
+
+    if !NT::ROOT_NODE {
+        let influence = pos.influence(pos.stm());
+
+        let criticals = (influence[0] & influence[1]) | (influence[2] & influence[3]);
+        let open_criticals = criticals & !pos.occ();
+
+        if !open_criticals.is_empty() {
+            if NT::PV_NODE {
+                let pt = if pos.flats_in_hand(pos.stm()) > 0 {
+                    PieceType::Flat
+                } else {
+                    PieceType::Capstone
+                };
+
+                let sq = open_criticals.lsb().unwrap();
+                let mv = Move::placement(pt, sq);
+
+                set_pv(&mut data_stack[0].pv, mv);
+            }
+
+            return SCORE_MATE - ply - 1;
+        }
+    }
 
     if depth <= 0 {
         let static_eval = static_eval(pos);

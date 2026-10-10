@@ -175,9 +175,13 @@ impl SharedContext {
 
 pub type PvList = arrayvec::ArrayVec<Move, { MAX_DEPTH as usize }>;
 
-pub fn update_pv(pv: &mut PvList, mv: Move, child: &PvList) {
+pub fn set_pv(pv: &mut PvList, mv: Move) {
     pv.clear();
     pv.push(mv);
+}
+
+pub fn update_pv(pv: &mut PvList, mv: Move, child: &PvList) {
+    set_pv(pv, mv);
     pv.try_extend_from_slice(child).unwrap();
 }
 
@@ -349,7 +353,7 @@ impl ThreadData {
             return Some(TerminalState::Win);
         }
 
-        if prev_move.is_spread() && pos.has_road(stm.flip()) {
+        if pos.has_road(stm.flip()) {
             return Some(TerminalState::Loss);
         }
 

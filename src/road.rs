@@ -30,34 +30,36 @@ mod sse;
 use crate::bitboard::Bitboard;
 
 #[must_use]
-pub fn has_road(road_occ: Bitboard) -> bool {
-    let upper_edge = Bitboard::UPPER_EDGE.raw();
-    let lower_edge = Bitboard::LOWER_EDGE.raw();
-    let left_edge = Bitboard::LEFT_EDGE.raw();
-    let right_edge = Bitboard::RIGHT_EDGE.raw();
+pub fn influence(road_occ: Bitboard) -> (bool, [Bitboard; 4]) {
+    let upper_edge = Bitboard::UPPER_EDGE;
+    let lower_edge = Bitboard::LOWER_EDGE;
+    let left_edge = Bitboard::LEFT_EDGE;
+    let right_edge = Bitboard::RIGHT_EDGE;
 
-    let road_occ = road_occ.raw();
+    let mut edges = [
+        road_occ & upper_edge,
+        road_occ & lower_edge,
+        road_occ & left_edge,
+        road_occ & right_edge,
+    ];
 
-    let up = road_occ & upper_edge;
-    let down = road_occ & lower_edge;
-    let left = road_occ & left_edge;
-    let right = road_occ & right_edge;
+    edges[0] |= edges[0] >> 6 & road_occ;
+    edges[1] |= edges[1] << 6 & road_occ;
+    edges[2] |= edges[2] << 1 & road_occ;
+    edges[3] |= edges[3] >> 1 & road_occ;
 
-    let up = up | (up >> 6 & road_occ);
-    let down = down | (down << 6 & road_occ);
-    let left = left | (left << 1 & road_occ);
-    let right = right | (right >> 1 & road_occ);
+    let result;
 
     #[cfg(target_feature = "avx2")]
     {
         //SAFETY: self-explanatory
-        return unsafe { avx2::has_road(road_occ, up, down, left, right) };
+        result = unsafe { avx2::influence(road_occ, &mut edges) };
     }
 
     #[cfg(all(not(target_feature = "avx2"), target_feature = "sse4.2"))]
     {
-        return unsafe { sse::has_road(road_occ, up, down, left, right) };
+        result = unsafe { sse::influence(road_occ, &mut edges) };
     }
 
-    todo!();
+    (result, edges)
 }
