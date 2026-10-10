@@ -25,7 +25,7 @@ use crate::bitboard::Bitboard;
 use crate::core::*;
 use crate::hits::find_hit_for_dir;
 use crate::keys;
-use crate::road::has_road;
+use crate::road::influence;
 use crate::takmove::Move;
 use std::cmp::Ordering;
 use std::str::FromStr;
@@ -220,6 +220,8 @@ pub struct Position {
     stm: Player,
     ply: u16,
     player_key: u64,
+    roads: [bool; Player::COUNT],
+    influence: [[Bitboard; 4]; Player::COUNT],
 }
 
 impl Position {
@@ -237,6 +239,8 @@ impl Position {
             stm: Player::P1,
             ply: 0,
             player_key: 0,
+            roads: Default::default(),
+            influence: Default::default(),
         }
     }
 
@@ -431,7 +435,12 @@ impl Position {
 
     #[must_use]
     pub fn has_road(&self, player: Player) -> bool {
-        has_road(self.roads(player))
+        self.roads[player.idx()]
+    }
+
+    #[must_use]
+    pub fn influence(&self, player: Player) -> &[Bitboard; 4] {
+        &self.influence[player.idx()]
     }
 
     #[must_use]
@@ -630,6 +639,9 @@ impl Position {
                 observer.stack_changed(&new_pos, sq, height_before, height_after, players_before, players_after);
             }
 
+            new_pos.update_influence(Player::P1);
+            new_pos.update_influence(Player::P2);
+
             debug_assert_eq!(
                 new_pos.pieces[PieceType::Flat.idx()]
                     & new_pos.pieces[PieceType::Wall.idx()]
@@ -666,6 +678,8 @@ impl Position {
 
             observer.top_added(&new_pos, mv.pt().with_player(dropped_player), mv.sq());
             observer.stack_changed(&new_pos, mv.sq(), 0, 1, 0, dropped_player.raw() as u64);
+
+            new_pos.update_influence(dropped_player);
         }
 
         new_pos.stm = new_pos.stm.flip();
@@ -819,6 +833,15 @@ impl Position {
         } else {
             self.player_key = 0;
         }
+
+        self.update_influence(Player::P1);
+        self.update_influence(Player::P2);
+    }
+
+    fn update_influence(&mut self, player: Player) {
+        let (road, influence) = influence(self.roads(player));
+        self.roads[player.idx()] = road;
+        self.influence[player.idx()] = influence;
     }
 }
 
