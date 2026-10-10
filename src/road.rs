@@ -56,10 +56,10 @@ pub fn influence(road_occ: Bitboard) -> (bool, [Bitboard; 4]) {
         result = unsafe { avx2::influence(road_occ, &mut edges) };
     }
 
-    // #[cfg(all(not(target_feature = "avx2"), target_feature = "sse4.2"))]
-    // {
-    //     return unsafe { sse::has_road(road_occ, up, down, left, right) };
-    // }
+    #[cfg(all(not(target_feature = "avx2"), target_feature = "sse4.2"))]
+    {
+        result = unsafe { sse::influence(road_occ, &mut edges) };
+    }
 
     (result, edges)
 }
