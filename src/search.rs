@@ -21,6 +21,7 @@
  * SOFTWARE.
  */
 
+use crate::bitboard::Bitboard;
 use crate::board::Position;
 use crate::core::*;
 use crate::eval::static_eval;
@@ -168,12 +169,7 @@ fn search<NT: NodeType>(
     thread.inc_nodes();
 
     if !NT::ROOT_NODE {
-        let influence = pos.influence(pos.stm());
-
-        let criticals = (influence[0] & influence[1]) | (influence[2] & influence[3]);
-        let open_criticals = criticals & !pos.occ();
-
-        if !open_criticals.is_empty() {
+        let mut push_to_pv = |bb: Bitboard| {
             if NT::PV_NODE {
                 let pt = if pos.flats_in_hand(pos.stm()) > 0 {
                     PieceType::Flat
@@ -181,12 +177,25 @@ fn search<NT: NodeType>(
                     PieceType::Capstone
                 };
 
-                let sq = open_criticals.lsb().unwrap();
+                let sq = bb.lsb().unwrap();
                 let mv = Move::placement(pt, sq);
 
                 set_pv(&mut data_stack[0].pv, mv);
             }
+        };
 
+        let influence = pos.influence(pos.stm());
+
+        let criticals = (influence[0] & influence[1]) | (influence[2] & influence[3]);
+        let open_criticals = criticals & !pos.occ();
+
+        if !open_criticals.is_empty() {
+            push_to_pv(open_criticals);
+            return SCORE_MATE - ply - 1;
+        }
+
+        if pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0 && pos.fcd(pos.stm()) >= 0 {
+            push_to_pv(!pos.occ());
             return SCORE_MATE - ply - 1;
         }
     }
