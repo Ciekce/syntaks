@@ -265,6 +265,8 @@ impl Accumulator {
                 }
             }
         }
+
+        self.set_updated(player);
     }
 
     fn add_sub(w: &[[i16; L1_SIZE]], dst: &mut [i16; L1_SIZE], src: &[i16; L1_SIZE], add: usize, sub: usize) {
