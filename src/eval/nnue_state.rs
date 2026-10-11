@@ -69,27 +69,35 @@ impl NnueState {
         forward(&self.acc_stacc[self.top_idx], pos.stm())
     }
 
-    fn ensure_up_to_date(&mut self, _pos: &Position) {
-        if !self.acc_stacc[self.top_idx].is_dirty() {
-            return;
-        }
+    fn ensure_up_to_date(&mut self, pos: &Position) {
+        for side in [Player::P1, Player::P2] {
+            if !self.acc_stacc[self.top_idx].is_dirty(side) {
+                return;
+            }
 
-        let mut curr = self.top_idx - 1;
-        while self.acc_stacc[curr].is_dirty() {
-            curr -= 1;
-        }
+            if self.acc_stacc[self.top_idx].ctx.updates.requires_refresh(side) {
+                self.acc_stacc[self.top_idx].reset(pos, side);
+                continue;
+            }
 
-        loop {
-            let [prev_acc, curr_acc] = self.acc_stacc.get_disjoint_mut([curr, curr + 1]).unwrap();
+            let mut curr = self.top_idx - 1;
+            while self.acc_stacc[curr].is_dirty(side) && !self.acc_stacc[curr].ctx.updates.requires_refresh(side) {
+                curr -= 1;
+            }
 
-            curr_acc.apply_updates(prev_acc, Player::P1);
-            curr_acc.apply_updates(prev_acc, Player::P2);
+            if self.acc_stacc[curr].ctx.updates.requires_refresh(side) {
+                self.acc_stacc[self.top_idx].reset(pos, side);
+            } else {
+                loop {
+                    let [prev_acc, curr_acc] = self.acc_stacc.get_disjoint_mut([curr, curr + 1]).unwrap();
 
-            curr_acc.set_updated();
+                    curr_acc.apply_updates(prev_acc, side);
 
-            curr += 1;
-            if curr == self.top_idx {
-                break;
+                    curr += 1;
+                    if curr == self.top_idx {
+                        break;
+                    }
+                }
             }
         }
     }
