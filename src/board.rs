@@ -379,6 +379,11 @@ impl Position {
     }
 
     #[must_use]
+    pub fn cap_sq(&self, player: Player) -> Option<Square> {
+        self.player_piece_bb(PieceType::Capstone.with_player(player)).lsb()
+    }
+
+    #[must_use]
     pub fn ply(&self) -> u16 {
         self.ply
     }
@@ -687,7 +692,7 @@ impl Position {
 
         new_pos.player_key ^= keys::p2_key();
 
-        observer.finalize(&new_pos);
+        observer.finalize(self, &new_pos);
 
         #[cfg(debug_assertions)]
         {
@@ -881,7 +886,7 @@ pub trait BoardObserver {
         players_after: u64,
     );
 
-    fn finalize(&mut self, pos: &Position);
+    fn finalize(&mut self, pos_before: &Position, pos_after: &Position);
 }
 
 pub struct NullObserver;
@@ -907,7 +912,7 @@ impl BoardObserver for NullObserver {
         // no-op
     }
 
-    fn finalize(&mut self, _pos: &Position) {
+    fn finalize(&mut self, _pos_before: &Position, _pos_after: &Position) {
         // no-op
     }
 }

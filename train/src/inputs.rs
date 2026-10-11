@@ -104,16 +104,40 @@ impl SparseInputType for TakStacks {
         let pos = pos.decode_position().unwrap();
         let stm_flip = pos.stm().idx();
 
+        let calc_flips = |perspective: Player| -> (bool, bool) {
+            if let Some(cap) = pos.cap_sq(perspective) {
+                let flip_rank = cap.rank() >= 3;
+                let flip_file = cap.file() >= 3;
+                (flip_rank, flip_file)
+            } else {
+                (false, false)
+            }
+        };
+
+        let flips = [Player::P1, Player::P2].map(calc_flips);
+
+        let map_sq = |perspective: Player, mut sq: Square| -> Square {
+            let (flip_rank, flip_file) = flips[perspective.idx()];
+            if flip_rank {
+                sq = sq.flip_rank();
+            }
+            if flip_file {
+                sq = sq.flip_file();
+            }
+            sq
+        };
+
         let stacks = pos.stacks();
 
         for sq in pos.occ() {
-            let sq_idx = sq.idx();
+            let stm_sq = map_sq(pos.stm(), sq).idx();
+            let nstm_sq = map_sq(pos.stm().flip(), sq).idx();
 
             let top_pt = stacks.top(sq).unwrap().idx();
             let top_color = stacks.top_player(sq).unwrap().idx();
 
-            let top_stm = ((top_color ^ stm_flip) * PieceType::COUNT + top_pt) * Square::COUNT + sq_idx;
-            let top_nstm = ((top_color ^ stm_flip ^ 1) * PieceType::COUNT + top_pt) * Square::COUNT + sq_idx;
+            let top_stm = ((top_color ^ stm_flip) * PieceType::COUNT + top_pt) * Square::COUNT + stm_sq;
+            let top_nstm = ((top_color ^ stm_flip ^ 1) * PieceType::COUNT + top_pt) * Square::COUNT + nstm_sq;
             f(top_stm, top_nstm);
 
             let height = stacks.height(sq) as usize;
@@ -130,8 +154,8 @@ impl SparseInputType for TakStacks {
 
                 players >>= 1;
 
-                let stm = Self::STACKS_OFFSET + ((player ^ stm_flip) * Square::COUNT + sq_idx) * 12 + depth;
-                let nstm = Self::STACKS_OFFSET + ((player ^ stm_flip ^ 1) * Square::COUNT + sq_idx) * 12 + depth;
+                let stm = Self::STACKS_OFFSET + ((player ^ stm_flip) * Square::COUNT + stm_sq) * 12 + depth;
+                let nstm = Self::STACKS_OFFSET + ((player ^ stm_flip ^ 1) * Square::COUNT + nstm_sq) * 12 + depth;
                 f(stm, nstm);
             }
         }
