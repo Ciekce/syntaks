@@ -17,7 +17,7 @@ use syntaks::core::{Score, is_decisive};
 use syntaks::format::GameResult;
 use syntaks::takmove::Move;
 
-const HIDDEN_SIZE: usize = 64;
+const HIDDEN_SIZE: usize = 32;
 const SCALE: i32 = 400;
 const QA: i16 = 255;
 const QB: i16 = 64;
@@ -54,7 +54,7 @@ fn main() {
         });
 
     let schedule = TrainingSchedule {
-        net_id: "test4".to_owned(),
+        net_id: "net001".to_owned(),
         eval_scale: SCALE as f32,
         steps: TrainingSteps {
             batch_size: 16_384,
@@ -62,7 +62,7 @@ fn main() {
             start_superbatch: 1,
             end_superbatch: SUPERBATCHES,
         },
-        wdl_scheduler: wdl::ConstantWDL { value: 0.3 },
+        wdl_scheduler: wdl::ConstantWDL { value: 1.0 },
         lr_scheduler: lr::CosineDecayLR {
             initial_lr: 1e-3,
             final_lr: 1e-5,
