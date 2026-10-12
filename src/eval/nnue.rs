@@ -75,6 +75,14 @@ pub(super) fn evaluate_once(pos: &Position) -> i32 {
     forward(&acc, pos.stm())
 }
 
+pub(super) fn should_flip(cap_sq: Option<Square>) -> (bool, bool) {
+    if let Some(cap) = cap_sq {
+        (cap.rank() >= 3, cap.file() >= 3)
+    } else {
+        (false, false)
+    }
+}
+
 pub(super) fn top_feature_idx(perspective: Player, side: Player, pt: PieceType, sq: Square) -> usize {
     (usize::from(side != perspective) * PieceType::COUNT + pt.idx()) * Square::COUNT + sq.idx()
 }
@@ -89,11 +97,20 @@ pub(super) struct NnueUpdates {
     pub adds: ArrayVec<(Piece, Square), 6>,
     pub subs: ArrayVec<(Piece, Square), 6>,
     pub stacks: ArrayVec<(Square, u8, u8, u32, u32), 6>,
+    pub refresh: [bool; Player::COUNT],
+}
+
+impl NnueUpdates {
+    #[must_use]
+    pub fn requires_refresh(&self, player: Player) -> bool {
+        self.refresh[player.idx()]
+    }
 }
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct UpdateContext {
     pub updates: NnueUpdates,
+    pub caps: [Option<Square>; Player::COUNT],
 }
 
 pub struct NnueObserver<'a> {
@@ -133,7 +150,38 @@ impl<'a> BoardObserver for NnueObserver<'a> {
         ));
     }
 
-    fn finalize(&mut self, _pos: &Position) {
-        //
+    fn finalize(&mut self, pos_before: &Position, pos_after: &Position) {
+        let should_refresh = |side: Player| {
+            let cap_before = pos_before.cap_sq(side);
+            let cap_after = pos_after.cap_sq(side);
+
+            debug_assert!(cap_before.is_none() || cap_after.is_some());
+
+            if cap_after.is_none() {
+                return false;
+            }
+
+            let cap_after = cap_after.unwrap();
+
+            let flip_rank_after = cap_after.rank() >= 3;
+            let flip_file_after = cap_after.file() >= 3;
+
+            if cap_before.is_none() {
+                return flip_rank_after || flip_file_after;
+            }
+
+            let cap_before = cap_before.unwrap();
+
+            let flip_rank_before = cap_before.rank() >= 3;
+            let flip_file_before = cap_before.file() >= 3;
+
+            (flip_rank_before != flip_rank_after) || (flip_file_before != flip_file_after)
+        };
+
+        self.ctx.updates.refresh = [Player::P1, Player::P2].map(should_refresh);
+
+        let p1_cap = pos_after.player_piece_bb(Piece::P1Capstone).lsb();
+        let p2_cap = pos_after.player_piece_bb(Piece::P2Capstone).lsb();
+        self.ctx.caps = [p1_cap, p2_cap];
     }
 }
