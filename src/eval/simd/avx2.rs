@@ -21,6 +21,8 @@
  * SOFTWARE.
  */
 
+#![allow(unused)]
+
 use std::arch::x86_64::*;
 
 pub type VecI16 = __m256i;
