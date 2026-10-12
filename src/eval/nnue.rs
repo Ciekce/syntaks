@@ -48,7 +48,7 @@ cfg_select! {
 pub const TOP_INPUT_SIZE: usize = Player::COUNT * PieceType::COUNT * Square::COUNT;
 pub const STACK_INPUT_SIZE: usize = 12 * Square::COUNT * Player::COUNT;
 
-pub const L1_SIZE: usize = 32;
+pub const L1_SIZE: usize = 64;
 
 pub const OUTPUT_BUCKETS: usize = 2;
 

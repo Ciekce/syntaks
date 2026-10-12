@@ -17,12 +17,12 @@ use syntaks::core::{Score, is_decisive};
 use syntaks::format::GameResult;
 use syntaks::takmove::Move;
 
-const HIDDEN_SIZE: usize = 32;
+const HIDDEN_SIZE: usize = 64;
 const SCALE: i32 = 400;
 const QA: i16 = 255;
 const QB: i16 = 64;
 
-const SUPERBATCHES: usize = 50;
+const SUPERBATCHES: usize = 100;
 
 fn filter(_pos: &Position, _mv: Move, score: Score, _result: GameResult) -> bool {
     !is_decisive(score)
@@ -54,7 +54,7 @@ fn main() {
         });
 
     let schedule = TrainingSchedule {
-        net_id: "net006".to_owned(),
+        net_id: "net008".to_owned(),
         eval_scale: SCALE as f32,
         steps: TrainingSteps {
             batch_size: 16_384,
