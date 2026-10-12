@@ -23,7 +23,7 @@
 
 use crate::board::*;
 use crate::core::Player;
-use crate::eval::static_eval;
+use crate::eval::static_eval_once;
 use crate::limit::Limits;
 use crate::perft::{perft, split_perft};
 use crate::search;
@@ -43,6 +43,7 @@ pub struct TeiOptions {
     pub multipv: usize,
     pub minimal: bool,
     pub show_curr_move: bool,
+    pub silent: bool,
 }
 
 impl Default for TeiOptions {
@@ -51,6 +52,7 @@ impl Default for TeiOptions {
             multipv: 1,
             minimal: false,
             show_curr_move: false,
+            silent: false,
         }
     }
 }
@@ -376,7 +378,7 @@ impl TeiHandler {
                     }
 
                     if let Ok(nodes) = args[i].parse() {
-                        if !limits.set_nodes(nodes) {
+                        if !(limits.set_soft_nodes(nodes) && limits.set_hard_nodes(nodes)) {
                             eprintln!("Duplicate node limits");
                             return;
                         }
@@ -514,7 +516,7 @@ impl TeiHandler {
         println!("TPS: {}", self.pos.tps());
         println!("Key: {:016x}", self.pos.key());
 
-        let static_eval = static_eval(&self.pos);
+        let static_eval = static_eval_once(&self.pos);
         let static_eval = match self.pos.stm() {
             Player::P1 => static_eval,
             Player::P2 => -static_eval,

@@ -23,49 +23,7 @@
 
 use crate::board::Stacks;
 use crate::core::*;
-
-struct Sfc64 {
-    a: u64,
-    b: u64,
-    c: u64,
-    counter: u64,
-}
-
-impl Sfc64 {
-    const fn new(seed: u64) -> Self {
-        let mut result = Self {
-            a: seed,
-            b: seed,
-            c: seed,
-            counter: 1,
-        };
-
-        let mut i = 0;
-        while i < 12 {
-            result.next_u64();
-            i += 1;
-        }
-
-        result
-    }
-
-    const fn next_u64(&mut self) -> u64 {
-        let result = self.a.wrapping_add(self.b).wrapping_add(self.counter);
-        self.counter = self.counter.wrapping_add(1);
-        self.a = self.b ^ (self.b >> 11);
-        self.b = self.c.wrapping_add(self.c << 3);
-        self.c = self.c.rotate_left(24).wrapping_add(result);
-        result
-    }
-
-    const fn fill(&mut self, values: &mut [u64]) {
-        let mut idx = 0;
-        while idx < values.len() {
-            values[idx] = self.next_u64();
-            idx += 1;
-        }
-    }
-}
+use crate::prng::Sfc64;
 
 const P2_COUNT: usize = 1;
 const TOP_COUNT: usize = PieceType::COUNT * Square::COUNT;

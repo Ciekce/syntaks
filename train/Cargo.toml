@@ -1,0 +1,16 @@
+[package]
+name = "taktrain"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+cuda = ["bullet_lib/cuda", "bullet-trainer/cuda"]
+rocm = ["bullet_lib/rocm", "bullet-trainer/rocm"]
+
+[dependencies]
+syntaks = { path = ".." }
+bullet_lib = { git = "https://github.com/jw1912/bullet" }
+bullet-trainer = { git = "https://github.com/jw1912/bullet" }
+rand = "0.9"
+
+[workspace]

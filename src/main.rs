@@ -21,27 +21,15 @@
  * SOFTWARE.
  */
 
-mod bitboard;
-mod board;
-mod core;
-mod correction;
-mod eval;
-mod history;
-mod hits;
-mod keys;
-mod limit;
-mod movegen;
-mod movepick;
-mod node_counter;
-mod perft;
-mod road;
-mod search;
-mod takmove;
-mod tei;
-mod thread;
-mod ttable;
-mod util;
-
 fn main() {
-    tei::run();
+    #[cfg(feature = "datagen")]
+    {
+        let exit_code = syntaks::datagen::run();
+        std::process::exit(exit_code);
+    }
+
+    #[cfg(not(feature = "datagen"))]
+    {
+        syntaks::tei::run();
+    }
 }

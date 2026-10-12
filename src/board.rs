@@ -537,7 +537,7 @@ impl Position {
     }
 
     #[must_use]
-    pub fn apply_move(&self, mv: Move) -> Self {
+    pub fn apply_move_with_observer<O: BoardObserver>(&self, mv: Move, observer: &mut O) -> Self {
         let mut new_pos = *self;
 
         if mv.is_spread() {
@@ -558,6 +558,7 @@ impl Position {
 
             let mut new_flats_bb = Bitboard::empty();
             let mut new_player_bbs = [Bitboard::empty(); Player::COUNT];
+            let mut dirty_bb = mv.sq().bb();
 
             if let Some(new_top_player) = new_top_player {
                 new_player_bbs[new_top_player.idx()].set_sq(mv.sq());
@@ -577,6 +578,7 @@ impl Position {
                 let pt = if idx == taken - 1 { top } else { PieceType::Flat };
 
                 new_pos.stacks.push(sq, pt, player);
+                dirty_bb.set_sq(sq);
 
                 pattern >>= 1;
                 player_idx = player_idx.wrapping_sub(1);
@@ -606,6 +608,35 @@ impl Position {
             {
                 new_pos.pieces[prev_dst_top.idx()].clear_sq(sq);
                 new_pos.pieces[top.idx()].set_sq(sq);
+            }
+
+            for piece_idx in 0..Piece::COUNT {
+                let piece = Piece::from_raw(piece_idx as u8).unwrap();
+
+                let prev_bb = self.player_piece_bb(piece);
+                let new_bb = new_pos.player_piece_bb(piece);
+
+                if prev_bb == new_bb {
+                    continue;
+                }
+
+                for added in new_bb & !prev_bb {
+                    observer.top_added(&new_pos, piece, added);
+                }
+
+                for removed in prev_bb & !new_bb {
+                    observer.top_removed(&new_pos, piece, removed);
+                }
+            }
+
+            for sq in dirty_bb {
+                let height_before = self.stacks.height(sq);
+                let height_after = new_pos.stacks.height(sq);
+
+                let players_before = self.stacks.players(sq);
+                let players_after = new_pos.stacks.players(sq);
+
+                observer.stack_changed(&new_pos, sq, height_before, height_after, players_before, players_after);
             }
 
             new_pos.update_influence(Player::P1);
@@ -645,6 +676,9 @@ impl Position {
                 _ => new_pos.flats_in_hand[dropped_player.idx()] -= 1,
             }
 
+            observer.top_added(&new_pos, mv.pt().with_player(dropped_player), mv.sq());
+            observer.stack_changed(&new_pos, mv.sq(), 0, 1, 0, dropped_player.raw() as u64);
+
             new_pos.update_influence(dropped_player);
         }
 
@@ -652,6 +686,8 @@ impl Position {
         new_pos.ply += 1;
 
         new_pos.player_key ^= keys::p2_key();
+
+        observer.finalize(&new_pos);
 
         #[cfg(debug_assertions)]
         {
@@ -661,6 +697,11 @@ impl Position {
         }
 
         new_pos
+    }
+
+    #[must_use]
+    pub fn apply_move(&self, mv: Move) -> Self {
+        self.apply_move_with_observer(mv, &mut NullObserver)
     }
 
     #[must_use]
@@ -742,6 +783,16 @@ impl Position {
         tps
     }
 
+    pub(crate) fn push_piece(&mut self, sq: Square, pt: PieceType, player: Player) {
+        self.stacks.push(sq, pt, player);
+    }
+
+    pub(crate) fn finish_build(&mut self, stm: Player, ply: u16) {
+        self.stm = stm;
+        self.ply = ply;
+        self.regen();
+    }
+
     fn regen(&mut self) {
         self.players.fill(Bitboard::empty());
         self.pieces.fill(Bitboard::empty());
@@ -813,5 +864,50 @@ impl FromStr for Position {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split_ascii_whitespace().collect();
         Self::from_tps_parts(&parts)
+    }
+}
+
+pub trait BoardObserver {
+    fn top_added(&mut self, pos: &Position, top: Piece, sq: Square);
+    fn top_removed(&mut self, pos: &Position, top: Piece, sq: Square);
+
+    fn stack_changed(
+        &mut self,
+        pos: &Position,
+        sq: Square,
+        height_before: u8,
+        height_after: u8,
+        players_before: u64,
+        players_after: u64,
+    );
+
+    fn finalize(&mut self, pos: &Position);
+}
+
+pub struct NullObserver;
+
+impl BoardObserver for NullObserver {
+    fn top_added(&mut self, _pos: &Position, _top: Piece, _sq: Square) {
+        // no-op
+    }
+
+    fn top_removed(&mut self, _pos: &Position, _top: Piece, _sq: Square) {
+        // no-op
+    }
+
+    fn stack_changed(
+        &mut self,
+        _pos: &Position,
+        _sq: Square,
+        _height_before: u8,
+        _height_after: u8,
+        _players_before: u64,
+        _players_after: u64,
+    ) {
+        // no-op
+    }
+
+    fn finalize(&mut self, _pos: &Position) {
+        // no-op
     }
 }
