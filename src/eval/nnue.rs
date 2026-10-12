@@ -46,7 +46,7 @@ cfg_select! {
 }
 
 pub const TOP_INPUT_SIZE: usize = Player::COUNT * PieceType::COUNT * Square::COUNT;
-pub const STACK_INPUT_SIZE: usize = 12 * Square::COUNT * Player::COUNT;
+pub const STACK_INPUT_SIZE: usize = 12 * Player::COUNT * PieceType::COUNT * Square::COUNT * Player::COUNT;
 
 pub const L1_SIZE: usize = 64;
 
@@ -87,16 +87,17 @@ pub(super) fn top_feature_idx(perspective: Player, side: Player, pt: PieceType, 
     (usize::from(side != perspective) * PieceType::COUNT + pt.idx()) * Square::COUNT + sq.idx()
 }
 
-pub(super) fn stack_feature_idx(perspective: Player, side: Player, depth: u8, sq: Square) -> usize {
+pub(super) fn stack_feature_idx(perspective: Player, top: Piece, side: Player, depth: u8, sq: Square) -> usize {
     debug_assert!(depth < 12);
-    (usize::from(side != perspective) * Square::COUNT + sq.idx()) * 12 + depth as usize
+    let top_idx = usize::from(top.player() != perspective) * PieceType::COUNT + top.piece_type().idx();
+    ((top_idx * Player::COUNT + usize::from(side != perspective)) * Square::COUNT + sq.idx()) * 12 + depth as usize
 }
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct NnueUpdates {
     pub adds: ArrayVec<(Piece, Square), 6>,
     pub subs: ArrayVec<(Piece, Square), 6>,
-    pub stacks: ArrayVec<(Square, u8, u8, u32, u32), 6>,
+    pub stacks: ArrayVec<(Square, Option<Piece>, Option<Piece>, u8, u8, u32, u32), 6>,
     pub refresh: [bool; Player::COUNT],
 }
 
@@ -136,6 +137,8 @@ impl<'a> BoardObserver for NnueObserver<'a> {
         &mut self,
         _pos: &Position,
         sq: Square,
+        top_before: Option<Piece>,
+        top_after: Option<Piece>,
         height_before: u8,
         height_after: u8,
         players_before: u64,
@@ -143,6 +146,8 @@ impl<'a> BoardObserver for NnueObserver<'a> {
     ) {
         self.ctx.updates.stacks.push((
             sq,
+            top_before,
+            top_after,
             height_before,
             height_after,
             players_before as u32,

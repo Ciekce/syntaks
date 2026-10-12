@@ -35,7 +35,7 @@ fn main() {
     let mut trainer = ValueTrainerBuilder::default()
         .dual_perspective()
         .optimiser(AdamW)
-        .inputs(TakStacks)
+        .inputs(TakTopRelativeStacks)
         .output_buckets(StmBucket)
         .save_format(&[
             SavedFormat::id("l0w").round().quantise::<i16>(QA),
@@ -45,7 +45,7 @@ fn main() {
         ])
         .loss_fn(|output, target| output.sigmoid().squared_error(target))
         .build(|builder, stm_inputs, ntm_inputs, output_buckets| {
-            let l0 = builder.new_affine("l0", TakStacks::NUM_INPUTS, HIDDEN_SIZE);
+            let l0 = builder.new_affine("l0", TakTopRelativeStacks::NUM_INPUTS, HIDDEN_SIZE);
             let l1 = builder.new_affine("l1", 2 * HIDDEN_SIZE, 2);
 
             let stm_hidden = l0.forward(stm_inputs).screlu();
@@ -54,7 +54,7 @@ fn main() {
         });
 
     let schedule = TrainingSchedule {
-        net_id: "net010".to_owned(),
+        net_id: "net011".to_owned(),
         eval_scale: SCALE as f32,
         steps: TrainingSteps {
             batch_size: 16_384,

@@ -626,13 +626,31 @@ impl Position {
             }
 
             for sq in dirty_bb {
+                let top_before = self
+                    .stacks
+                    .top(sq)
+                    .map(|pt| pt.with_player(self.stacks.top_player(sq).unwrap()));
+                let top_after = new_pos
+                    .stacks
+                    .top(sq)
+                    .map(|pt| pt.with_player(new_pos.stacks.top_player(sq).unwrap()));
+
                 let height_before = self.stacks.height(sq);
                 let height_after = new_pos.stacks.height(sq);
 
                 let players_before = self.stacks.players(sq);
                 let players_after = new_pos.stacks.players(sq);
 
-                observer.stack_changed(&new_pos, sq, height_before, height_after, players_before, players_after);
+                observer.stack_changed(
+                    &new_pos,
+                    sq,
+                    top_before,
+                    top_after,
+                    height_before,
+                    height_after,
+                    players_before,
+                    players_after,
+                );
             }
 
             new_pos.update_influence(Player::P1);
@@ -672,8 +690,19 @@ impl Position {
                 _ => new_pos.flats_in_hand[dropped_player.idx()] -= 1,
             }
 
-            observer.top_added(&new_pos, mv.pt().with_player(dropped_player), mv.sq());
-            observer.stack_changed(&new_pos, mv.sq(), 0, 1, 0, dropped_player.raw() as u64);
+            let dropped = mv.pt().with_player(dropped_player);
+
+            observer.top_added(&new_pos, dropped, mv.sq());
+            observer.stack_changed(
+                &new_pos,
+                mv.sq(),
+                None,
+                Some(dropped),
+                0,
+                1,
+                0,
+                dropped_player.raw() as u64,
+            );
 
             new_pos.update_influence(dropped_player);
         }
@@ -871,6 +900,8 @@ pub trait BoardObserver {
         &mut self,
         pos: &Position,
         sq: Square,
+        top_before: Option<Piece>,
+        top_after: Option<Piece>,
         height_before: u8,
         height_after: u8,
         players_before: u64,
@@ -895,6 +926,8 @@ impl BoardObserver for NullObserver {
         &mut self,
         _pos: &Position,
         _sq: Square,
+        _top_before: Option<Piece>,
+        _top_after: Option<Piece>,
         _height_before: u8,
         _height_after: u8,
         _players_before: u64,
