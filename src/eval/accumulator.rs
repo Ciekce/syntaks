@@ -83,6 +83,11 @@ impl Accumulator {
                 continue;
             }
 
+            let top = pos
+                .stacks()
+                .top(sq)
+                .map(|pt| pt.with_player(pos.stacks().top_player(sq).unwrap()))
+                .unwrap();
             let perspective_sq = map_sq(sq);
 
             let mut players = stacks.players(sq) >> 1;
@@ -90,7 +95,7 @@ impl Accumulator {
 
             for depth in 0..count {
                 let color = Player::from_raw((players & 0x1) as u8).unwrap();
-                let feature = stack_feature_idx(player, color, depth, perspective_sq);
+                let feature = stack_feature_idx(player, top, color, depth, perspective_sq);
                 activate_stack(feature);
                 players >>= 1;
             }
@@ -210,7 +215,9 @@ impl Accumulator {
         let acc = &mut self.values[player.idx()];
         let updates = &self.ctx.updates;
 
-        for &(sq, height_before, height_after, mut players_before, mut players_after) in updates.stacks.iter() {
+        for &(sq, top_before, top_after, height_before, height_after, mut players_before, mut players_after) in
+            updates.stacks.iter()
+        {
             assert_ne!(height_before, height_after);
 
             if height_before <= 1 && height_after <= 1 {
@@ -224,6 +231,46 @@ impl Accumulator {
 
             players_before >>= 1;
             players_after >>= 1;
+
+            // top changed, must refresh
+            if top_before != top_after {
+                let mut depth = 0;
+
+                while depth < height_before.min(height_after) {
+                    let before = Player::from_raw((players_before & 0x1) as u8).unwrap();
+                    let after = Player::from_raw((players_after & 0x1) as u8).unwrap();
+
+                    players_before >>= 1;
+                    players_after >>= 1;
+
+                    let sub = stack_feature_idx(player, top_before.unwrap(), before, depth, perspective_sq);
+                    let add = stack_feature_idx(player, top_after.unwrap(), after, depth, perspective_sq);
+
+                    Self::add_sub_in_place(&NET.ftw_stack, acc, add, sub);
+
+                    depth += 1;
+                }
+
+                while depth < height_before {
+                    let before = Player::from_raw((players_before & 0x1) as u8).unwrap();
+                    players_before >>= 1;
+                    let sub = stack_feature_idx(player, top_before.unwrap(), before, depth, perspective_sq);
+                    Self::sub_in_place(&NET.ftw_stack, acc, sub);
+                    depth += 1;
+                }
+
+                while depth < height_after {
+                    let after = Player::from_raw((players_after & 0x1) as u8).unwrap();
+                    players_after >>= 1;
+                    let add = stack_feature_idx(player, top_after.unwrap(), after, depth, perspective_sq);
+                    Self::add_in_place(&NET.ftw_stack, acc, add);
+                    depth += 1;
+                }
+
+                continue;
+            }
+
+            let top = top_before.unwrap();
 
             let mut depth = 0;
 
@@ -239,8 +286,8 @@ impl Accumulator {
                     continue;
                 }
 
-                let sub = stack_feature_idx(player, before, depth, perspective_sq);
-                let add = stack_feature_idx(player, after, depth, perspective_sq);
+                let sub = stack_feature_idx(player, top, before, depth, perspective_sq);
+                let add = stack_feature_idx(player, top, after, depth, perspective_sq);
 
                 Self::add_sub_in_place(&NET.ftw_stack, acc, add, sub);
 
@@ -251,7 +298,7 @@ impl Accumulator {
                 while depth < height_before {
                     let before = Player::from_raw((players_before & 0x1) as u8).unwrap();
                     players_before >>= 1;
-                    let sub = stack_feature_idx(player, before, depth, perspective_sq);
+                    let sub = stack_feature_idx(player, top, before, depth, perspective_sq);
                     Self::sub_in_place(&NET.ftw_stack, acc, sub);
                     depth += 1;
                 }
@@ -259,7 +306,7 @@ impl Accumulator {
                 while depth < height_after {
                     let after = Player::from_raw((players_after & 0x1) as u8).unwrap();
                     players_after >>= 1;
-                    let add = stack_feature_idx(player, after, depth, perspective_sq);
+                    let add = stack_feature_idx(player, top, after, depth, perspective_sq);
                     Self::add_in_place(&NET.ftw_stack, acc, add);
                     depth += 1;
                 }
