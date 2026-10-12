@@ -30,18 +30,9 @@ use crate::takmove::Move;
 use std::cmp::Ordering;
 use std::str::FromStr;
 use std::sync::atomic;
-use std::sync::atomic::AtomicU8;
 
-pub const DEFAULT_FLATS: u8 = 30;
-pub const MIN_FLATS: u8 = 2;
-pub const MAX_FLATS: u8 = 36;
-
-pub const DEFAULT_CAPS: u8 = 1;
-pub const MIN_CAPS: u8 = 0;
-pub const MAX_CAPS: u8 = 4;
-
-pub static FLATS: AtomicU8 = AtomicU8::new(DEFAULT_FLATS);
-pub static CAPS: AtomicU8 = AtomicU8::new(DEFAULT_CAPS);
+pub const TOTAL_FLATS: u8 = 30;
+pub const TOTAL_CAPS: u8 = 1;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
 struct Keys {
@@ -90,7 +81,7 @@ pub struct Stacks {
 
 impl Stacks {
     // all flats + cap
-    pub const MAX_HEIGHT: usize = 30 + 30 + 1;
+    pub const MAX_HEIGHT: usize = TOTAL_FLATS as usize * 2 + TOTAL_CAPS as usize;
 
     #[must_use]
     pub fn is_empty(&self, sq: Square) -> bool {
@@ -234,8 +225,8 @@ impl Position {
             stacks: Stacks::default(),
             players: [Bitboard::empty(); Player::COUNT],
             pieces: [Bitboard::empty(); PieceType::COUNT],
-            flats_in_hand: [FLATS.load(atomic::Ordering::Relaxed); Player::COUNT],
-            caps_in_hand: [CAPS.load(atomic::Ordering::Relaxed); Player::COUNT],
+            flats_in_hand: [TOTAL_FLATS; Player::COUNT],
+            caps_in_hand: [TOTAL_CAPS; Player::COUNT],
             stm: Player::P1,
             ply: 0,
             player_key: 0,
@@ -802,8 +793,8 @@ impl Position {
         self.players.fill(Bitboard::empty());
         self.pieces.fill(Bitboard::empty());
 
-        self.flats_in_hand.fill(30);
-        self.caps_in_hand.fill(1);
+        self.flats_in_hand.fill(TOTAL_FLATS);
+        self.caps_in_hand.fill(TOTAL_CAPS);
 
         for sq_idx in 0..Square::COUNT {
             let sq = Square::from_raw(sq_idx as u8).unwrap();
