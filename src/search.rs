@@ -361,6 +361,8 @@ fn search<NT: NodeType>(
 
             if score < s_beta {
                 extension += 1;
+            } else if !NT::PV_NODE && score >= beta {
+                return score;
             }
         }
 
