@@ -216,7 +216,7 @@ fn search<NT: NodeType>(
         return static_eval + correction;
     }
 
-    let depth = depth.min(MAX_DEPTH);
+    let mut depth = depth.min(MAX_DEPTH);
 
     let excluded = thread.stack[ply as usize].excluded;
 
@@ -247,6 +247,10 @@ fn search<NT: NodeType>(
     } else {
         tt_entry.mv
     };
+
+    if excluded.is_none() && (NT::PV_NODE || expected_cutnode) && depth >= 3 && tt_move.is_none() {
+        depth -= 1;
+    }
 
     let raw_eval = static_eval(&mut thread.nnue_state, pos);
     let correction = thread.corrhist.correction(pos, &thread.key_history);
