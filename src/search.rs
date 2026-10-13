@@ -741,7 +741,8 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
             }
         }
     } else {
-        print!("cp {}", score);
+        let scaled = score * 100 / 220;
+        print!("cp {}", scaled);
     }
 
     if upper_bound {
