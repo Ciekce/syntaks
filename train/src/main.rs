@@ -54,7 +54,7 @@ fn main() {
         });
 
     let schedule = TrainingSchedule {
-        net_id: "cnet005".to_owned(),
+        net_id: "net017".to_owned(),
         eval_scale: SCALE as f32,
         steps: TrainingSteps {
             batch_size: 16_384,
@@ -72,11 +72,11 @@ fn main() {
     };
 
     let settings = LocalSettings {
-        threads: 16,
+        threads: 12,
         test_set: None,
         output_directory: "checkpoints",
         batch_queue_size: 64,
     };
 
-    trainer.run(&schedule, &settings, &TakReader::new(data_paths, 1024, 16, filter));
+    trainer.run(&schedule, &settings, &TakReader::new(data_paths, 1024, 6, filter));
 }
