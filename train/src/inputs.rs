@@ -2,7 +2,7 @@ use bullet_lib::game::inputs::SparseInputType;
 use bullet_lib::game::outputs::OutputBuckets;
 use bullet_lib::value::loader::{GameResult as LoaderResult, LoadableDataType};
 use std::ops::Deref;
-use syntaks::core::{PieceType, Player, normalizer};
+use syntaks::core::{PieceType, Player, Square, normalizer};
 use syntaks::format::PackedTakBoard;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
