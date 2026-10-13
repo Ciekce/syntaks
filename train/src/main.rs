@@ -17,7 +17,7 @@ use syntaks::core::{Score, is_decisive};
 use syntaks::format::GameResult;
 use syntaks::takmove::Move;
 
-const HIDDEN_SIZE: usize = 128;
+const HIDDEN_SIZE: usize = 512;
 const SCALE: i32 = 400;
 const QA: i16 = 255;
 const QB: i16 = 64;
@@ -54,7 +54,7 @@ fn main() {
         });
 
     let schedule = TrainingSchedule {
-        net_id: "net012".to_owned(),
+        net_id: "cnet004".to_owned(),
         eval_scale: SCALE as f32,
         steps: TrainingSteps {
             batch_size: 16_384,
@@ -72,11 +72,11 @@ fn main() {
     };
 
     let settings = LocalSettings {
-        threads: 12,
+        threads: 16,
         test_set: None,
         output_directory: "checkpoints",
         batch_queue_size: 64,
     };
 
-    trainer.run(&schedule, &settings, &TakReader::new(data_paths, 1024, 4, filter));
+    trainer.run(&schedule, &settings, &TakReader::new(data_paths, 1024, 16, filter));
 }
