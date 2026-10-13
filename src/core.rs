@@ -289,6 +289,66 @@ impl Square {
     }
 
     #[must_use]
+    pub const fn flip_diag(self) -> Self {
+        let file = self.file();
+        let rank = self.rank();
+        Self::from_file_rank(rank, file).unwrap()
+    }
+
+    #[must_use]
+    pub const fn transform(self, transform: Transform) -> Self {
+        static LUT: [[Square; 8]; Square::COUNT] = {
+            let mut lut = [[Square::A1; _]; _];
+            let mut t = 0;
+            while t < 8 {
+                let transform = Transform::from_raw(t as u8).unwrap();
+                let mut s = 0;
+                while s < Square::COUNT {
+                    let mut square = Square::from_raw(s as u8).unwrap();
+                    if transform.is_flip_rank() {
+                        square = square.flip_rank();
+                    }
+                    if transform.is_flip_file() {
+                        square = square.flip_file();
+                    }
+                    if transform.is_flip_diag() {
+                        square = square.flip_diag();
+                    }
+                    lut[s][t] = square;
+                    s += 1;
+                }
+                t += 1;
+            }
+            lut
+        };
+        LUT[self.idx()][transform.idx()]
+    }
+
+    #[must_use]
+    pub const fn normalizer(self) -> Transform {
+        static LUT: [Transform; Square::COUNT] = {
+            let mut lut = [Transform::identity(); _];
+            let mut s = 0;
+            while s < Square::COUNT {
+                let square = Square::from_raw(s as u8).unwrap();
+                let mut t = 0;
+                loop {
+                    let transform = Transform::from_raw(t).unwrap();
+                    let new = square.transform(transform);
+                    if new.rank() < 3 && new.file() < 3 && new.rank() <= new.file() {
+                        lut[s] = transform;
+                        break;
+                    }
+                    t += 1;
+                }
+                s += 1;
+            }
+            lut
+        };
+        LUT[self.idx()]
+    }
+
+    #[must_use]
     pub const fn bb(self) -> Bitboard {
         Bitboard::from_raw(1 << self.idx())
     }
@@ -316,6 +376,15 @@ impl Square {
     pub fn all() -> SquareIterator {
         SquareIterator { raw: 0 }
     }
+}
+
+#[must_use]
+pub const fn normalizer(opt_square: Option<Square>) -> Transform {
+    match opt_square {
+        Some(square) => square,
+        None => Square::A1,
+    }
+    .normalizer()
 }
 
 impl Display for Square {
@@ -372,6 +441,41 @@ impl Iterator for SquareIterator {
         let sq = Square::from_raw(self.raw);
         self.raw += 1;
         sq
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Transform(u8);
+
+impl Transform {
+    #[must_use]
+    pub const fn identity() -> Self {
+        Self(0)
+    }
+
+    #[must_use]
+    pub const fn from_raw(raw: u8) -> Option<Self> {
+        if raw < 8 { Some(Self(raw)) } else { None }
+    }
+
+    #[must_use]
+    pub const fn is_flip_rank(self) -> bool {
+        self.0 & 1 != 0
+    }
+
+    #[must_use]
+    pub const fn is_flip_file(self) -> bool {
+        self.0 & 2 != 0
+    }
+
+    #[must_use]
+    pub const fn is_flip_diag(self) -> bool {
+        self.0 & 4 != 0
+    }
+
+    #[must_use]
+    pub const fn idx(self) -> usize {
+        self.0 as usize
     }
 }
 
