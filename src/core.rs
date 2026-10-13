@@ -297,13 +297,13 @@ impl Square {
 
     #[must_use]
     pub const fn transform(self, transform: Transform) -> Self {
-        static LUT: [[Square; 8]; 36] = {
+        static LUT: [[Square; 8]; Square::COUNT] = {
             let mut lut = [[Square::A1; _]; _];
             let mut t = 0;
             while t < 8 {
                 let transform = Transform::from_raw(t as u8).unwrap();
                 let mut s = 0;
-                while s < 36 {
+                while s < Square::COUNT {
                     let mut square = Square::from_raw(s as u8).unwrap();
                     if transform.is_flip_rank() {
                         square = square.flip_rank();
@@ -326,10 +326,10 @@ impl Square {
 
     #[must_use]
     pub const fn normalizer(self) -> Transform {
-        static LUT: [Transform; 36] = {
+        static LUT: [Transform; Square::COUNT] = {
             let mut lut = [Transform::identity(); _];
             let mut s = 0;
-            while s < 36 {
+            while s < Square::COUNT {
                 let square = Square::from_raw(s as u8).unwrap();
                 let mut t = 0;
                 loop {
