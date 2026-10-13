@@ -341,7 +341,7 @@ fn search<NT: NodeType>(
             && depth >= 5
             && tt_entry.depth >= depth - 3
             && tt_entry.flag != Some(TtFlag::UpperBound)
-            && tt_entry.score.abs() < SCORE_WIN
+            && !is_decisive(tt_entry.score)
         {
             let s_beta = tt_entry.score - 2 * depth;
             let s_depth = (depth - 1) / 2;
