@@ -12,3 +12,4 @@ arrayvec = "0.7.6"
 atomic-wait = "1.1.0"
 static_init = "1.0.4"
 ctrlc = { version = "3.5.1", optional = true }
+zerocopy = "0.8.62"

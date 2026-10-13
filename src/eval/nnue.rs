@@ -50,11 +50,16 @@ pub const STACK_INPUT_SIZE: usize = 12 * Color::COUNT * PieceType::COUNT * Squar
 pub const RESERVES_INPUT_SIZE: usize = 30 * Color::COUNT;
 
 pub const L1_SIZE: usize = 512;
+pub const L2_SIZE: usize = 16;
+pub const L3_SIZE: usize = 32;
 
 pub const OUTPUT_BUCKETS: usize = 2;
 
 pub const FT_Q: i32 = 255;
-pub const L1_Q: i32 = 64;
+pub const L1_Q: i32 = 128;
+pub const Q_BITS: u32 = 6;
+
+pub const Q: i32 = 1 << Q_BITS;
 
 pub const SCALE: i32 = 400;
 
@@ -64,8 +69,12 @@ pub(super) struct Network {
     pub ftw_stack: [[i16; L1_SIZE]; STACK_INPUT_SIZE],
     pub ftw_reserves: [[i16; L1_SIZE]; RESERVES_INPUT_SIZE],
     pub ftb: [i16; L1_SIZE],
-    pub l1w: [[[i16; L1_SIZE]; 2]; OUTPUT_BUCKETS],
-    pub l1b: [i16; OUTPUT_BUCKETS],
+    pub l1w: [[[i8; L2_SIZE * 4]; L1_SIZE / 4]; OUTPUT_BUCKETS],
+    pub l1b: [[i32; L2_SIZE]; OUTPUT_BUCKETS],
+    pub l2w: [[[i32; L3_SIZE]; L2_SIZE]; OUTPUT_BUCKETS],
+    pub l2b: [[i32; L3_SIZE]; OUTPUT_BUCKETS],
+    pub l3w: [[i32; L3_SIZE]; OUTPUT_BUCKETS],
+    pub l3b: [i32; OUTPUT_BUCKETS],
 }
 
 pub(super) static NET: Network = unsafe { std::mem::transmute(*include_bytes!(env!("EVALFILE"))) };
