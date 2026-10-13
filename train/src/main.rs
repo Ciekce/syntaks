@@ -54,7 +54,7 @@ fn main() {
         });
 
     let schedule = TrainingSchedule {
-        net_id: "cnet004".to_owned(),
+        net_id: "cnet005".to_owned(),
         eval_scale: SCALE as f32,
         steps: TrainingSteps {
             batch_size: 16_384,
@@ -62,7 +62,7 @@ fn main() {
             start_superbatch: 1,
             end_superbatch: SUPERBATCHES,
         },
-        wdl_scheduler: wdl::ConstantWDL { value: 0.5 },
+        wdl_scheduler: wdl::LinearWDL { start: 0.25, end: 0.5 },
         lr_scheduler: lr::CosineDecayLR {
             initial_lr: 1e-3,
             final_lr: 1e-5,
