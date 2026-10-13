@@ -1,6 +1,6 @@
 use std::{env, fs, path::PathBuf, process::Command};
 
-const NET: &str = "cnet003";
+const NET: &str = "cnet004";
 const DOWNLOAD_URL: &str = "https://github.com/Ciekce/syntaks-nets/releases/download/";
 
 fn main() {
