@@ -23,7 +23,7 @@
 
 use super::forward::forward;
 use crate::board::{BoardObserver, Position};
-use crate::core::{Piece, PieceType, Player, Square};
+use crate::core::{Piece, PieceType, Player, Square, normalizer};
 use crate::eval::accumulator::Accumulator;
 use arrayvec::ArrayVec;
 
@@ -148,32 +148,7 @@ impl<'a> BoardObserver for NnueObserver<'a> {
     }
 
     fn finalize(&mut self, pos_before: &Position, pos_after: &Position) {
-        let should_refresh = |side: Player| {
-            let cap_before = pos_before.cap_sq(side);
-            let cap_after = pos_after.cap_sq(side);
-
-            debug_assert!(cap_before.is_none() || cap_after.is_some());
-
-            if cap_after.is_none() {
-                return false;
-            }
-
-            let cap_after = cap_after.unwrap();
-
-            let flip_rank_after = cap_after.rank() >= 3;
-            let flip_file_after = cap_after.file() >= 3;
-
-            if cap_before.is_none() {
-                return flip_rank_after || flip_file_after;
-            }
-
-            let cap_before = cap_before.unwrap();
-
-            let flip_rank_before = cap_before.rank() >= 3;
-            let flip_file_before = cap_before.file() >= 3;
-
-            (flip_rank_before != flip_rank_after) || (flip_file_before != flip_file_after)
-        };
+        let should_refresh = |side: Player| normalizer(pos_before.cap_sq(side)) != normalizer(pos_after.cap_sq(side));
 
         self.ctx.updates.refresh = [Player::P1, Player::P2].map(should_refresh);
 
