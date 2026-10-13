@@ -360,7 +360,7 @@ fn search<NT: NodeType>(
             thread.stack[ply as usize].excluded = None;
 
             if score < s_beta {
-                extension += 1;
+                extension += 1 + i32::from(!NT::PV_NODE && score < s_beta - 30);
             } else if !NT::PV_NODE && score >= beta {
                 return score;
             }
