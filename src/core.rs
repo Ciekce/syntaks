@@ -275,6 +275,20 @@ impl Square {
     }
 
     #[must_use]
+    pub const fn flip_rank(self) -> Self {
+        let file = self.file();
+        let rank = self.rank();
+        Self::from_file_rank(file, 5 - rank).unwrap()
+    }
+
+    #[must_use]
+    pub const fn flip_file(self) -> Self {
+        let file = self.file();
+        let rank = self.rank();
+        Self::from_file_rank(5 - file, rank).unwrap()
+    }
+
+    #[must_use]
     pub const fn bb(self) -> Bitboard {
         Bitboard::from_raw(1 << self.idx())
     }

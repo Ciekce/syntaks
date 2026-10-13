@@ -30,18 +30,9 @@ use crate::takmove::Move;
 use std::cmp::Ordering;
 use std::str::FromStr;
 use std::sync::atomic;
-use std::sync::atomic::AtomicU8;
 
-pub const DEFAULT_FLATS: u8 = 30;
-pub const MIN_FLATS: u8 = 2;
-pub const MAX_FLATS: u8 = 36;
-
-pub const DEFAULT_CAPS: u8 = 1;
-pub const MIN_CAPS: u8 = 0;
-pub const MAX_CAPS: u8 = 4;
-
-pub static FLATS: AtomicU8 = AtomicU8::new(DEFAULT_FLATS);
-pub static CAPS: AtomicU8 = AtomicU8::new(DEFAULT_CAPS);
+pub const TOTAL_FLATS: u8 = 30;
+pub const TOTAL_CAPS: u8 = 1;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
 struct Keys {
@@ -90,7 +81,7 @@ pub struct Stacks {
 
 impl Stacks {
     // all flats + cap
-    pub const MAX_HEIGHT: usize = 30 + 30 + 1;
+    pub const MAX_HEIGHT: usize = TOTAL_FLATS as usize * 2 + TOTAL_CAPS as usize;
 
     #[must_use]
     pub fn is_empty(&self, sq: Square) -> bool {
@@ -234,8 +225,8 @@ impl Position {
             stacks: Stacks::default(),
             players: [Bitboard::empty(); Player::COUNT],
             pieces: [Bitboard::empty(); PieceType::COUNT],
-            flats_in_hand: [FLATS.load(atomic::Ordering::Relaxed); Player::COUNT],
-            caps_in_hand: [CAPS.load(atomic::Ordering::Relaxed); Player::COUNT],
+            flats_in_hand: [TOTAL_FLATS; Player::COUNT],
+            caps_in_hand: [TOTAL_CAPS; Player::COUNT],
             stm: Player::P1,
             ply: 0,
             player_key: 0,
@@ -376,6 +367,11 @@ impl Position {
     #[must_use]
     pub fn caps_in_hand(&self, player: Player) -> u8 {
         self.caps_in_hand[player.idx()]
+    }
+
+    #[must_use]
+    pub fn cap_sq(&self, player: Player) -> Option<Square> {
+        self.player_piece_bb(PieceType::Capstone.with_player(player)).lsb()
     }
 
     #[must_use]
@@ -630,13 +626,31 @@ impl Position {
             }
 
             for sq in dirty_bb {
+                let top_before = self
+                    .stacks
+                    .top(sq)
+                    .map(|pt| pt.with_player(self.stacks.top_player(sq).unwrap()));
+                let top_after = new_pos
+                    .stacks
+                    .top(sq)
+                    .map(|pt| pt.with_player(new_pos.stacks.top_player(sq).unwrap()));
+
                 let height_before = self.stacks.height(sq);
                 let height_after = new_pos.stacks.height(sq);
 
                 let players_before = self.stacks.players(sq);
                 let players_after = new_pos.stacks.players(sq);
 
-                observer.stack_changed(&new_pos, sq, height_before, height_after, players_before, players_after);
+                observer.stack_changed(
+                    &new_pos,
+                    sq,
+                    top_before,
+                    top_after,
+                    height_before,
+                    height_after,
+                    players_before,
+                    players_after,
+                );
             }
 
             new_pos.update_influence(Player::P1);
@@ -676,8 +690,19 @@ impl Position {
                 _ => new_pos.flats_in_hand[dropped_player.idx()] -= 1,
             }
 
-            observer.top_added(&new_pos, mv.pt().with_player(dropped_player), mv.sq());
-            observer.stack_changed(&new_pos, mv.sq(), 0, 1, 0, dropped_player.raw() as u64);
+            let dropped = mv.pt().with_player(dropped_player);
+
+            observer.top_added(&new_pos, dropped, mv.sq());
+            observer.stack_changed(
+                &new_pos,
+                mv.sq(),
+                None,
+                Some(dropped),
+                0,
+                1,
+                0,
+                dropped_player.raw() as u64,
+            );
 
             new_pos.update_influence(dropped_player);
         }
@@ -687,7 +712,7 @@ impl Position {
 
         new_pos.player_key ^= keys::p2_key();
 
-        observer.finalize(&new_pos);
+        observer.finalize(self, &new_pos);
 
         #[cfg(debug_assertions)]
         {
@@ -797,8 +822,8 @@ impl Position {
         self.players.fill(Bitboard::empty());
         self.pieces.fill(Bitboard::empty());
 
-        self.flats_in_hand.fill(30);
-        self.caps_in_hand.fill(1);
+        self.flats_in_hand.fill(TOTAL_FLATS);
+        self.caps_in_hand.fill(TOTAL_CAPS);
 
         for sq_idx in 0..Square::COUNT {
             let sq = Square::from_raw(sq_idx as u8).unwrap();
@@ -875,13 +900,15 @@ pub trait BoardObserver {
         &mut self,
         pos: &Position,
         sq: Square,
+        top_before: Option<Piece>,
+        top_after: Option<Piece>,
         height_before: u8,
         height_after: u8,
         players_before: u64,
         players_after: u64,
     );
 
-    fn finalize(&mut self, pos: &Position);
+    fn finalize(&mut self, pos_before: &Position, pos_after: &Position);
 }
 
 pub struct NullObserver;
@@ -899,6 +926,8 @@ impl BoardObserver for NullObserver {
         &mut self,
         _pos: &Position,
         _sq: Square,
+        _top_before: Option<Piece>,
+        _top_after: Option<Piece>,
         _height_before: u8,
         _height_after: u8,
         _players_before: u64,
@@ -907,7 +936,7 @@ impl BoardObserver for NullObserver {
         // no-op
     }
 
-    fn finalize(&mut self, _pos: &Position) {
+    fn finalize(&mut self, _pos_before: &Position, _pos_after: &Position) {
         // no-op
     }
 }
