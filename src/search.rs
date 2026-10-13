@@ -726,10 +726,19 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
     );
 
     if is_decisive(score) {
-        if score > 0 {
-            print!("mate {}", (SCORE_MATE - score + 1) / 2);
+        if thread.shared().options.mate_scores {
+            if score > 0 {
+                print!("mate {}", (SCORE_MATE - score + 1) / 2);
+            } else {
+                print!("mate {}", -(SCORE_MATE + score) / 2);
+            }
         } else {
-            print!("mate {}", -(SCORE_MATE + score) / 2);
+            const MATE_DISPLAY_BASE: Score = 30000;
+            if score > 0 {
+                print!("cp {}", MATE_DISPLAY_BASE + score - SCORE_MATE);
+            } else {
+                print!("cp {}", -MATE_DISPLAY_BASE + score + SCORE_MATE);
+            }
         }
     } else {
         print!("cp {}", score);

@@ -41,6 +41,7 @@ pub const MAX_MULTIPV: usize = 2048;
 pub struct TeiOptions {
     pub multipv: usize,
     pub minimal: bool,
+    pub mate_scores: bool,
     pub show_curr_move: bool,
     pub silent: bool,
 }
@@ -50,6 +51,7 @@ impl Default for TeiOptions {
         Self {
             multipv: 1,
             minimal: false,
+            mate_scores: true,
             show_curr_move: false,
             silent: false,
         }
@@ -129,6 +131,7 @@ impl TeiHandler {
         println!("option name Threads type spin default 1 min 1 max {}", MAX_THREADS);
         println!("option name MultiPV type spin default 1 min 1 max {}", MAX_MULTIPV);
         println!("option name Minimal type check default false");
+        println!("option name MateScores type check default true");
         println!("option name ShowCurrMove type check default false");
 
         println!("teiok");
@@ -227,6 +230,11 @@ impl TeiHandler {
             "minimal" => {
                 if let Ok(minimal) = value.parse::<bool>() {
                     self.options.minimal = minimal;
+                }
+            }
+            "matescores" => {
+                if let Ok(mate_scores) = value.parse::<bool>() {
+                    self.options.mate_scores = mate_scores;
                 }
             }
             "showcurrmove" => {
