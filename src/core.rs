@@ -378,6 +378,7 @@ impl Square {
     }
 }
 
+#[must_use]
 pub const fn normalizer(opt_square: Option<Square>) -> Transform {
     match opt_square {
         Some(square) => square,
