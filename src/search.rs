@@ -338,7 +338,7 @@ fn search<NT: NodeType>(
         if !NT::ROOT_NODE
             && Some(mv) == tt_move
             && excluded.is_none()
-            && depth >= 4
+            && depth >= 5
             && tt_entry.depth >= depth - 3
             && tt_entry.flag != Some(TtFlag::UpperBound)
             && tt_entry.score.abs() < SCORE_WIN
