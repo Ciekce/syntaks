@@ -75,14 +75,6 @@ pub(super) fn evaluate_once(pos: &Position) -> i32 {
     forward(&acc, pos.stm())
 }
 
-pub(super) fn should_flip(cap_sq: Option<Square>) -> (bool, bool) {
-    if let Some(cap) = cap_sq {
-        (cap.rank() >= 3, cap.file() >= 3)
-    } else {
-        (false, false)
-    }
-}
-
 pub(super) fn top_feature_idx(perspective: Player, side: Player, pt: PieceType, sq: Square) -> usize {
     (usize::from(side != perspective) * PieceType::COUNT + pt.idx()) * Square::COUNT + sq.idx()
 }

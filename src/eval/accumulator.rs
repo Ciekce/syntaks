@@ -22,7 +22,7 @@
  */
 
 use crate::board::Position;
-use crate::core::{Player, Square};
+use crate::core::{Player, Square, Transform, normalizer};
 use crate::eval::nnue::*;
 
 #[derive(Clone)]
@@ -37,17 +37,7 @@ impl Accumulator {
     pub fn reset(&mut self, pos: &Position, player: Player) {
         self.values[player.idx()] = NET.ftb;
 
-        let (flip_rank, flip_file) = should_flip(pos.cap_sq(player));
-
-        let map_sq = |mut sq: Square| {
-            if flip_rank {
-                sq = sq.flip_rank();
-            }
-            if flip_file {
-                sq = sq.flip_file();
-            }
-            sq
-        };
+        let transform = normalizer(pos.cap_sq(player));
 
         let mut activate_top = |feature: usize| {
             let v = &mut self.values[player.idx()];
@@ -61,7 +51,7 @@ impl Accumulator {
 
         for side in [Player::P1, Player::P2] {
             for sq in pos.player_bb(side) {
-                let perspective_sq = map_sq(sq);
+                let perspective_sq = sq.transform(transform);
                 let pt = stacks.top(sq).unwrap();
                 let feature = top_feature_idx(player, side, pt, perspective_sq);
                 activate_top(feature);
@@ -88,7 +78,7 @@ impl Accumulator {
                 .top(sq)
                 .map(|pt| pt.with_player(pos.stacks().top_player(sq).unwrap()))
                 .unwrap();
-            let perspective_sq = map_sq(sq);
+            let perspective_sq = sq.transform(transform);
 
             let mut players = stacks.players(sq) >> 1;
             let count = height.min(13) - 1;
@@ -122,16 +112,8 @@ impl Accumulator {
         self.dirty[player.idx()]
     }
 
-    fn apply_top_updates(&mut self, src: &Self, player: Player, flip_rank: bool, flip_file: bool) {
-        let map_sq = |mut sq: Square| {
-            if flip_rank {
-                sq = sq.flip_rank();
-            }
-            if flip_file {
-                sq = sq.flip_file();
-            }
-            sq
-        };
+    fn apply_top_updates(&mut self, src: &Self, player: Player, transform: Transform) {
+        let map_sq = |sq: Square| sq.transform(transform);
 
         let dst = &mut self.values[player.idx()];
         let src = &src.values[player.idx()];
@@ -198,19 +180,9 @@ impl Accumulator {
     }
 
     pub fn apply_updates(&mut self, src: &Self, player: Player) {
-        let (flip_rank, flip_file) = should_flip(self.ctx.caps[player.idx()]);
+        let transform = normalizer(self.ctx.caps[player.idx()]);
 
-        self.apply_top_updates(src, player, flip_rank, flip_file);
-
-        let map_sq = |mut sq: Square| {
-            if flip_rank {
-                sq = sq.flip_rank();
-            }
-            if flip_file {
-                sq = sq.flip_file();
-            }
-            sq
-        };
+        self.apply_top_updates(src, player, transform);
 
         let acc = &mut self.values[player.idx()];
         let updates = &self.ctx.updates;
@@ -224,7 +196,7 @@ impl Accumulator {
                 continue;
             }
 
-            let perspective_sq = map_sq(sq);
+            let perspective_sq = sq.transform(transform);
 
             let height_before = height_before.min(13).saturating_sub(1);
             let height_after = height_after.min(13).saturating_sub(1);

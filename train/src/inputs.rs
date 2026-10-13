@@ -2,7 +2,7 @@ use bullet_lib::game::inputs::SparseInputType;
 use bullet_lib::game::outputs::OutputBuckets;
 use bullet_lib::value::loader::{GameResult as LoaderResult, LoadableDataType};
 use std::ops::Deref;
-use syntaks::core::{PieceType, Player, Square};
+use syntaks::core::{PieceType, Player, normalizer};
 use syntaks::format::PackedTakBoard;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -62,28 +62,9 @@ impl SparseInputType for TakTopRelativeStacks {
         let pos = pos.decode_position().unwrap();
         let stm_flip = pos.stm().idx();
 
-        let calc_flips = |perspective: Player| -> (bool, bool) {
-            if let Some(cap) = pos.cap_sq(perspective) {
-                let flip_rank = cap.rank() >= 3;
-                let flip_file = cap.file() >= 3;
-                (flip_rank, flip_file)
-            } else {
-                (false, false)
-            }
-        };
+        let transforms = [Player::P1, Player::P2].map(|perspective| normalizer(pos.cap_sq(perspective)));
 
-        let flips = [Player::P1, Player::P2].map(calc_flips);
-
-        let map_sq = |perspective: Player, mut sq: Square| -> Square {
-            let (flip_rank, flip_file) = flips[perspective.idx()];
-            if flip_rank {
-                sq = sq.flip_rank();
-            }
-            if flip_file {
-                sq = sq.flip_file();
-            }
-            sq
-        };
+        let map_sq = |perspective: Player, sq: Square| sq.transform(transforms[perspective.idx()]);
 
         let stacks = pos.stacks();
 
