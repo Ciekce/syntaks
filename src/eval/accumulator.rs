@@ -34,13 +34,13 @@ pub(super) struct Accumulator {
 }
 
 impl Accumulator {
-    pub fn reset(&mut self, pos: &Position, player: Player) {
-        self.values[player.idx()] = NET.ftb;
+    pub fn reset(&mut self, pos: &Position, perspective: Player) {
+        self.values[perspective.idx()] = NET.ftb;
 
-        let transform = normalizer(pos.cap_sq(player));
+        let transform = normalizer(pos.cap_sq(perspective));
 
         let mut activate_top = |feature: usize| {
-            let v = &mut self.values[player.idx()];
+            let v = &mut self.values[perspective.idx()];
             let w = &NET.ftw_top[feature];
             for (v, w) in v.iter_mut().zip(w) {
                 *v += *w;
@@ -53,13 +53,13 @@ impl Accumulator {
             for sq in pos.player_bb(side) {
                 let perspective_sq = sq.transform(transform);
                 let pt = stacks.top(sq).unwrap();
-                let feature = top_feature_idx(player, side, pt, perspective_sq);
+                let feature = top_feature_idx(perspective, side, pt, perspective_sq);
                 activate_top(feature);
             }
         }
 
         let mut activate_stack = |feature: usize| {
-            let v = &mut self.values[player.idx()];
+            let v = &mut self.values[perspective.idx()];
             let w = &NET.ftw_stack[feature];
             for (v, w) in v.iter_mut().zip(w) {
                 *v += *w;
@@ -85,13 +85,32 @@ impl Accumulator {
 
             for depth in 0..count {
                 let color = Player::from_raw((players & 0x1) as u8).unwrap();
-                let feature = stack_feature_idx(player, top, color, depth, perspective_sq);
+                let feature = stack_feature_idx(perspective, top, color, depth, perspective_sq);
                 activate_stack(feature);
                 players >>= 1;
             }
         }
 
-        self.set_updated(player);
+        let mut activate_reserves = |feature: usize| {
+            let v = &mut self.values[perspective.idx()];
+            let w = &NET.ftw_reserves[feature];
+            for (v, w) in v.iter_mut().zip(w) {
+                *v += *w;
+            }
+        };
+
+        for player in [Player::P1, Player::P2] {
+            let reserves = pos.flats_in_hand(player);
+
+            if reserves == 0 {
+                continue;
+            }
+
+            let feature = reserves_feature_idx(perspective, player, reserves);
+            activate_reserves(feature);
+        }
+
+        self.set_updated(perspective);
     }
 
     pub fn reset_both(&mut self, pos: &Position) {
@@ -179,11 +198,7 @@ impl Accumulator {
         }
     }
 
-    pub fn apply_updates(&mut self, src: &Self, player: Player) {
-        let transform = normalizer(self.ctx.caps[player.idx()]);
-
-        self.apply_top_updates(src, player, transform);
-
+    fn apply_stack_updates(&mut self, player: Player, transform: Transform) {
         let acc = &mut self.values[player.idx()];
         let updates = &self.ctx.updates;
 
@@ -284,6 +299,37 @@ impl Accumulator {
                 }
             }
         }
+    }
+
+    fn apply_reserve_updates(&mut self, perspective: Player) {
+        let acc = &mut self.values[perspective.idx()];
+
+        for player in [Player::P1, Player::P2] {
+            let [reserves_before, reserves_after] = self.ctx.reserves[player.idx()];
+
+            if reserves_before == reserves_after {
+                continue;
+            }
+
+            assert!(reserves_before > reserves_after);
+
+            if reserves_after == 0 {
+                let sub = reserves_feature_idx(perspective, player, reserves_before);
+                Self::sub_in_place(&NET.ftw_reserves, acc, sub);
+            } else {
+                let sub = reserves_feature_idx(perspective, player, reserves_before);
+                let add = reserves_feature_idx(perspective, player, reserves_after);
+                Self::add_sub_in_place(&NET.ftw_reserves, acc, add, sub);
+            }
+        }
+    }
+
+    pub fn apply_updates(&mut self, src: &Self, player: Player) {
+        let transform = normalizer(self.ctx.caps[player.idx()]);
+
+        self.apply_top_updates(src, player, transform);
+        self.apply_stack_updates(player, transform);
+        self.apply_reserve_updates(player);
 
         self.set_updated(player);
     }

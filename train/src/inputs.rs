@@ -41,10 +41,14 @@ impl OutputBuckets<LoadedTakBoard> for StmBucket {
 pub struct TakTopRelativeStacks;
 
 impl TakTopRelativeStacks {
-    const STACKS_OFFSET: usize = Player::COUNT * PieceType::COUNT * Square::COUNT;
+    const TOPS_COUNT: usize = Player::COUNT * PieceType::COUNT * Square::COUNT;
+    const STACKS_COUNT: usize = 12 * Player::COUNT * PieceType::COUNT * Square::COUNT * Player::COUNT;
+    const RESERVES_COUNT: usize = 30 * Player::COUNT;
 
-    pub const NUM_INPUTS: usize =
-        Self::STACKS_OFFSET + 12 * Player::COUNT * PieceType::COUNT * Square::COUNT * Player::COUNT;
+    const STACKS_OFFSET: usize = Self::TOPS_COUNT;
+    const RESERVES_OFFSET: usize = Self::STACKS_OFFSET + Self::STACKS_COUNT;
+
+    pub const NUM_INPUTS: usize = Self::TOPS_COUNT + Self::STACKS_COUNT + Self::RESERVES_COUNT;
 }
 
 impl SparseInputType for TakTopRelativeStacks {
@@ -55,7 +59,7 @@ impl SparseInputType for TakTopRelativeStacks {
     }
 
     fn max_active(&self) -> usize {
-        62
+        64
     }
 
     fn map_features<F: FnMut(usize, usize)>(&self, pos: &LoadedTakBoard, mut f: F) {
@@ -108,6 +112,23 @@ impl SparseInputType for TakTopRelativeStacks {
                     + depth;
                 f(stm, nstm);
             }
+        }
+
+        for player in [Player::P1, Player::P2] {
+            let reserves = pos.flats_in_hand(player);
+
+            if reserves == 0 {
+                continue;
+            }
+
+            assert!(reserves < 30);
+
+            let player_idx = player.idx() ^ stm_flip;
+
+            let stm = Self::RESERVES_OFFSET + player_idx * 30 + reserves as usize - 1;
+            let nstm = Self::RESERVES_OFFSET + (player_idx ^ 1) * 30 + reserves as usize - 1;
+
+            f(stm, nstm);
         }
     }
 
