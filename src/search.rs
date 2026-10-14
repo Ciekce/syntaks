@@ -262,7 +262,7 @@ fn search<NT: NodeType>(
 
     if !NT::PV_NODE && excluded.is_none() {
         // reverse futility pruning (rfp)
-        let rfp_margin = (150 * depth + 100 - 50 * i32::from(expected_cutnode) - 150 * i32::from(improving)).max(0);
+        let rfp_margin = (100 * depth + 184 - 75 * i32::from(expected_cutnode) - 150 * i32::from(improving)).max(0);
         if depth <= 6 && static_eval - rfp_margin >= beta {
             return static_eval;
         }
@@ -525,7 +525,7 @@ fn search<NT: NodeType>(
     debug_assert!(move_count > 0);
 
     if let Some(best_move) = best_move {
-        let bonus = (400 * depth - 400).clamp(0, 2500);
+        let bonus = (500 * depth - 500).clamp(0, 3000);
 
         thread.history.update(pos, best_move, prev_move, bonus);
 
@@ -634,7 +634,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                     }
                 }
 
-                delta = (delta * 4).min(SCORE_INF);
+                delta = (delta * 3 / 2).min(SCORE_INF);
                 if score <= alpha {
                     alpha = (alpha - delta).max(-SCORE_INF);
                 } else {
