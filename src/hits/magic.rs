@@ -69,12 +69,12 @@ const SQUARE_DATA: Data = {
 
     let mut idx = 0;
     while let Some(sq) = Square::from_raw(idx) {
-        let square_data = &mut squares[sq];
+        let square_data = &mut squares[sq.idx()];
 
         square_data.inv_mask = !generate_mask(sq);
 
         square_data.offset = table_size;
-        table_size += 1 << (64 - SHIFTS[sq]);
+        table_size += 1 << (64 - SHIFTS[sq.idx()]);
 
         idx += 1;
     }
