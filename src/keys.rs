@@ -21,8 +21,8 @@
  * SOFTWARE.
  */
 
-use crate::board::Stacks;
 use crate::core::*;
+use crate::position::Stacks;
 use crate::prng::Sfc64;
 
 const BLACK_COUNT: usize = 1;

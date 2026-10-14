@@ -21,18 +21,18 @@
  * SOFTWARE.
  */
 
-use crate::board::FlatCountOutcome;
 use crate::eval::nnue_state::NnueState;
 use crate::limit::Limits;
 use crate::node_counter::NodeCounter;
+use crate::position::FlatCountOutcome;
 use crate::tei::TeiOptions;
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable};
 use crate::{
-    board::Position,
     core::{SCORE_INF, Score},
     correction::CorrectionHistory,
     history::History,
     movepick::KillerTable,
+    position::Position,
     search::MAX_DEPTH,
     takmove::Move,
 };

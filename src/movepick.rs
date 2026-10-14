@@ -21,10 +21,10 @@
  * SOFTWARE.
  */
 
-use crate::board::Position;
 use crate::core::Score;
 use crate::history::History;
 use crate::movegen::generate_moves;
+use crate::position::Position;
 use crate::takmove::Move;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

@@ -1,8 +1,8 @@
-use crate::board::{FlatCountOutcome, Position};
 use crate::core::*;
 use crate::format::{GameResult, write_game};
 use crate::limit::Limits;
 use crate::movegen::generate_moves;
+use crate::position::{FlatCountOutcome, Position};
 use crate::prng::{Sfc64, seed_from_entropy, splitmix64};
 use crate::search::{MAX_DEPTH, Searcher};
 use crate::takmove::Move;

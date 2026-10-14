@@ -21,11 +21,11 @@
  * SOFTWARE.
  */
 
-use crate::board::*;
 use crate::core::Color;
 use crate::eval::static_eval_once;
 use crate::limit::Limits;
 use crate::perft::{perft, split_perft};
+use crate::position::*;
 use crate::search;
 use crate::search::{MAX_THREADS, Searcher};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};

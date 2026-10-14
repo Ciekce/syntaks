@@ -21,9 +21,9 @@
  * SOFTWARE.
  */
 
-use crate::board::Position;
 use crate::core::{Color, Square, Transform, normalizer};
 use crate::eval::nnue::*;
+use crate::position::Position;
 
 #[derive(Clone)]
 #[repr(align(64))]

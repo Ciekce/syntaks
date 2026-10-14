@@ -21,9 +21,9 @@
  * SOFTWARE.
  */
 
-use crate::board::Position;
 use crate::core::{Direction, PieceType, Square};
 use crate::hits::find_hits;
+use crate::position::Position;
 use crate::takmove::Move;
 
 fn generate_starting_moves(dst: &mut Vec<Move>, pos: &Position) {

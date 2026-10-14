@@ -22,9 +22,9 @@
  */
 
 use super::forward::forward;
-use crate::board::{BoardObserver, Position};
 use crate::core::{Color, Piece, PieceType, Square, normalizer};
 use crate::eval::accumulator::Accumulator;
+use crate::position::{BoardObserver, Position};
 use arrayvec::ArrayVec;
 
 cfg_select! {

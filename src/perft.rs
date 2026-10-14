@@ -21,8 +21,8 @@
  * SOFTWARE.
  */
 
-use crate::board::Position;
 use crate::movegen::generate_moves;
+use crate::position::Position;
 use crate::takmove::Move;
 use std::time::Instant;
 

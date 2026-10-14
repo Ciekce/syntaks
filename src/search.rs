@@ -22,12 +22,12 @@
  */
 
 use crate::bitboard::Bitboard;
-use crate::board::Position;
 use crate::core::*;
 use crate::eval::static_eval;
 use crate::limit::Limits;
 use crate::movegen::generate_moves;
 use crate::movepick::Movepicker;
+use crate::position::Position;
 use crate::takmove::Move;
 use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, set_pv, update_pv};

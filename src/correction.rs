@@ -21,8 +21,8 @@
  * SOFTWARE.
  */
 
-use crate::board::Position;
 use crate::core::{Color, Score};
+use crate::position::Position;
 use std::ops::{Index, IndexMut};
 
 #[derive(Copy, Clone, Debug, Default)]

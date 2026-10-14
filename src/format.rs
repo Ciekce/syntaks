@@ -1,5 +1,5 @@
-use crate::board::{Position, Stacks};
 use crate::core::*;
+use crate::position::{Position, Stacks};
 use crate::takmove::Move;
 use std::array::TryFromSliceError;
 use std::io::{Read, Write};
@@ -348,7 +348,7 @@ mod tests {
     fn is_terminal(pos: &Position) -> bool {
         pos.has_road(Color::White)
             || pos.has_road(Color::Black)
-            || !matches!(pos.count_flats(), crate::board::FlatCountOutcome::None)
+            || !matches!(pos.count_flats(), crate::position::FlatCountOutcome::None)
     }
 
     #[test]

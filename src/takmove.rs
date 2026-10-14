@@ -21,8 +21,8 @@
  * SOFTWARE.
  */
 
-use crate::board::Position;
 use crate::core::*;
+use crate::position::Position;
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU16;
 use std::str::FromStr;

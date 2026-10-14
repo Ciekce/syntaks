@@ -6,7 +6,7 @@ use rand::seq::SliceRandom;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::mpsc::{self, SyncSender};
-use syntaks::board::Position;
+use syntaks::position::Position;
 use syntaks::core::Score;
 use syntaks::format::{Game, GameResult, PackedTakBoard, parse_game, read_game_bytes};
 use syntaks::takmove::Move;

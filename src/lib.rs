@@ -1,5 +1,4 @@
 pub mod bitboard;
-pub mod board;
 pub mod core;
 mod correction;
 #[cfg(feature = "datagen")]
@@ -14,6 +13,7 @@ pub mod movegen;
 mod movepick;
 mod node_counter;
 mod perft;
+pub mod position;
 mod prng;
 mod road;
 mod search;

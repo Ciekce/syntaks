@@ -23,7 +23,7 @@
 
 use crate::core::{Color, Direction, Square};
 use crate::takmove::Move;
-use crate::{board::Position, core::PieceType};
+use crate::{core::PieceType, position::Position};
 use std::ops::{Index, IndexMut};
 
 #[derive(Copy, Clone, Debug, Default)]

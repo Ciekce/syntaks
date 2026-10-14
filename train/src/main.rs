@@ -12,7 +12,7 @@ use bullet_lib::{
 };
 use inputs::*;
 use loader::TakReader;
-use syntaks::board::Position;
+use syntaks::position::Position;
 use syntaks::core::{Score, is_decisive};
 use syntaks::format::GameResult;
 use syntaks::takmove::Move;
