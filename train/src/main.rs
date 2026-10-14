@@ -74,9 +74,20 @@ fn main() {
                 .round()
                 .quantise::<i8>(L1_Q),
             SavedFormat::id("l1b").round().quantise::<i32>(i32::from(Q).pow(2)),
-            SavedFormat::id("l2w").round().quantise::<i32>(i32::from(Q)),
+            SavedFormat::id("l2w").transform(|_, weights| {
+                let mut permuted = vec![0.0; weights.len()];
+                for bucket in 0..OUTPUT_BUCKETS {
+                    for i in 0..L2_SIZE {
+                        for o in 0..L3_SIZE {
+                            let param = weights[(i * OUTPUT_BUCKETS + bucket) * L3_SIZE + o];
+                            permuted[(bucket * L2_SIZE + i) * L3_SIZE + o] = param;
+                        }
+                    }
+                }
+                permuted
+            }).round().quantise::<i32>(i32::from(Q)),
             SavedFormat::id("l2b").round().quantise::<i32>(i32::from(Q).pow(3)),
-            SavedFormat::id("l3w").round().quantise::<i32>(i32::from(Q)),
+            SavedFormat::id("l3w").transpose().round().quantise::<i32>(i32::from(Q)),
             SavedFormat::id("l3b").round().quantise::<i32>(i32::from(Q).pow(4)),
         ])
         .loss_fn(|output, target| output.sigmoid().squared_error(target))
@@ -136,6 +147,6 @@ fn main() {
 
     //trainer.run(&schedule, &settings, &TakReader::new(data_paths, 1024, 4, filter));
 
-    trainer.load_from_checkpoint("checkpoints/net014-100");
-    trainer.save_quantised("checkpoints/net014-100/quantised.bin").unwrap();
+    trainer.load_from_checkpoint("checkpoints/net019-100");
+    trainer.save_quantised("checkpoints/net019-100/quantised.bin").unwrap();
 }
