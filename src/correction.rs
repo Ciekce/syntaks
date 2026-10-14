@@ -167,6 +167,6 @@ impl CorrectionHistory {
 
         correction += cont(1);
 
-        correction / 16
+        correction / 32
     }
 }

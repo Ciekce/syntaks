@@ -78,8 +78,8 @@ const LMR_TABLE_MOVES: usize = 64;
 static LMR_REDUCTIONS: [[i32; LMR_TABLE_MOVES]; MAX_DEPTH as usize] = {
     #![allow(clippy::needless_range_loop)]
 
-    const BASE: f64 = 0.5;
-    const DIVISOR: f64 = 2.5;
+    const BASE: f64 = 0.0;
+    const DIVISOR: f64 = 3.0;
 
     let mut reductions = [[0; LMR_TABLE_MOVES]; MAX_DEPTH as usize];
 
@@ -262,14 +262,14 @@ fn search<NT: NodeType>(
 
     if !NT::PV_NODE && excluded.is_none() {
         // reverse futility pruning (rfp)
-        let rfp_margin = (100 * depth + 100 - 50 * i32::from(expected_cutnode) - 100 * i32::from(improving)).max(0);
+        let rfp_margin = (150 * depth + 100 - 50 * i32::from(expected_cutnode) - 150 * i32::from(improving)).max(0);
         if depth <= 6 && static_eval - rfp_margin >= beta {
             return static_eval;
         }
 
         // nullmove pruning (nmp)
         if expected_cutnode && depth >= 4 && static_eval >= beta && thread.stack[ply as usize - 1].mv.is_some() {
-            let r = 3 + depth / 4;
+            let r = 3 + depth / 5;
 
             let new_pos = thread.apply_nullmove(ply, pos);
 
@@ -347,7 +347,7 @@ fn search<NT: NodeType>(
             && tt_entry.flag != Some(TtFlag::UpperBound)
             && !is_decisive(tt_entry.score)
         {
-            let s_beta = tt_entry.score - 2 * depth;
+            let s_beta = tt_entry.score - 3 * depth / 2;
             let s_depth = (depth - 1) / 2;
 
             thread.stack[ply as usize].excluded = Some(mv);
@@ -411,7 +411,7 @@ fn search<NT: NodeType>(
                 let mut r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
 
                 r += 1024 * i32::from(!NT::PV_NODE);
-                r -= thread.history.score(pos, mv, prev_move) / 8;
+                r -= thread.history.score(pos, mv, prev_move) / 24;
 
                 if mv.is_spread() {
                     let gain = new_pos.fcd(pos.stm()) - pos.fcd(pos.stm());
@@ -525,7 +525,7 @@ fn search<NT: NodeType>(
     debug_assert!(move_count > 0);
 
     if let Some(best_move) = best_move {
-        let bonus = (300 * depth - 300).clamp(0, 2500);
+        let bonus = (400 * depth - 400).clamp(0, 2500);
 
         thread.history.update(pos, best_move, prev_move, bonus);
 
@@ -634,7 +634,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                     }
                 }
 
-                delta = (delta * 8).min(SCORE_INF);
+                delta = (delta * 4).min(SCORE_INF);
                 if score <= alpha {
                     alpha = (alpha - delta).max(-SCORE_INF);
                 } else {
