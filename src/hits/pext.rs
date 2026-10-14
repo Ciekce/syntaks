@@ -68,7 +68,7 @@ static HITS: [super::Hits; SQUARE_DATA.table_size] = {
     let mut result = [[(0, Square::A1); Direction::COUNT]; SQUARE_DATA.table_size];
 
     for sq in Square::all() {
-        let sq_data = &SQUARE_DATA.squares[sq.idx()];
+        let sq_data = &SQUARE_DATA.squares[sq];
         let entries = 1 << sq_data.mask.count_ones();
         for i in 0..entries {
             let blockers = Bitboard::from_raw(pdep(i as u64, sq_data.mask));
@@ -81,12 +81,12 @@ static HITS: [super::Hits; SQUARE_DATA.table_size] = {
 
 #[must_use]
 pub fn find_hit_for_dir_pext(blockers: Bitboard, start: Square, dir: Direction) -> super::Hit {
-    find_hits_pext(blockers, start)[dir.idx()]
+    find_hits_pext(blockers, start)[dir]
 }
 
 #[must_use]
 pub(super) fn find_hits_pext(blockers: Bitboard, start: Square) -> super::Hits {
-    let sq_data = &SQUARE_DATA.squares[start.idx()];
+    let sq_data = &SQUARE_DATA.squares[start];
     let idx = unsafe { _pext_u64(blockers.raw(), sq_data.mask) } as usize;
     HITS[sq_data.offset + idx]
 }

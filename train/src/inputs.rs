@@ -2,7 +2,7 @@ use bullet_lib::game::inputs::SparseInputType;
 use bullet_lib::game::outputs::OutputBuckets;
 use bullet_lib::value::loader::{GameResult as LoaderResult, LoadableDataType};
 use std::ops::Deref;
-use syntaks::core::{PieceType, Player, Square, normalizer};
+use syntaks::core::{Color, PieceType, Square, normalizer};
 use syntaks::format::PackedTakBoard;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -41,9 +41,9 @@ impl OutputBuckets<LoadedTakBoard> for StmBucket {
 pub struct TakTopRelativeStacks;
 
 impl TakTopRelativeStacks {
-    const TOPS_COUNT: usize = Player::COUNT * PieceType::COUNT * Square::COUNT;
-    const STACKS_COUNT: usize = 12 * Player::COUNT * PieceType::COUNT * Square::COUNT * Player::COUNT;
-    const RESERVES_COUNT: usize = 30 * Player::COUNT;
+    const TOPS_COUNT: usize = Color::COUNT * PieceType::COUNT * Square::COUNT;
+    const STACKS_COUNT: usize = 12 * Color::COUNT * PieceType::COUNT * Square::COUNT * Color::COUNT;
+    const RESERVES_COUNT: usize = 30 * Color::COUNT;
 
     const STACKS_OFFSET: usize = Self::TOPS_COUNT;
     const RESERVES_OFFSET: usize = Self::STACKS_OFFSET + Self::STACKS_COUNT;
@@ -66,9 +66,8 @@ impl SparseInputType for TakTopRelativeStacks {
         let pos = pos.decode_position().unwrap();
         let stm_flip = pos.stm().idx();
 
-        let transforms = [Player::P1, Player::P2].map(|perspective| normalizer(pos.cap_sq(perspective)));
-
-        let map_sq = |perspective: Player, sq: Square| sq.transform(transforms[perspective.idx()]);
+        let transforms = [Color::White, Color::Black].map(|perspective| normalizer(pos.cap_sq(perspective)));
+        let map_sq = |perspective: Color, sq: Square| sq.transform(transforms[perspective]);
 
         let stacks = pos.stacks();
 
@@ -77,7 +76,7 @@ impl SparseInputType for TakTopRelativeStacks {
             let nstm_sq = map_sq(pos.stm().flip(), sq).idx();
 
             let top_pt = stacks.top(sq).unwrap().idx();
-            let top_color = stacks.top_player(sq).unwrap().idx();
+            let top_color = stacks.top_color(sq).unwrap().idx();
 
             let top_stm = ((top_color ^ stm_flip) * PieceType::COUNT + top_pt) * Square::COUNT + stm_sq;
             let top_nstm = ((top_color ^ stm_flip ^ 1) * PieceType::COUNT + top_pt) * Square::COUNT + nstm_sq;
@@ -89,23 +88,23 @@ impl SparseInputType for TakTopRelativeStacks {
                 continue;
             }
 
-            let mut players = stacks.players(sq) >> 1;
+            let mut colors = stacks.colors(sq) >> 1;
             let count = height.min(13) - 1;
 
             for depth in 0..count {
-                let player = (players & 0b1) as usize;
+                let color = (colors & 0b1) as usize;
 
-                players >>= 1;
+                colors >>= 1;
 
                 let stm = Self::STACKS_OFFSET
-                    + ((((top_color ^ stm_flip) * PieceType::COUNT + top_pt) * Player::COUNT + (player ^ stm_flip))
+                    + ((((top_color ^ stm_flip) * PieceType::COUNT + top_pt) * Color::COUNT + (color ^ stm_flip))
                         * Square::COUNT
                         + stm_sq)
                         * 12
                     + depth;
                 let nstm = Self::STACKS_OFFSET
-                    + ((((top_color ^ stm_flip ^ 1) * PieceType::COUNT + top_pt) * Player::COUNT
-                        + (player ^ stm_flip ^ 1))
+                    + ((((top_color ^ stm_flip ^ 1) * PieceType::COUNT + top_pt) * Color::COUNT
+                        + (color ^ stm_flip ^ 1))
                         * Square::COUNT
                         + nstm_sq)
                         * 12
@@ -114,8 +113,8 @@ impl SparseInputType for TakTopRelativeStacks {
             }
         }
 
-        for player in [Player::P1, Player::P2] {
-            let reserves = pos.flats_in_hand(player);
+        for color in [Color::White, Color::Black] {
+            let reserves = pos.flats_in_hand(color);
 
             if reserves == 0 {
                 continue;
@@ -123,10 +122,10 @@ impl SparseInputType for TakTopRelativeStacks {
 
             assert!(reserves < 30);
 
-            let player_idx = player.idx() ^ stm_flip;
+            let color_idx = color.idx() ^ stm_flip;
 
-            let stm = Self::RESERVES_OFFSET + player_idx * 30 + reserves as usize - 1;
-            let nstm = Self::RESERVES_OFFSET + (player_idx ^ 1) * 30 + reserves as usize - 1;
+            let stm = Self::RESERVES_OFFSET + color_idx * 30 + reserves as usize - 1;
+            let nstm = Self::RESERVES_OFFSET + (color_idx ^ 1) * 30 + reserves as usize - 1;
 
             f(stm, nstm);
         }

@@ -22,7 +22,7 @@
  */
 
 use crate::board::Position;
-use crate::core::{Player, Score};
+use crate::core::{Color, Score};
 use std::ops::{Index, IndexMut};
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -102,7 +102,7 @@ impl SidedTables {
 }
 
 pub struct CorrectionHistory {
-    tables: [SidedTables; Player::COUNT],
+    tables: [SidedTables; Color::COUNT],
     cont: HashedTable<CONT_ENTRIES>,
 }
 
@@ -133,7 +133,7 @@ impl CorrectionHistory {
             }
         };
 
-        let tables = &mut self.tables[pos.stm().idx()];
+        let tables = &mut self.tables[pos.stm()];
 
         tables.blocker[pos.blocker_key()].update(bonus);
         tables.road[pos.road_key()].update(bonus);
@@ -146,7 +146,7 @@ impl CorrectionHistory {
 
     #[must_use]
     pub fn correction(&self, pos: &Position, key_history: &[u64]) -> i32 {
-        let tables = &self.tables[pos.stm().idx()];
+        let tables = &self.tables[pos.stm()];
 
         let cont = |offset: usize| {
             if key_history.len() >= offset {

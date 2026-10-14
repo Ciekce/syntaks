@@ -22,7 +22,7 @@
  */
 
 use crate::board::*;
-use crate::core::Player;
+use crate::core::Color;
 use crate::eval::static_eval_once;
 use crate::limit::Limits;
 use crate::perft::{perft, split_perft};
@@ -139,7 +139,7 @@ impl TeiHandler {
 
     fn handle_teinewgame(&mut self, args: &[&str]) {
         if self.searcher.is_searching() {
-            eprintln!("Search running");
+            eprintln!("Search running (received 'teinewgame')");
             return;
         }
 
@@ -162,7 +162,7 @@ impl TeiHandler {
 
     fn handle_setoption(&mut self, args: &[&str]) {
         if self.searcher.is_searching() {
-            eprintln!("Search running");
+            eprintln!("Search running (received 'setoption')");
             return;
         }
 
@@ -252,7 +252,7 @@ impl TeiHandler {
 
     fn handle_position(&mut self, args: &[&str]) {
         if self.searcher.is_searching() {
-            eprintln!("Search running");
+            eprintln!("Search running (received 'position')");
             return;
         }
 
@@ -320,7 +320,7 @@ impl TeiHandler {
 
     fn handle_go(&mut self, args: &[&str], start_time: Instant) {
         if self.searcher.is_searching() {
-            eprintln!("Search running");
+            eprintln!("Search running (received 'go')");
             return;
         }
 
@@ -447,8 +447,8 @@ impl TeiHandler {
         }
 
         let (our_time, our_inc) = match self.pos.stm() {
-            Player::P1 => (wtime, winc),
-            Player::P2 => (btime, binc),
+            Color::White => (wtime, winc),
+            Color::Black => (btime, binc),
         };
 
         if our_inc.is_some() && our_time.is_none() {
@@ -505,16 +505,17 @@ impl TeiHandler {
 
         let static_eval = static_eval_once(&self.pos);
         let static_eval = match self.pos.stm() {
-            Player::P1 => static_eval,
-            Player::P2 => -static_eval,
+            Color::White => static_eval,
+            Color::Black => -static_eval,
         };
 
-        println!("Static eval (P1-relative): {:+.2}", (static_eval as f64) / 100.0);
+        println!("Static eval (white-relative): {:+.2}", (static_eval as f64) / 100.0);
     }
 
     fn handle_perft(&self, args: &[&str]) {
         if args.is_empty() {
             eprintln!("Missing depth");
+            return;
         }
 
         let depth = match args[0].parse() {
@@ -531,6 +532,7 @@ impl TeiHandler {
     fn handle_splitperft(&self, args: &[&str]) {
         if args.is_empty() {
             eprintln!("Missing depth");
+            return;
         }
 
         let depth = match args[0].parse() {

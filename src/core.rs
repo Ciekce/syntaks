@@ -23,23 +23,24 @@
 
 use crate::bitboard::Bitboard;
 use std::fmt::{Display, Formatter, Write};
+use std::ops::{Index, IndexMut};
 use std::str::FromStr;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(u8)]
-pub enum Player {
-    P1,
-    P2,
+pub enum Color {
+    White,
+    Black,
 }
 
-impl Player {
+impl Color {
     pub const COUNT: usize = 2;
 
     #[must_use]
     pub const fn from_raw(raw: u8) -> Option<Self> {
         match raw {
-            0 => Some(Self::P1),
-            1 => Some(Self::P2),
+            0 => Some(Self::White),
+            1 => Some(Self::Black),
             _ => None,
         }
     }
@@ -57,14 +58,30 @@ impl Player {
     #[must_use]
     pub const fn sign(self) -> i32 {
         match self {
-            Self::P1 => 1,
-            Self::P2 => -1,
+            Self::White => 1,
+            Self::Black => -1,
         }
     }
 
     #[must_use]
     pub const fn flip(self) -> Self {
         Self::from_raw(self as u8 ^ 0x1).unwrap()
+    }
+}
+
+impl<T> Index<Color> for [T; Color::COUNT] {
+    type Output = T;
+
+    fn index(&self, index: Color) -> &Self::Output {
+        // SAFETY: only implemented for arrays of the correct length
+        unsafe { self.get_unchecked(index.idx()) }
+    }
+}
+
+impl<T> IndexMut<Color> for [T; Color::COUNT] {
+    fn index_mut(&mut self, index: Color) -> &mut Self::Output {
+        // SAFETY: only implemented for arrays of the correct length
+        unsafe { self.get_unchecked_mut(index.idx()) }
     }
 }
 
@@ -99,8 +116,8 @@ impl PieceType {
     }
 
     #[must_use]
-    pub const fn with_player(self, player: Player) -> Piece {
-        Piece::from_raw((self.raw() << 1) | player.raw()).unwrap()
+    pub const fn with_color(self, color: Color) -> Piece {
+        Piece::from_raw((self.raw() << 1) | color.raw()).unwrap()
     }
 
     #[must_use]
@@ -124,15 +141,31 @@ impl Display for PieceType {
     }
 }
 
+impl<T> Index<PieceType> for [T; PieceType::COUNT] {
+    type Output = T;
+
+    fn index(&self, index: PieceType) -> &Self::Output {
+        // SAFETY: only implemented for arrays of the correct length
+        unsafe { self.get_unchecked(index.idx()) }
+    }
+}
+
+impl<T> IndexMut<PieceType> for [T; PieceType::COUNT] {
+    fn index_mut(&mut self, index: PieceType) -> &mut Self::Output {
+        // SAFETY: only implemented for arrays of the correct length
+        unsafe { self.get_unchecked_mut(index.idx()) }
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[repr(u8)]
 pub enum Piece {
-    P1Flat,
-    P2Flat,
-    P1Wall,
-    P2Wall,
-    P1Capstone,
-    P2Capstone,
+    WhiteFlat,
+    BlackFlat,
+    WhiteWall,
+    BlackWall,
+    WhiteCapstone,
+    BlackCapstone,
 }
 
 impl Piece {
@@ -140,12 +173,12 @@ impl Piece {
 
     pub const fn from_raw(raw: u8) -> Option<Self> {
         match raw {
-            0 => Some(Self::P1Flat),
-            1 => Some(Self::P2Flat),
-            2 => Some(Self::P1Wall),
-            3 => Some(Self::P2Wall),
-            4 => Some(Self::P1Capstone),
-            5 => Some(Self::P2Capstone),
+            0 => Some(Self::WhiteFlat),
+            1 => Some(Self::BlackFlat),
+            2 => Some(Self::WhiteWall),
+            3 => Some(Self::BlackWall),
+            4 => Some(Self::WhiteCapstone),
+            5 => Some(Self::BlackCapstone),
             _ => None,
         }
     }
@@ -161,13 +194,29 @@ impl Piece {
     }
 
     #[must_use]
-    pub const fn player(self) -> Player {
-        Player::from_raw(self.raw() & 0x1).unwrap()
+    pub const fn color(self) -> Color {
+        Color::from_raw(self.raw() & 0x1).unwrap()
     }
 
     #[must_use]
     pub const fn piece_type(self) -> PieceType {
         PieceType::from_raw(self.raw() >> 1).unwrap()
+    }
+}
+
+impl<T> Index<Piece> for [T; Piece::COUNT] {
+    type Output = T;
+
+    fn index(&self, index: Piece) -> &Self::Output {
+        // SAFETY: only implemented for arrays of the correct length
+        unsafe { self.get_unchecked(index.idx()) }
+    }
+}
+
+impl<T> IndexMut<Piece> for [T; Piece::COUNT] {
+    fn index_mut(&mut self, index: Piece) -> &mut Self::Output {
+        // SAFETY: only implemented for arrays of the correct length
+        unsafe { self.get_unchecked_mut(index.idx()) }
     }
 }
 
@@ -217,6 +266,22 @@ impl Display for Direction {
             Direction::Left => f.write_char('<'),
             Direction::Right => f.write_char('>'),
         }
+    }
+}
+
+impl<T> Index<Direction> for [T; Direction::COUNT] {
+    type Output = T;
+
+    fn index(&self, index: Direction) -> &Self::Output {
+        // SAFETY: only implemented for arrays of the correct length
+        unsafe { self.get_unchecked(index.idx()) }
+    }
+}
+
+impl<T> IndexMut<Direction> for [T; Direction::COUNT] {
+    fn index_mut(&mut self, index: Direction) -> &mut Self::Output {
+        // SAFETY: only implemented for arrays of the correct length
+        unsafe { self.get_unchecked_mut(index.idx()) }
     }
 }
 
@@ -427,6 +492,22 @@ impl FromStr for Square {
         }
 
         Ok(Self::from_file_rank((file - b'a') as u32, (rank - b'1') as u32).unwrap())
+    }
+}
+
+impl<T> Index<Square> for [T; Square::COUNT] {
+    type Output = T;
+
+    fn index(&self, index: Square) -> &Self::Output {
+        // SAFETY: only implemented for arrays of the correct length
+        unsafe { self.get_unchecked(index.idx()) }
+    }
+}
+
+impl<T> IndexMut<Square> for [T; Square::COUNT] {
+    fn index_mut(&mut self, index: Square) -> &mut Self::Output {
+        // SAFETY: only implemented for arrays of the correct length
+        unsafe { self.get_unchecked_mut(index.idx()) }
     }
 }
 

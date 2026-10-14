@@ -65,10 +65,10 @@ impl PackedTakBoard {
                     put_token(&mut out, &mut bit, pt.raw() + 1);
 
                     let height = stacks.height(sq);
-                    let players = stacks.players(sq);
+                    let colors = stacks.colors(sq);
 
                     for level in (0..height).rev() {
-                        let color = ((players >> (height - level - 1)) & 1) as u8;
+                        let color = ((colors >> (height - level - 1)) & 1) as u8;
                         let terminal = u8::from(level == 0);
                         put_token(&mut out, &mut bit, (terminal << 1) | color);
                     }
@@ -79,23 +79,23 @@ impl PackedTakBoard {
         debug_assert!(bit <= BOARD_BITS);
 
         out[FLAGS_OFFSET] = pos.stm().raw() | (u8::from(pos.ply() < 2) << 1);
-        out[RESERVES_OFFSET] = pos.flats_in_hand(Player::P1);
-        out[RESERVES_OFFSET + 1] = pos.flats_in_hand(Player::P2);
+        out[RESERVES_OFFSET] = pos.flats_in_hand(Color::White);
+        out[RESERVES_OFFSET + 1] = pos.flats_in_hand(Color::Black);
 
         Self { bytes: out }
     }
 
-    pub fn encode_position_from_game(pos: &Position, p1_score: Score, p1_result: GameResult) -> Self {
+    pub fn encode_position_from_game(pos: &Position, w_score: Score, w_result: GameResult) -> Self {
         let mut out = Self::encode_position(pos);
 
         let score = match pos.stm() {
-            Player::P1 => p1_score,
-            Player::P2 => -p1_score,
+            Color::White => w_score,
+            Color::Black => -w_score,
         };
 
         let result = match pos.stm() {
-            Player::P1 => p1_result,
-            Player::P2 => p1_result.flip(),
+            Color::White => w_result,
+            Color::Black => w_result.flip(),
         };
 
         out.bytes[FLAGS_OFFSET] |= result.raw() << 2;
@@ -112,7 +112,7 @@ impl PackedTakBoard {
         let mut flats_used = [0u32; 2];
         let mut caps_used = [0u32; 2];
 
-        let mut colors = [Player::P1; Stacks::MAX_HEIGHT];
+        let mut colors = [Color::White; Stacks::MAX_HEIGHT];
 
         for sq in Square::all() {
             let header = get_token(&self.bytes, &mut bit);
@@ -129,16 +129,16 @@ impl PackedTakBoard {
                 }
 
                 let token = get_token(&self.bytes, &mut bit);
-                let player = Player::from_raw(token & 1).unwrap();
+                let color = Color::from_raw(token & 1).unwrap();
 
                 if height == 0 && top == PieceType::Capstone {
-                    caps_used[player.idx()] += 1;
+                    caps_used[color] += 1;
                 } else {
-                    flats_used[player.idx()] += 1;
+                    flats_used[color] += 1;
                 }
                 // println!("{height}");
 
-                colors[height] = player;
+                colors[height] = color;
                 height += 1;
 
                 if token & 0b10 != 0 {
@@ -156,13 +156,13 @@ impl PackedTakBoard {
             return Err(DecodeError::InvalidPosition);
         }
 
-        let stm = Player::from_raw(self.bytes[FLAGS_OFFSET] & 1).unwrap();
+        let stm = Color::from_raw(self.bytes[FLAGS_OFFSET] & 1).unwrap();
         let swap_phase = self.bytes[FLAGS_OFFSET] & 0b10 != 0;
 
         pos.finish_build(stm, u16::from(stm.raw()) + if swap_phase { 0 } else { 2 });
 
-        if pos.flats_in_hand(Player::P1) != self.bytes[RESERVES_OFFSET]
-            || pos.flats_in_hand(Player::P2) != self.bytes[RESERVES_OFFSET + 1]
+        if pos.flats_in_hand(Color::White) != self.bytes[RESERVES_OFFSET]
+            || pos.flats_in_hand(Color::Black) != self.bytes[RESERVES_OFFSET + 1]
         {
             return Err(DecodeError::ReserveMismatch);
         }
@@ -177,8 +177,8 @@ impl PackedTakBoard {
         Ok((pos, score, result))
     }
 
-    pub fn stm(&self) -> Player {
-        Player::from_raw(self.bytes[FLAGS_OFFSET] & 1).unwrap()
+    pub fn stm(&self) -> Color {
+        Color::from_raw(self.bytes[FLAGS_OFFSET] & 1).unwrap()
     }
 
     pub fn stm_score(&self) -> Score {
@@ -189,18 +189,18 @@ impl PackedTakBoard {
         GameResult::from_raw((self.bytes[FLAGS_OFFSET] >> 2) & 0b11).ok_or(DecodeError::BadGameResult)
     }
 
-    pub fn p1_score(&self) -> Score {
+    pub fn w_score(&self) -> Score {
         let stm_score = self.stm_score();
         match self.stm() {
-            Player::P1 => stm_score,
-            Player::P2 => -stm_score,
+            Color::White => stm_score,
+            Color::Black => -stm_score,
         }
     }
 
-    pub fn p1_result(&self) -> Result<GameResult, DecodeError> {
+    pub fn w_result(&self) -> Result<GameResult, DecodeError> {
         self.stm_result().map(|stm_result| match self.stm() {
-            Player::P1 => stm_result,
-            Player::P2 => stm_result.flip(),
+            Color::White => stm_result,
+            Color::Black => stm_result.flip(),
         })
     }
 }
@@ -243,7 +243,7 @@ pub struct Game {
 pub fn write_game(
     writer: &mut impl Write,
     root: &Position,
-    p1_result: GameResult,
+    w_result: GameResult,
     moves: &[(Move, i16)],
 ) -> std::io::Result<()> {
     assert!(moves.len() <= u16::MAX as usize);
@@ -253,7 +253,7 @@ pub fn write_game(
     let encoded = PackedTakBoard::encode_position(root);
 
     buf.extend_from_slice(&encoded.bytes);
-    buf[FLAGS_OFFSET] |= p1_result.raw() << 2;
+    buf[FLAGS_OFFSET] |= w_result.raw() << 2;
     buf[COUNT_OFFSET..COUNT_OFFSET + 2].copy_from_slice(&(moves.len() as u16).to_le_bytes());
 
     for &(mv, eval) in moves {
@@ -337,17 +337,17 @@ mod tests {
         let dec = enc.decode_position().unwrap();
 
         assert_eq!(dec.key(), pos.key(), "key mismatch for {}", pos.tps());
-        assert_eq!(dec.flats_in_hand(Player::P1), pos.flats_in_hand(Player::P1));
-        assert_eq!(dec.flats_in_hand(Player::P2), pos.flats_in_hand(Player::P2));
-        assert_eq!(dec.caps_in_hand(Player::P1), pos.caps_in_hand(Player::P1));
-        assert_eq!(dec.caps_in_hand(Player::P2), dec.caps_in_hand(Player::P2));
+        assert_eq!(dec.flats_in_hand(Color::White), pos.flats_in_hand(Color::White));
+        assert_eq!(dec.flats_in_hand(Color::Black), pos.flats_in_hand(Color::Black));
+        assert_eq!(dec.caps_in_hand(Color::White), pos.caps_in_hand(Color::White));
+        assert_eq!(dec.caps_in_hand(Color::Black), dec.caps_in_hand(Color::Black));
         assert_eq!(dec.stm(), pos.stm());
         assert_eq!(PackedTakBoard::encode_position(&dec), enc);
     }
 
     fn is_terminal(pos: &Position) -> bool {
-        pos.has_road(Player::P1)
-            || pos.has_road(Player::P2)
+        pos.has_road(Color::White)
+            || pos.has_road(Color::Black)
             || !matches!(pos.count_flats(), crate::board::FlatCountOutcome::None)
     }
 

@@ -22,7 +22,7 @@
  */
 
 use crate::board::Position;
-use crate::core::Player;
+use crate::core::Color;
 use crate::eval::accumulator::Accumulator;
 use crate::eval::forward::forward;
 use crate::eval::nnue::*;
@@ -70,7 +70,7 @@ impl NnueState {
     }
 
     fn ensure_up_to_date(&mut self, pos: &Position) {
-        for side in [Player::P1, Player::P2] {
+        for side in [Color::White, Color::Black] {
             if !self.acc_stacc[self.top_idx].is_dirty(side) {
                 return;
             }

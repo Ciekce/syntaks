@@ -21,12 +21,12 @@
  * SOFTWARE.
  */
 
-use crate::core::Player;
+use crate::core::Color;
 use crate::eval::accumulator::Accumulator;
 use crate::eval::nnue::*;
 
 #[must_use]
-pub(super) fn forward(acc: &Accumulator, stm: Player) -> i32 {
+pub(super) fn forward(acc: &Accumulator, stm: Color) -> i32 {
     use super::simd::*;
 
     let bucket = stm.idx();
@@ -38,7 +38,7 @@ pub(super) fn forward(acc: &Accumulator, stm: Player) -> i32 {
 
     for (values, weights) in [stm, stm.flip()]
         .iter()
-        .map(|player| &acc.values[player.idx()])
+        .map(|&color| &acc.values[color])
         .zip(&NET.l1w[bucket])
     {
         let values = values as *const i16;

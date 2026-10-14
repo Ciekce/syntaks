@@ -23,7 +23,7 @@
 
 use super::forward::forward;
 use crate::board::{BoardObserver, Position};
-use crate::core::{Piece, PieceType, Player, Square, normalizer};
+use crate::core::{Color, Piece, PieceType, Square, normalizer};
 use crate::eval::accumulator::Accumulator;
 use arrayvec::ArrayVec;
 
@@ -45,9 +45,9 @@ cfg_select! {
     }
 }
 
-pub const TOP_INPUT_SIZE: usize = Player::COUNT * PieceType::COUNT * Square::COUNT;
-pub const STACK_INPUT_SIZE: usize = 12 * Player::COUNT * PieceType::COUNT * Square::COUNT * Player::COUNT;
-pub const RESERVES_INPUT_SIZE: usize = 30 * Player::COUNT;
+pub const TOP_INPUT_SIZE: usize = Color::COUNT * PieceType::COUNT * Square::COUNT;
+pub const STACK_INPUT_SIZE: usize = 12 * Color::COUNT * PieceType::COUNT * Square::COUNT * Color::COUNT;
+pub const RESERVES_INPUT_SIZE: usize = 30 * Color::COUNT;
 
 pub const L1_SIZE: usize = 512;
 
@@ -77,17 +77,17 @@ pub(super) fn evaluate_once(pos: &Position) -> i32 {
     forward(&acc, pos.stm())
 }
 
-pub(super) fn top_feature_idx(perspective: Player, side: Player, pt: PieceType, sq: Square) -> usize {
+pub(super) fn top_feature_idx(perspective: Color, side: Color, pt: PieceType, sq: Square) -> usize {
     (usize::from(side != perspective) * PieceType::COUNT + pt.idx()) * Square::COUNT + sq.idx()
 }
 
-pub(super) fn stack_feature_idx(perspective: Player, top: Piece, side: Player, depth: u8, sq: Square) -> usize {
+pub(super) fn stack_feature_idx(perspective: Color, top: Piece, side: Color, depth: u8, sq: Square) -> usize {
     debug_assert!(depth < 12);
-    let top_idx = usize::from(top.player() != perspective) * PieceType::COUNT + top.piece_type().idx();
-    ((top_idx * Player::COUNT + usize::from(side != perspective)) * Square::COUNT + sq.idx()) * 12 + depth as usize
+    let top_idx = usize::from(top.color() != perspective) * PieceType::COUNT + top.piece_type().idx();
+    ((top_idx * Color::COUNT + usize::from(side != perspective)) * Square::COUNT + sq.idx()) * 12 + depth as usize
 }
 
-pub(super) fn reserves_feature_idx(perspective: Player, side: Player, reserves: u8) -> usize {
+pub(super) fn reserves_feature_idx(perspective: Color, side: Color, reserves: u8) -> usize {
     usize::from(side != perspective) * 30 + (reserves as usize - 1)
 }
 
@@ -96,21 +96,21 @@ pub(super) struct NnueUpdates {
     pub adds: ArrayVec<(Piece, Square), 6>,
     pub subs: ArrayVec<(Piece, Square), 6>,
     pub stacks: ArrayVec<(Square, Option<Piece>, Option<Piece>, u8, u8, u32, u32), 6>,
-    pub refresh: [bool; Player::COUNT],
+    pub refresh: [bool; Color::COUNT],
 }
 
 impl NnueUpdates {
     #[must_use]
-    pub fn requires_refresh(&self, player: Player) -> bool {
-        self.refresh[player.idx()]
+    pub fn requires_refresh(&self, color: Color) -> bool {
+        self.refresh[color]
     }
 }
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct UpdateContext {
     pub updates: NnueUpdates,
-    pub caps: [Option<Square>; Player::COUNT],
-    pub reserves: [[u8; 2]; Player::COUNT],
+    pub caps: [Option<Square>; Color::COUNT],
+    pub reserves: [[u8; 2]; Color::COUNT],
 }
 
 pub struct NnueObserver<'a> {
@@ -140,8 +140,8 @@ impl<'a> BoardObserver for NnueObserver<'a> {
         top_after: Option<Piece>,
         height_before: u8,
         height_after: u8,
-        players_before: u64,
-        players_after: u64,
+        colors_before: u64,
+        colors_after: u64,
     ) {
         self.ctx.updates.stacks.push((
             sq,
@@ -149,19 +149,20 @@ impl<'a> BoardObserver for NnueObserver<'a> {
             top_after,
             height_before,
             height_after,
-            players_before as u32,
-            players_after as u32,
+            colors_before as u32,
+            colors_after as u32,
         ));
     }
 
     fn finalize(&mut self, pos_before: &Position, pos_after: &Position) {
-        let should_refresh = |side: Player| normalizer(pos_before.cap_sq(side)) != normalizer(pos_after.cap_sq(side));
-        self.ctx.updates.refresh = [Player::P1, Player::P2].map(should_refresh);
+        let should_refresh = |side: Color| normalizer(pos_before.cap_sq(side)) != normalizer(pos_after.cap_sq(side));
+        self.ctx.updates.refresh = [Color::White, Color::Black].map(should_refresh);
 
-        let p1_cap = pos_after.player_piece_bb(Piece::P1Capstone).lsb();
-        let p2_cap = pos_after.player_piece_bb(Piece::P2Capstone).lsb();
-        self.ctx.caps = [p1_cap, p2_cap];
+        let w_cap = pos_after.color_piece_bb(Piece::WhiteCapstone).lsb();
+        let b_cap = pos_after.color_piece_bb(Piece::BlackCapstone).lsb();
+        self.ctx.caps = [w_cap, b_cap];
 
-        self.ctx.reserves = [Player::P1, Player::P2].map(|p| [pos_before.flats_in_hand(p), pos_after.flats_in_hand(p)]);
+        self.ctx.reserves =
+            [Color::White, Color::Black].map(|p| [pos_before.flats_in_hand(p), pos_after.flats_in_hand(p)]);
     }
 }

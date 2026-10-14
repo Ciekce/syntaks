@@ -683,7 +683,10 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
     if thread.is_main_thread() {
         counter.unregister_and_wait();
 
-        thread.shared().set_result(thread.pv_move().clone());
+        #[cfg(feature = "datagen")]
+        {
+            thread.shared().set_result(thread.pv_move().clone());
+        }
 
         if !thread.shared().options.silent {
             let time = thread.shared().elapsed();
@@ -900,6 +903,7 @@ impl Searcher {
         self.shared_ctx.stop();
     }
 
+    #[cfg(feature = "datagen")]
     pub fn result(&self) -> RootMove {
         self.shared_ctx.result().unwrap()
     }

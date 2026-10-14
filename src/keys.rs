@@ -25,15 +25,15 @@ use crate::board::Stacks;
 use crate::core::*;
 use crate::prng::Sfc64;
 
-const P2_COUNT: usize = 1;
+const BLACK_COUNT: usize = 1;
 const TOP_COUNT: usize = PieceType::COUNT * Square::COUNT;
-const PLAYER_COUNT: usize = Stacks::MAX_HEIGHT * Player::COUNT * Square::COUNT;
+const COLOR_COUNT: usize = Stacks::MAX_HEIGHT * Color::COUNT * Square::COUNT;
 
-const TOTAL_COUNT: usize = P2_COUNT + TOP_COUNT + PLAYER_COUNT;
+const TOTAL_COUNT: usize = BLACK_COUNT + TOP_COUNT + COLOR_COUNT;
 
-const P2_OFFSET: usize = 0;
-const TOP_OFFSET: usize = P2_OFFSET + P2_COUNT;
-const PLAYER_OFFSET: usize = TOP_OFFSET + TOP_COUNT;
+const BLACK_OFFSET: usize = 0;
+const TOP_OFFSET: usize = BLACK_OFFSET + BLACK_COUNT;
+const COLOR_OFFSET: usize = TOP_OFFSET + TOP_COUNT;
 
 #[allow(clippy::large_const_arrays)]
 const KEYS: [u64; TOTAL_COUNT] = {
@@ -48,8 +48,8 @@ const KEYS: [u64; TOTAL_COUNT] = {
 };
 
 #[must_use]
-pub const fn p2_key() -> u64 {
-    KEYS[P2_OFFSET]
+pub const fn black_key() -> u64 {
+    KEYS[BLACK_OFFSET]
 }
 
 #[must_use]
@@ -58,7 +58,7 @@ pub const fn top_key(pt: PieceType, sq: Square) -> u64 {
 }
 
 #[must_use]
-pub const fn player_key(height: u8, player: Player, sq: Square) -> u64 {
+pub const fn color_key(height: u8, color: Color, sq: Square) -> u64 {
     assert!((height as usize) < Stacks::MAX_HEIGHT);
-    KEYS[PLAYER_OFFSET + sq.idx() * Stacks::MAX_HEIGHT * Player::COUNT + height as usize * Player::COUNT + player.idx()]
+    KEYS[COLOR_OFFSET + sq.idx() * Stacks::MAX_HEIGHT * Color::COUNT + height as usize * Color::COUNT + color.idx()]
 }

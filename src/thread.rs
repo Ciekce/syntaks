@@ -36,9 +36,12 @@ use crate::{
     search::MAX_DEPTH,
     takmove::Move,
 };
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
+
+#[cfg(feature = "datagen")]
+use std::sync::Mutex;
 
 pub struct SearcherCount {
     count: AtomicU32,
@@ -100,6 +103,7 @@ pub struct SharedContext {
     stopped: AtomicBool,
     counter: Arc<SearcherCount>,
     nodes: NodeCounter,
+    #[cfg(feature = "datagen")]
     result: Mutex<Option<RootMove>>,
 }
 
@@ -114,6 +118,7 @@ impl SharedContext {
             stopped: AtomicBool::new(false),
             counter: Arc::new(SearcherCount::new()),
             nodes: NodeCounter::new(1),
+            #[cfg(feature = "datagen")]
             result: Mutex::new(None),
         }
     }
@@ -129,13 +134,18 @@ impl SharedContext {
         self.stopped.store(false, Ordering::Relaxed);
         self.counter.start();
         self.nodes.reset();
-        *self.result.get_mut().unwrap() = None;
+        #[cfg(feature = "datagen")]
+        {
+            *self.result.get_mut().unwrap() = None;
+        }
     }
 
+    #[cfg(feature = "datagen")]
     pub fn set_result(&self, root_move: RootMove) {
         *self.result.lock().unwrap() = Some(root_move);
     }
 
+    #[cfg(feature = "datagen")]
     pub fn result(&self) -> Option<RootMove> {
         self.result.lock().unwrap().clone()
     }
@@ -382,8 +392,8 @@ impl ThreadData {
         match pos.count_flats() {
             FlatCountOutcome::None => {}
             FlatCountOutcome::Draw => return Some(TerminalState::Draw),
-            FlatCountOutcome::Win(player) => {
-                return if player == stm {
+            FlatCountOutcome::Win(color) => {
+                return if color == stm {
                     Some(TerminalState::Win)
                 } else {
                     Some(TerminalState::Loss)
@@ -399,6 +409,7 @@ impl ThreadData {
     }
 
     #[must_use]
+    #[allow(unused)]
     pub fn get_root_move(&self, mv: Move) -> &RootMove {
         for root_move in self.root_moves[self.pv_idx..].iter() {
             if root_move.pv[0] == mv {

@@ -29,7 +29,6 @@ use crate::road::influence;
 use crate::takmove::Move;
 use std::cmp::Ordering;
 use std::str::FromStr;
-use std::sync::atomic;
 
 pub const TOTAL_FLATS: u8 = 30;
 pub const TOTAL_CAPS: u8 = 1;
@@ -66,14 +65,14 @@ impl Keys {
         }
     }
 
-    fn toggle_player_key(&mut self, height: u8, player: Player, sq: Square) {
-        self.stacks ^= keys::player_key(height, player, sq);
+    fn toggle_color_key(&mut self, height: u8, color: Color, sq: Square) {
+        self.stacks ^= keys::color_key(height, color, sq);
     }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Stacks {
-    players: [u64; Square::COUNT],
+    colors: [u64; Square::COUNT],
     heights: [u8; Square::COUNT],
     tops: [Option<PieceType>; Square::COUNT],
     keys: Keys,
@@ -85,82 +84,82 @@ impl Stacks {
 
     #[must_use]
     pub fn is_empty(&self, sq: Square) -> bool {
-        self.tops[sq.idx()].is_none()
+        self.tops[sq].is_none()
     }
 
     #[must_use]
     pub fn top(&self, sq: Square) -> Option<PieceType> {
-        self.tops[sq.idx()]
+        self.tops[sq]
     }
 
     #[must_use]
-    pub fn top_player(&self, sq: Square) -> Option<Player> {
-        if self.tops[sq.idx()].is_none() {
+    pub fn top_color(&self, sq: Square) -> Option<Color> {
+        if self.tops[sq].is_none() {
             None
         } else {
-            Some(Player::from_raw((self.players[sq.idx()] & 0x1) as u8).unwrap())
+            Some(Color::from_raw((self.colors[sq] & 0x1) as u8).unwrap())
         }
     }
 
     #[must_use]
     pub fn height(&self, sq: Square) -> u8 {
-        self.heights[sq.idx()]
+        self.heights[sq]
     }
 
     #[must_use]
-    pub fn players(&self, sq: Square) -> u64 {
-        self.players[sq.idx()]
+    pub fn colors(&self, sq: Square) -> u64 {
+        self.colors[sq]
     }
 
-    fn push(&mut self, sq: Square, pt: PieceType, player: Player) {
-        debug_assert_ne!(self.tops[sq.idx()], Some(PieceType::Capstone));
+    fn push(&mut self, sq: Square, pt: PieceType, color: Color) {
+        debug_assert_ne!(self.tops[sq], Some(PieceType::Capstone));
 
-        if let Some(prev_top) = self.tops[sq.idx()] {
+        if let Some(prev_top) = self.tops[sq] {
             self.keys.toggle_top_key(prev_top, sq);
         }
 
         self.keys.toggle_top_key(pt, sq);
 
-        let height = self.heights[sq.idx()];
-        self.keys.toggle_player_key(height, player, sq);
+        let height = self.heights[sq];
+        self.keys.toggle_color_key(height, color, sq);
 
-        self.players[sq.idx()] <<= 1;
-        self.players[sq.idx()] |= player.raw() as u64;
+        self.colors[sq] <<= 1;
+        self.colors[sq] |= color.raw() as u64;
 
-        self.heights[sq.idx()] += 1;
+        self.heights[sq] += 1;
 
-        self.tops[sq.idx()] = Some(pt);
+        self.tops[sq] = Some(pt);
     }
 
-    fn take(&mut self, sq: Square, count: u8) -> (u8, PieceType, Option<Player>) {
-        debug_assert!(count <= self.heights[sq.idx()]);
+    fn take(&mut self, sq: Square, count: u8) -> (u8, PieceType, Option<Color>) {
+        debug_assert!(count <= self.heights[sq]);
         debug_assert!(count > 0);
         debug_assert!(count <= 6);
 
-        let players = self.players[sq.idx()] & ((1 << count) - 1);
-        let top = self.tops[sq.idx()].unwrap();
+        let colors = self.colors[sq] & ((1 << count) - 1);
+        let top = self.tops[sq].unwrap();
 
         self.keys.toggle_top_key(top, sq);
 
-        let height = self.heights[sq.idx()];
+        let height = self.heights[sq];
 
         for i in 0..count {
             let height = height - i - 1;
-            let player = Player::from_raw(((self.players[sq.idx()] >> i) & 0x1) as u8).unwrap();
-            self.keys.toggle_player_key(height, player, sq);
+            let color = Color::from_raw(((self.colors[sq] >> i) & 0x1) as u8).unwrap();
+            self.keys.toggle_color_key(height, color, sq);
         }
 
-        self.players[sq.idx()] >>= count;
-        self.heights[sq.idx()] -= count;
+        self.colors[sq] >>= count;
+        self.heights[sq] -= count;
 
         if count == height {
-            self.tops[sq.idx()] = None;
-            (players as u8, top, None)
+            self.tops[sq] = None;
+            (colors as u8, top, None)
         } else {
             self.keys.toggle_top_key(PieceType::Flat, sq);
-            self.tops[sq.idx()] = Some(PieceType::Flat);
-            let new_top_player = Player::from_raw((self.players[sq.idx()] & 0x1) as u8).unwrap();
-            (players as u8, top, Some(new_top_player))
+            self.tops[sq] = Some(PieceType::Flat);
+            let new_top_color = Color::from_raw((self.colors[sq] & 0x1) as u8).unwrap();
+            (colors as u8, top, Some(new_top_color))
         }
     }
 
@@ -168,7 +167,7 @@ impl Stacks {
         self.keys.reset();
 
         for sq in occ {
-            let mut players = self.players(sq);
+            let mut colors = self.colors(sq);
             let height = self.height(sq);
             let top = self.top(sq).unwrap();
 
@@ -176,9 +175,9 @@ impl Stacks {
 
             for i in 0..height {
                 let height = height - i - 1;
-                let player = Player::from_raw((players & 0x1) as u8).unwrap();
-                players >>= 1;
-                self.keys.toggle_player_key(height, player, sq);
+                let color = Color::from_raw((colors & 0x1) as u8).unwrap();
+                colors >>= 1;
+                self.keys.toggle_color_key(height, color, sq);
             }
         }
     }
@@ -187,7 +186,7 @@ impl Stacks {
 impl Default for Stacks {
     fn default() -> Self {
         Self {
-            players: [u64::default(); Square::COUNT],
+            colors: [u64::default(); Square::COUNT],
             heights: [u8::default(); Square::COUNT],
             tops: [None; Square::COUNT],
             keys: Default::default(),
@@ -198,21 +197,21 @@ impl Default for Stacks {
 pub enum FlatCountOutcome {
     None,
     Draw,
-    Win(Player),
+    Win(Color),
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Position {
     stacks: Stacks,
-    players: [Bitboard; Player::COUNT],
+    colors: [Bitboard; Color::COUNT],
     pieces: [Bitboard; PieceType::COUNT],
-    flats_in_hand: [u8; Player::COUNT],
-    caps_in_hand: [u8; Player::COUNT],
-    stm: Player,
+    flats_in_hand: [u8; Color::COUNT],
+    caps_in_hand: [u8; Color::COUNT],
+    stm: Color,
     ply: u16,
-    player_key: u64,
-    roads: [bool; Player::COUNT],
-    influence: [[Bitboard; 4]; Player::COUNT],
+    stm_key: u64,
+    roads: [bool; Color::COUNT],
+    influence: [[Bitboard; 4]; Color::COUNT],
 }
 
 impl Position {
@@ -223,13 +222,13 @@ impl Position {
     pub fn startpos() -> Self {
         Self {
             stacks: Stacks::default(),
-            players: [Bitboard::empty(); Player::COUNT],
+            colors: [Bitboard::empty(); Color::COUNT],
             pieces: [Bitboard::empty(); PieceType::COUNT],
-            flats_in_hand: [TOTAL_FLATS; Player::COUNT],
-            caps_in_hand: [TOTAL_CAPS; Player::COUNT],
-            stm: Player::P1,
+            flats_in_hand: [TOTAL_FLATS; Color::COUNT],
+            caps_in_hand: [TOTAL_CAPS; Color::COUNT],
+            stm: Color::White,
             ply: 0,
-            player_key: 0,
+            stm_key: 0,
             roads: Default::default(),
             influence: Default::default(),
         }
@@ -274,7 +273,7 @@ impl Position {
                 } else {
                     let sq = Square::from_file_rank(file_idx, rank_idx).unwrap();
 
-                    let mut players = Vec::with_capacity(stack.len());
+                    let mut colors = Vec::with_capacity(stack.len());
                     let mut top = None;
 
                     for c in stack.chars() {
@@ -283,8 +282,8 @@ impl Position {
                         }
 
                         match c {
-                            '1' => players.push(Player::P1),
-                            '2' => players.push(Player::P2),
+                            '1' => colors.push(Color::White),
+                            '2' => colors.push(Color::Black),
                             'F' => top = Some(PieceType::Flat), // nonstandard but why not
                             'S' => top = Some(PieceType::Wall),
                             'C' => top = Some(PieceType::Capstone),
@@ -294,11 +293,11 @@ impl Position {
 
                     let top = top.unwrap_or(PieceType::Flat);
 
-                    for (idx, &player) in players.iter().enumerate() {
-                        if idx == players.len() - 1 {
-                            pos.stacks.push(sq, top, player);
+                    for (idx, &color) in colors.iter().enumerate() {
+                        if idx == colors.len() - 1 {
+                            pos.stacks.push(sq, top, color);
                         } else {
-                            pos.stacks.push(sq, PieceType::Flat, player);
+                            pos.stacks.push(sq, PieceType::Flat, color);
                         }
                     }
 
@@ -312,14 +311,14 @@ impl Position {
         }
 
         match parts[1] {
-            "1" => pos.stm = Player::P1,
-            "2" => pos.stm = Player::P2,
+            "1" => pos.stm = Color::White,
+            "2" => pos.stm = Color::Black,
             _ => return Err(TpsError::InvalidStm),
         }
 
         if parts.len() >= 3 {
             match parts[2].parse::<u16>() {
-                Ok(fullmove) => pos.ply = (fullmove.max(1) - 1) * 2 + if pos.stm == Player::P2 { 1 } else { 0 },
+                Ok(fullmove) => pos.ply = (fullmove.max(1) - 1) * 2 + if pos.stm == Color::Black { 1 } else { 0 },
                 Err(_) => return Err(TpsError::InvalidFullmove),
             }
         }
@@ -330,7 +329,7 @@ impl Position {
     }
 
     #[must_use]
-    pub fn stm(&self) -> Player {
+    pub fn stm(&self) -> Color {
         self.stm
     }
 
@@ -340,38 +339,38 @@ impl Position {
     }
 
     #[must_use]
-    pub fn player_bb(&self, player: Player) -> Bitboard {
-        self.players[player.idx()]
+    pub fn color_bb(&self, color: Color) -> Bitboard {
+        self.colors[color]
     }
 
     #[must_use]
     pub fn piece_bb(&self, pt: PieceType) -> Bitboard {
-        self.pieces[pt.idx()]
+        self.pieces[pt]
     }
 
     #[must_use]
-    pub fn player_piece_bb(&self, piece: Piece) -> Bitboard {
-        self.player_bb(piece.player()) & self.piece_bb(piece.piece_type())
+    pub fn color_piece_bb(&self, piece: Piece) -> Bitboard {
+        self.color_bb(piece.color()) & self.piece_bb(piece.piece_type())
     }
 
     #[must_use]
     pub fn occ(&self) -> Bitboard {
-        self.players[0] | self.players[1]
+        self.colors[0] | self.colors[1]
     }
 
     #[must_use]
-    pub fn flats_in_hand(&self, player: Player) -> u8 {
-        self.flats_in_hand[player.idx()]
+    pub fn flats_in_hand(&self, color: Color) -> u8 {
+        self.flats_in_hand[color]
     }
 
     #[must_use]
-    pub fn caps_in_hand(&self, player: Player) -> u8 {
-        self.caps_in_hand[player.idx()]
+    pub fn caps_in_hand(&self, color: Color) -> u8 {
+        self.caps_in_hand[color]
     }
 
     #[must_use]
-    pub fn cap_sq(&self, player: Player) -> Option<Square> {
-        self.player_piece_bb(PieceType::Capstone.with_player(player)).lsb()
+    pub fn cap_sq(&self, color: Color) -> Option<Square> {
+        self.color_piece_bb(PieceType::Capstone.with_color(color)).lsb()
     }
 
     #[must_use]
@@ -381,7 +380,7 @@ impl Position {
 
     #[must_use]
     pub fn key(&self) -> u64 {
-        self.player_key ^ self.stacks().keys.stacks
+        self.stm_key ^ self.stacks().keys.stacks
     }
 
     #[must_use]
@@ -415,8 +414,8 @@ impl Position {
     }
 
     #[must_use]
-    pub fn blockers(&self, player: Player) -> Bitboard {
-        self.all_blockers() & self.player_bb(player)
+    pub fn blockers(&self, color: Color) -> Bitboard {
+        self.all_blockers() & self.color_bb(color)
     }
 
     #[must_use]
@@ -425,46 +424,47 @@ impl Position {
     }
 
     #[must_use]
-    pub fn roads(&self, player: Player) -> Bitboard {
-        self.all_roads() & self.player_bb(player)
+    pub fn roads(&self, color: Color) -> Bitboard {
+        self.all_roads() & self.color_bb(color)
     }
 
     #[must_use]
-    pub fn has_road(&self, player: Player) -> bool {
-        self.roads[player.idx()]
+    pub fn has_road(&self, color: Color) -> bool {
+        self.roads[color]
     }
 
     #[must_use]
-    pub fn influence(&self, player: Player) -> &[Bitboard; 4] {
-        &self.influence[player.idx()]
+    pub fn influence(&self, color: Color) -> &[Bitboard; 4] {
+        &self.influence[color]
     }
 
     #[must_use]
-    fn has_no_more_pieces(&self, player: Player) -> bool {
-        self.flats_in_hand(player) == 0 && self.caps_in_hand(player) == 0
+    fn has_no_more_pieces(&self, color: Color) -> bool {
+        self.flats_in_hand(color) == 0 && self.caps_in_hand(color) == 0
     }
 
     #[must_use]
-    pub fn fcd(&self, player: Player) -> i32 {
-        let p1_advantage = self.player_piece_bb(Piece::P1Flat).popcount() as i32
-            - self.player_piece_bb(Piece::P2Flat).popcount() as i32
+    pub fn fcd(&self, color: Color) -> i32 {
+        let white_advantage = self.color_piece_bb(Piece::WhiteFlat).popcount() as i32
+            - self.color_piece_bb(Piece::BlackFlat).popcount() as i32
             - Self::KOMI as i32;
-        p1_advantage * player.sign()
+        white_advantage * color.sign()
     }
 
     #[must_use]
     pub fn count_flats(&self) -> FlatCountOutcome {
-        if !(!self.occ()).is_empty() && !self.has_no_more_pieces(Player::P1) && !self.has_no_more_pieces(Player::P2) {
+        if !(!self.occ()).is_empty() && !self.has_no_more_pieces(Color::White) && !self.has_no_more_pieces(Color::Black)
+        {
             return FlatCountOutcome::None;
         }
 
-        let p1_flats = self.player_piece_bb(Piece::P1Flat).popcount();
-        let p2_flats = self.player_piece_bb(Piece::P2Flat).popcount() + Self::KOMI;
+        let w_flats = self.color_piece_bb(Piece::WhiteFlat).popcount();
+        let b_flats = self.color_piece_bb(Piece::BlackFlat).popcount() + Self::KOMI;
 
-        match p1_flats.cmp(&p2_flats) {
-            Ordering::Less => FlatCountOutcome::Win(Player::P2),
+        match w_flats.cmp(&b_flats) {
+            Ordering::Less => FlatCountOutcome::Win(Color::Black),
             Ordering::Equal => FlatCountOutcome::Draw,
-            Ordering::Greater => FlatCountOutcome::Win(Player::P1),
+            Ordering::Greater => FlatCountOutcome::Win(Color::White),
         }
     }
 
@@ -475,7 +475,7 @@ impl Position {
                 return false;
             }
 
-            if self.stacks.top_player(mv.sq()).is_none_or(|p| p != self.stm) {
+            if self.stacks.top_color(mv.sq()).is_none_or(|p| p != self.stm) {
                 return false;
             }
 
@@ -538,7 +538,7 @@ impl Position {
 
         if mv.is_spread() {
             debug_assert_ne!(self.stacks.top(mv.sq()), None);
-            debug_assert_eq!(self.stacks.top_player(mv.sq()), Some(self.stm()));
+            debug_assert_eq!(self.stacks.top_color(mv.sq()), Some(self.stm()));
             debug_assert!(self.ply() >= 2);
 
             let pattern = mv.pattern();
@@ -548,69 +548,68 @@ impl Position {
             let taken = 6 - dropped;
 
             let mut pattern = pattern >> dropped;
-            let (players, top, new_top_player) = new_pos.stacks.take(mv.sq(), taken as u8);
+            let (colors, top, new_top_color) = new_pos.stacks.take(mv.sq(), taken as u8);
 
-            let mut player_idx = taken - 1;
+            let mut color_idx = taken - 1;
 
             let mut new_flats_bb = Bitboard::empty();
-            let mut new_player_bbs = [Bitboard::empty(); Player::COUNT];
+            let mut new_color_bbs = [Bitboard::empty(); Color::COUNT];
             let mut dirty_bb = mv.sq().bb();
 
-            if let Some(new_top_player) = new_top_player {
-                new_player_bbs[new_top_player.idx()].set_sq(mv.sq());
+            if let Some(new_top_color) = new_top_color {
+                new_color_bbs[new_top_color].set_sq(mv.sq());
                 new_flats_bb.set_sq(mv.sq());
             } else {
-                new_pos.players[self.stm().idx()].toggle_sq(mv.sq());
+                new_pos.colors[self.stm()].toggle_sq(mv.sq());
             }
 
-            if top != PieceType::Flat || new_top_player.is_none() {
-                new_pos.pieces[top.idx()].toggle_sq(mv.sq());
+            if top != PieceType::Flat || new_top_color.is_none() {
+                new_pos.pieces[top].toggle_sq(mv.sq());
             }
 
             let mut sq = mv.sq().shift(dir).unwrap();
 
             for idx in 0..taken {
-                let player = Player::from_raw((players >> player_idx) & 0x1).unwrap();
+                let color = Color::from_raw((colors >> color_idx) & 0x1).unwrap();
                 let pt = if idx == taken - 1 { top } else { PieceType::Flat };
 
-                new_pos.stacks.push(sq, pt, player);
+                new_pos.stacks.push(sq, pt, color);
                 dirty_bb.set_sq(sq);
 
                 pattern >>= 1;
-                player_idx = player_idx.wrapping_sub(1);
+                color_idx = color_idx.wrapping_sub(1);
 
                 if (pattern & 0x1) != 0 {
-                    new_player_bbs[player.idx()].set_sq(sq);
+                    new_color_bbs[color].set_sq(sq);
                     new_flats_bb.set_sq(sq);
 
                     sq = sq.shift(dir).unwrap();
                 }
             }
 
-            new_player_bbs[self.stm().idx()].set_sq(sq);
+            new_color_bbs[self.stm()].set_sq(sq);
 
-            debug_assert_eq!(new_player_bbs[0] & new_player_bbs[1], Bitboard::empty());
+            debug_assert_eq!(new_color_bbs[0] & new_color_bbs[1], Bitboard::empty());
 
-            for player in 0..Player::COUNT {
-                new_pos.players[player] =
-                    (new_pos.players[player] | new_player_bbs[player]) & !new_player_bbs[player ^ 0x1];
+            for color in 0..Color::COUNT {
+                new_pos.colors[color] = (new_pos.colors[color] | new_color_bbs[color]) & !new_color_bbs[color ^ 0x1];
             }
 
-            new_pos.pieces[top.idx()].set_sq(sq);
-            new_pos.pieces[PieceType::Flat.idx()] |= new_flats_bb;
+            new_pos.pieces[top].set_sq(sq);
+            new_pos.pieces[PieceType::Flat] |= new_flats_bb;
 
             if let Some(prev_dst_top) = self.stacks.top(sq)
                 && prev_dst_top != top
             {
-                new_pos.pieces[prev_dst_top.idx()].clear_sq(sq);
-                new_pos.pieces[top.idx()].set_sq(sq);
+                new_pos.pieces[prev_dst_top].clear_sq(sq);
+                new_pos.pieces[top].set_sq(sq);
             }
 
             for piece_idx in 0..Piece::COUNT {
                 let piece = Piece::from_raw(piece_idx as u8).unwrap();
 
-                let prev_bb = self.player_piece_bb(piece);
-                let new_bb = new_pos.player_piece_bb(piece);
+                let prev_bb = self.color_piece_bb(piece);
+                let new_bb = new_pos.color_piece_bb(piece);
 
                 if prev_bb == new_bb {
                     continue;
@@ -629,17 +628,17 @@ impl Position {
                 let top_before = self
                     .stacks
                     .top(sq)
-                    .map(|pt| pt.with_player(self.stacks.top_player(sq).unwrap()));
+                    .map(|pt| pt.with_color(self.stacks.top_color(sq).unwrap()));
                 let top_after = new_pos
                     .stacks
                     .top(sq)
-                    .map(|pt| pt.with_player(new_pos.stacks.top_player(sq).unwrap()));
+                    .map(|pt| pt.with_color(new_pos.stacks.top_color(sq).unwrap()));
 
                 let height_before = self.stacks.height(sq);
                 let height_after = new_pos.stacks.height(sq);
 
-                let players_before = self.stacks.players(sq);
-                let players_after = new_pos.stacks.players(sq);
+                let colors_before = self.stacks.colors(sq);
+                let colors_after = new_pos.stacks.colors(sq);
 
                 observer.stack_changed(
                     &new_pos,
@@ -648,49 +647,45 @@ impl Position {
                     top_after,
                     height_before,
                     height_after,
-                    players_before,
-                    players_after,
+                    colors_before,
+                    colors_after,
                 );
             }
 
-            new_pos.update_influence(Player::P1);
-            new_pos.update_influence(Player::P2);
+            new_pos.update_influence(Color::White);
+            new_pos.update_influence(Color::Black);
 
             debug_assert_eq!(
-                new_pos.pieces[PieceType::Flat.idx()]
-                    & new_pos.pieces[PieceType::Wall.idx()]
-                    & new_pos.pieces[PieceType::Capstone.idx()],
+                new_pos.pieces[PieceType::Flat] & new_pos.pieces[PieceType::Wall] & new_pos.pieces[PieceType::Capstone],
                 Bitboard::empty()
             );
 
             debug_assert_eq!(
-                new_pos.players[Player::P1.idx()] & new_pos.players[Player::P2.idx()],
+                new_pos.colors[Color::White] & new_pos.colors[Color::Black],
                 Bitboard::empty()
             );
 
             debug_assert_eq!(
-                new_pos.pieces[PieceType::Flat.idx()]
-                    | new_pos.pieces[PieceType::Wall.idx()]
-                    | new_pos.pieces[PieceType::Capstone.idx()],
-                new_pos.players[Player::P1.idx()] | new_pos.players[Player::P2.idx()]
+                new_pos.pieces[PieceType::Flat] | new_pos.pieces[PieceType::Wall] | new_pos.pieces[PieceType::Capstone],
+                new_pos.colors[Color::White] | new_pos.colors[Color::Black]
             );
         } else {
             debug_assert_eq!(self.stacks.top(mv.sq()), None);
             debug_assert!(self.ply() >= 2 || mv.pt() == PieceType::Flat);
 
-            let dropped_player = if self.ply() < 2 { self.stm().flip() } else { self.stm() };
+            let dropped_color = if self.ply() < 2 { self.stm().flip() } else { self.stm() };
 
-            new_pos.stacks.push(mv.sq(), mv.pt(), dropped_player);
+            new_pos.stacks.push(mv.sq(), mv.pt(), dropped_color);
 
-            new_pos.players[dropped_player.idx()].set_sq(mv.sq());
-            new_pos.pieces[mv.pt().idx()].set_sq(mv.sq());
+            new_pos.colors[dropped_color].set_sq(mv.sq());
+            new_pos.pieces[mv.pt()].set_sq(mv.sq());
 
             match mv.pt() {
-                PieceType::Capstone => new_pos.caps_in_hand[dropped_player.idx()] -= 1,
-                _ => new_pos.flats_in_hand[dropped_player.idx()] -= 1,
+                PieceType::Capstone => new_pos.caps_in_hand[dropped_color] -= 1,
+                _ => new_pos.flats_in_hand[dropped_color] -= 1,
             }
 
-            let dropped = mv.pt().with_player(dropped_player);
+            let dropped = mv.pt().with_color(dropped_color);
 
             observer.top_added(&new_pos, dropped, mv.sq());
             observer.stack_changed(
@@ -701,16 +696,16 @@ impl Position {
                 0,
                 1,
                 0,
-                dropped_player.raw() as u64,
+                dropped_color.raw() as u64,
             );
 
-            new_pos.update_influence(dropped_player);
+            new_pos.update_influence(dropped_color);
         }
 
         new_pos.stm = new_pos.stm.flip();
         new_pos.ply += 1;
 
-        new_pos.player_key ^= keys::p2_key();
+        new_pos.stm_key ^= keys::black_key();
 
         observer.finalize(self, &new_pos);
 
@@ -736,7 +731,7 @@ impl Position {
         new_pos.stm = new_pos.stm.flip();
         new_pos.ply += 1;
 
-        new_pos.player_key ^= keys::p2_key();
+        new_pos.stm_key ^= keys::black_key();
 
         new_pos
     }
@@ -768,14 +763,14 @@ impl Position {
                 } else {
                     let mut stack_str = String::with_capacity(self.stacks.height(sq) as usize + 1);
 
-                    let players = self.stacks.players(sq);
+                    let colors = self.stacks.colors(sq);
                     let height = self.stacks.height(sq);
                     for i in 0..height {
                         let height = height - i - 1;
-                        let player = Player::from_raw(((players >> height) & 0x1) as u8).unwrap();
-                        match player {
-                            Player::P1 => stack_str.push('1'),
-                            Player::P2 => stack_str.push('2'),
+                        let color = Color::from_raw(((colors >> height) & 0x1) as u8).unwrap();
+                        match color {
+                            Color::White => stack_str.push('1'),
+                            Color::Black => stack_str.push('2'),
                         }
                     }
 
@@ -799,8 +794,8 @@ impl Position {
         }
 
         match self.stm() {
-            Player::P1 => tps.push_str(" 1"),
-            Player::P2 => tps.push_str(" 2"),
+            Color::White => tps.push_str(" 1"),
+            Color::Black => tps.push_str(" 2"),
         }
 
         tps.push_str(&format!(" {}", self.ply() / 2 + 1));
@@ -808,43 +803,41 @@ impl Position {
         tps
     }
 
-    pub(crate) fn push_piece(&mut self, sq: Square, pt: PieceType, player: Player) {
-        self.stacks.push(sq, pt, player);
+    pub(crate) fn push_piece(&mut self, sq: Square, pt: PieceType, color: Color) {
+        self.stacks.push(sq, pt, color);
     }
 
-    pub(crate) fn finish_build(&mut self, stm: Player, ply: u16) {
+    pub(crate) fn finish_build(&mut self, stm: Color, ply: u16) {
         self.stm = stm;
         self.ply = ply;
         self.regen();
     }
 
     fn regen(&mut self) {
-        self.players.fill(Bitboard::empty());
+        self.colors.fill(Bitboard::empty());
         self.pieces.fill(Bitboard::empty());
 
         self.flats_in_hand.fill(TOTAL_FLATS);
         self.caps_in_hand.fill(TOTAL_CAPS);
 
-        for sq_idx in 0..Square::COUNT {
-            let sq = Square::from_raw(sq_idx as u8).unwrap();
-
+        for sq in Square::all() {
             if self.stacks.is_empty(sq) {
                 continue;
             }
 
-            let player = self.stacks.top_player(sq).unwrap();
+            let color = self.stacks.top_color(sq).unwrap();
             let top = self.stacks.top(sq).unwrap();
 
-            self.players[player.idx()].set_sq(sq);
-            self.pieces[top.idx()].set_sq(sq);
+            self.colors[color].set_sq(sq);
+            self.pieces[top].set_sq(sq);
 
             if top == PieceType::Capstone {
-                self.caps_in_hand[player.idx()] -= 1;
+                self.caps_in_hand[color] -= 1;
             } else {
-                self.flats_in_hand[player.idx()] -= 1;
+                self.flats_in_hand[color] -= 1;
             }
 
-            let covered = self.stacks.players(sq) >> 1;
+            let covered = self.stacks.colors(sq) >> 1;
             let mask = (1 << (self.stacks.height(sq) - 1)) - 1;
 
             self.flats_in_hand[0] -= (!covered & mask).count_ones() as u8;
@@ -853,20 +846,20 @@ impl Position {
 
         self.stacks.regen_key(self.occ());
 
-        if self.stm() == Player::P2 {
-            self.player_key = keys::p2_key();
+        if self.stm() == Color::Black {
+            self.stm_key = keys::black_key();
         } else {
-            self.player_key = 0;
+            self.stm_key = 0;
         }
 
-        self.update_influence(Player::P1);
-        self.update_influence(Player::P2);
+        self.update_influence(Color::White);
+        self.update_influence(Color::Black);
     }
 
-    fn update_influence(&mut self, player: Player) {
-        let (road, influence) = influence(self.roads(player));
-        self.roads[player.idx()] = road;
-        self.influence[player.idx()] = influence;
+    fn update_influence(&mut self, color: Color) {
+        let (road, influence) = influence(self.roads(color));
+        self.roads[color] = road;
+        self.influence[color] = influence;
     }
 }
 
@@ -896,6 +889,7 @@ pub trait BoardObserver {
     fn top_added(&mut self, pos: &Position, top: Piece, sq: Square);
     fn top_removed(&mut self, pos: &Position, top: Piece, sq: Square);
 
+    #[allow(clippy::too_many_arguments)]
     fn stack_changed(
         &mut self,
         pos: &Position,
@@ -904,8 +898,8 @@ pub trait BoardObserver {
         top_after: Option<Piece>,
         height_before: u8,
         height_after: u8,
-        players_before: u64,
-        players_after: u64,
+        colors_before: u64,
+        colors_after: u64,
     );
 
     fn finalize(&mut self, pos_before: &Position, pos_after: &Position);
@@ -930,8 +924,8 @@ impl BoardObserver for NullObserver {
         _top_after: Option<Piece>,
         _height_before: u8,
         _height_after: u8,
-        _players_before: u64,
-        _players_after: u64,
+        _colors_before: u64,
+        _colors_after: u64,
     ) {
         // no-op
     }

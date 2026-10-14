@@ -69,12 +69,12 @@ const SQUARE_DATA: Data = {
 
     let mut idx = 0;
     while let Some(sq) = Square::from_raw(idx) {
-        let square_data = &mut squares[sq.idx()];
+        let square_data = &mut squares[sq];
 
         square_data.inv_mask = !generate_mask(sq);
 
         square_data.offset = table_size;
-        table_size += 1 << (64 - SHIFTS[sq.idx()]);
+        table_size += 1 << (64 - SHIFTS[sq]);
 
         idx += 1;
     }
@@ -88,10 +88,10 @@ static HITS: [super::Hits; SQUARE_DATA.table_size] = {
     let mut filled = [false; SQUARE_DATA.table_size];
 
     for sq in Square::all() {
-        let sq_data = &SQUARE_DATA.squares[sq.idx()];
+        let sq_data = &SQUARE_DATA.squares[sq];
 
-        let magic = MAGICS[sq.idx()];
-        let shift = SHIFTS[sq.idx()];
+        let magic = MAGICS[sq];
+        let shift = SHIFTS[sq];
 
         let mask = !sq_data.inv_mask;
 
@@ -120,15 +120,15 @@ fn calc_idx(blockers: Bitboard, inv_mask: u64, magic: u64, shift: u32) -> usize 
 
 #[must_use]
 pub fn find_hit_for_dir_magic(blockers: Bitboard, start: Square, dir: Direction) -> super::Hit {
-    find_hits_magic(blockers, start)[dir.idx()]
+    find_hits_magic(blockers, start)[dir]
 }
 
 #[must_use]
 pub(super) fn find_hits_magic(blockers: Bitboard, start: Square) -> super::Hits {
-    let magic = MAGICS[start.idx()];
-    let shift = SHIFTS[start.idx()];
+    let magic = MAGICS[start];
+    let shift = SHIFTS[start];
 
-    let sq_data = &SQUARE_DATA.squares[start.idx()];
+    let sq_data = &SQUARE_DATA.squares[start];
 
     let idx = calc_idx(blockers, sq_data.inv_mask, magic, shift);
     HITS[sq_data.offset + idx]

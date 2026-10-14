@@ -57,7 +57,7 @@ fn do_spreads(dst: &mut Vec<Move>, sq: Square, dir: Direction, lsb: u16, mut pat
     while pattern < limit {
         dst.push(Move::spread(sq, dir, pattern));
         if pattern.count_ones() == dist {
-            pattern += pattern & pattern.wrapping_neg();
+            pattern += pattern.isolate_lowest_one();
         } else {
             pattern += lsb;
         }
@@ -65,7 +65,7 @@ fn do_spreads(dst: &mut Vec<Move>, sq: Square, dir: Direction, lsb: u16, mut pat
 }
 
 fn generate_spreads(dst: &mut Vec<Move>, pos: &Position) {
-    for sq in pos.player_bb(pos.stm()) {
+    for sq in pos.color_bb(pos.stm()) {
         let top = pos.stacks().top(sq).unwrap();
         let max = pos.stacks().height(sq).min(6);
 
@@ -74,7 +74,7 @@ fn generate_spreads(dst: &mut Vec<Move>, pos: &Position) {
         let hits = find_hits(pos.all_blockers(), sq);
 
         for dir in [Direction::Up, Direction::Down, Direction::Left, Direction::Right] {
-            let (mut dist, hit_sq) = hits[dir.idx()];
+            let (mut dist, hit_sq) = hits[dir];
 
             if dist == 0 {
                 continue;

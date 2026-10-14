@@ -70,10 +70,6 @@ impl KillerTable {
     pub fn contains(&self, mv: Move) -> bool {
         self.killers.contains(&Some(mv))
     }
-
-    pub fn reset(&mut self) {
-        *self = Default::default();
-    }
 }
 
 pub struct Movepicker<'a> {

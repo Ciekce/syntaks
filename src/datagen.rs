@@ -67,8 +67,8 @@ fn check_terminal(pos: &Position, key_history: &[u64], prev_move: Move) -> Optio
     match pos.count_flats() {
         FlatCountOutcome::None => {}
         FlatCountOutcome::Draw => return Some(GameResult::Draw),
-        FlatCountOutcome::Win(player) => {
-            return if player == ntm {
+        FlatCountOutcome::Win(color) => {
+            return if color == ntm {
                 Some(GameResult::Win)
             } else {
                 Some(GameResult::Loss)
@@ -178,15 +178,15 @@ fn run_thread(id: u32, seed: u64, out_dir: &Path) {
         let mut pos = root_pos;
 
         let outcome = loop {
-            let searcher = &mut searchers[pos.stm().idx()];
+            let searcher = &mut searchers[pos.stm()];
 
             let root_move = search(searcher, &pos, &key_history, limits, MAX_DEPTH);
 
             let mv = root_move.mv();
             let score = root_move.score;
 
-            let p1_score = score * pos.stm().sign();
-            scored_moves.push((mv, p1_score as i16));
+            let w_score = score * pos.stm().sign();
+            scored_moves.push((mv, w_score as i16));
 
             key_history.push(pos.key());
             let new_pos = pos.apply_move(mv);
@@ -211,8 +211,8 @@ fn run_thread(id: u32, seed: u64, out_dir: &Path) {
         };
 
         let outcome = match pos.stm() {
-            Player::P1 => outcome,
-            Player::P2 => outcome.flip(),
+            Color::White => outcome,
+            Color::Black => outcome.flip(),
         };
 
         match write_game(&mut out, &root_pos, outcome, &scored_moves) {

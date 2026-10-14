@@ -21,7 +21,7 @@
  * SOFTWARE.
  */
 
-use crate::core::{Direction, Player, Square};
+use crate::core::{Color, Direction, Square};
 use crate::takmove::Move;
 use crate::{board::Position, core::PieceType};
 use std::ops::{Index, IndexMut};
@@ -178,7 +178,7 @@ impl SidedTables {
 }
 
 pub struct History {
-    tables: [SidedTables; Player::COUNT],
+    tables: [SidedTables; Color::COUNT],
 }
 
 impl History {
@@ -198,7 +198,7 @@ impl History {
     }
 
     pub fn update(&mut self, pos: &Position, mv: Move, prev: Option<Move>, bonus: i32) {
-        let tables = &mut self.tables[pos.stm().idx()];
+        let tables = &mut self.tables[pos.stm()];
         let bonus = bonus.clamp(-Self::MAX_BONUS, Self::MAX_BONUS);
         tables.hist[mv].update(bonus);
         if let Some(prev) = prev {
@@ -208,7 +208,7 @@ impl History {
 
     #[must_use]
     pub fn score(&self, pos: &Position, mv: Move, prev: Option<Move>) -> i32 {
-        let tables = &self.tables[pos.stm().idx()];
+        let tables = &self.tables[pos.stm()];
         let mut res = tables.hist[mv].get();
         if let Some(prev) = prev {
             res += tables.conthist[prev][mv].get();
