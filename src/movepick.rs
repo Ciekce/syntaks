@@ -110,7 +110,7 @@ impl<'a> Movepicker<'a> {
             let mut score = history.score(self.pos, *mv, self.prev_move);
 
             if !mv.is_spread() {
-                score += 100;
+                score += 75;
             }
 
             // scores have to be less than 2²⁰ to make the movepicking more efficient

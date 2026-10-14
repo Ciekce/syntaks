@@ -42,7 +42,7 @@ impl TimeManager {
     }
 
     fn should_stop_soft(&self, _nodes: usize, time: f64, best_move_nodes_fraction: f64) -> bool {
-        let nodetm_scale = (2.0 - 2.0 * best_move_nodes_fraction).max(0.5);
+        let nodetm_scale = (2.5 - 2.5 * best_move_nodes_fraction).max(0.5);
         time >= self.opt_time * nodetm_scale
     }
 
