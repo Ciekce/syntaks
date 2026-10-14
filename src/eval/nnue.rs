@@ -47,6 +47,7 @@ cfg_select! {
 
 pub const TOP_INPUT_SIZE: usize = Player::COUNT * PieceType::COUNT * Square::COUNT;
 pub const STACK_INPUT_SIZE: usize = 12 * Player::COUNT * PieceType::COUNT * Square::COUNT * Player::COUNT;
+pub const RESERVES_INPUT_SIZE: usize = 30 * Player::COUNT;
 
 pub const L1_SIZE: usize = 512;
 
@@ -61,6 +62,7 @@ pub const SCALE: i32 = 400;
 pub(super) struct Network {
     pub ftw_top: [[i16; L1_SIZE]; TOP_INPUT_SIZE],
     pub ftw_stack: [[i16; L1_SIZE]; STACK_INPUT_SIZE],
+    pub ftw_reserves: [[i16; L1_SIZE]; RESERVES_INPUT_SIZE],
     pub ftb: [i16; L1_SIZE],
     pub l1w: [[[i16; L1_SIZE]; 2]; OUTPUT_BUCKETS],
     pub l1b: [i16; OUTPUT_BUCKETS],
@@ -85,6 +87,10 @@ pub(super) fn stack_feature_idx(perspective: Player, top: Piece, side: Player, d
     ((top_idx * Player::COUNT + usize::from(side != perspective)) * Square::COUNT + sq.idx()) * 12 + depth as usize
 }
 
+pub(super) fn reserves_feature_idx(perspective: Player, side: Player, reserves: u8) -> usize {
+    usize::from(side != perspective) * 30 + (reserves as usize - 1)
+}
+
 #[derive(Clone, Debug, Default)]
 pub(super) struct NnueUpdates {
     pub adds: ArrayVec<(Piece, Square), 6>,
@@ -104,6 +110,7 @@ impl NnueUpdates {
 pub(super) struct UpdateContext {
     pub updates: NnueUpdates,
     pub caps: [Option<Square>; Player::COUNT],
+    pub reserves: [[u8; 2]; Player::COUNT],
 }
 
 pub struct NnueObserver<'a> {
@@ -149,11 +156,12 @@ impl<'a> BoardObserver for NnueObserver<'a> {
 
     fn finalize(&mut self, pos_before: &Position, pos_after: &Position) {
         let should_refresh = |side: Player| normalizer(pos_before.cap_sq(side)) != normalizer(pos_after.cap_sq(side));
-
         self.ctx.updates.refresh = [Player::P1, Player::P2].map(should_refresh);
 
         let p1_cap = pos_after.player_piece_bb(Piece::P1Capstone).lsb();
         let p2_cap = pos_after.player_piece_bb(Piece::P2Capstone).lsb();
         self.ctx.caps = [p1_cap, p2_cap];
+
+        self.ctx.reserves = [Player::P1, Player::P2].map(|p| [pos_before.flats_in_hand(p), pos_after.flats_in_hand(p)]);
     }
 }
