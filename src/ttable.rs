@@ -23,6 +23,7 @@
 
 use crate::core::{Score, is_loss, is_win};
 use crate::takmove::Move;
+#[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
 use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -169,13 +170,23 @@ impl TranspositionTable {
     }
 
     pub fn prefetch(&self, key: u64) {
-        #[cfg(target_arch = "x86_64")]
-        {
-            let idx = self.calc_index(key);
-            //SAFETY: calc_index() cannot return an out-of-bounds index
-            let entry = unsafe { self.entries.get_unchecked(idx) };
-            let ptr = std::ptr::from_ref(entry).cast();
-            unsafe { _mm_prefetch(ptr, _MM_HINT_T0) };
+        let idx = self.calc_index(key);
+        //SAFETY: calc_index() cannot return an out-of-bounds index
+        let entry = unsafe { self.entries.get_unchecked(idx) };
+        let ptr = std::ptr::from_ref(entry);
+
+        cfg_select! {
+            target_arch = "x86_64" => unsafe {
+                _mm_prefetch(ptr.cast(), _MM_HINT_T0);
+            },
+            // taken straight from the compiler
+            // https://rust.godbolt.org/z/659YKe9av
+            target_arch = "aarch64" => unsafe {
+                std::arch::asm!("prfm pldl1keep, [{0}]", in(reg) ptr, options(nostack, preserves_flags, readonly));
+            },
+            _ => {
+                _ = ptr;
+            }
         }
     }
 

@@ -23,6 +23,7 @@
 
 use crate::bitboard::Bitboard;
 use crate::core::{Direction, Square};
+#[cfg(target_feature = "bmi2")]
 use std::arch::x86_64::_pdep_u64;
 
 pub(super) const fn generate_mask(sq: Square) -> u64 {

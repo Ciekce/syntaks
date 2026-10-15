@@ -919,6 +919,11 @@ impl Searcher {
         self.shared_ctx.get_counter().wait();
     }
 
+    #[must_use]
+    pub fn total_nodes(&self) -> usize {
+        self.shared_ctx.total_nodes()
+    }
+
     fn kill_threads(&mut self) {
         self.stop();
         if !self.threads.is_empty() {

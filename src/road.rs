@@ -21,11 +21,20 @@
  * SOFTWARE.
  */
 
-#[cfg(target_feature = "avx2")]
-mod avx2;
-
-#[cfg(all(not(target_feature = "avx2"), target_feature = "sse4.2"))]
-mod sse;
+cfg_select! {
+    target_feature = "avx2" => {
+        mod avx2;
+        use avx2::influence as influence_impl;
+    }
+    target_feature = "sse4.2" => {
+        mod sse;
+        use sse::influence as influence_impl;
+    }
+    _ => {
+        mod scalar;
+        use scalar::influence as influence_impl;
+    }
+}
 
 use crate::bitboard::Bitboard;
 
@@ -48,18 +57,7 @@ pub fn influence(road_occ: Bitboard) -> (bool, [Bitboard; 4]) {
     edges[2] |= edges[2] << 1 & road_occ;
     edges[3] |= edges[3] >> 1 & road_occ;
 
-    let result;
-
-    #[cfg(target_feature = "avx2")]
-    {
-        //SAFETY: self-explanatory
-        result = unsafe { avx2::influence(road_occ, &mut edges) };
-    }
-
-    #[cfg(all(not(target_feature = "avx2"), target_feature = "sse4.2"))]
-    {
-        result = unsafe { sse::influence(road_occ, &mut edges) };
-    }
+    let result = influence_impl(road_occ, &mut edges);
 
     (result, edges)
 }

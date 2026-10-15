@@ -41,7 +41,8 @@ cfg_select! {
         pub(super) mod simd;
     }
     _ => {
-        compiler_error!("No supported SIMD arch");
+        #[path = "simd/scalar.rs"]
+        pub(super) mod simd;
     }
 }
 
