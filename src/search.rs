@@ -308,6 +308,12 @@ fn search<NT: NodeType>(
         None
     };
 
+    let prev2_move = if ply > 1 {
+        thread.stack[(ply - 2) as usize].mv
+    } else {
+        None
+    };
+
     let mut movepicker = Movepicker::new(
         pos,
         &mut data.movelist,
@@ -315,6 +321,7 @@ fn search<NT: NodeType>(
         tt_move,
         thread.killers[ply as usize],
         prev_move,
+        prev2_move,
     );
 
     let mut move_count = 0;
@@ -414,7 +421,7 @@ fn search<NT: NodeType>(
                 let mut r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
 
                 r += 1024 * i32::from(!NT::PV_NODE);
-                r -= thread.history.score(pos, mv, prev_move) / 24;
+                r -= thread.history.score(pos, mv, prev_move, prev2_move) / 24;
 
                 if mv.is_spread() {
                     let gain = new_pos.fcd(pos.stm()) - pos.fcd(pos.stm());
@@ -530,10 +537,10 @@ fn search<NT: NodeType>(
     if let Some(best_move) = best_move {
         let bonus = (500 * depth - 500).clamp(0, 3000);
 
-        thread.history.update(pos, best_move, prev_move, bonus);
+        thread.history.update(pos, best_move, prev_move, prev2_move, bonus);
 
         for &mv in faillow_moves.iter() {
-            thread.history.update(pos, mv, prev_move, -bonus);
+            thread.history.update(pos, mv, prev_move, prev2_move, -bonus);
         }
 
         if best_score >= beta {

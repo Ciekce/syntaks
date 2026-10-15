@@ -167,13 +167,15 @@ impl IndexMut<Move> for ConthistTable {
 #[derive(Copy, Clone, Default)]
 struct SidedTables {
     hist: CombinedHist,
-    conthist: ConthistTable,
+    conthist: [ConthistTable; Color::COUNT],
 }
 
 impl SidedTables {
     fn clear(&mut self) {
         self.hist.clear();
-        self.conthist.clear();
+        for conthist in self.conthist.iter_mut() {
+            conthist.clear();
+        }
     }
 }
 
@@ -197,21 +199,27 @@ impl History {
         }
     }
 
-    pub fn update(&mut self, pos: &Position, mv: Move, prev: Option<Move>, bonus: i32) {
+    pub fn update(&mut self, pos: &Position, mv: Move, prev: Option<Move>, prev2: Option<Move>, bonus: i32) {
         let tables = &mut self.tables[pos.stm()];
         let bonus = bonus.clamp(-Self::MAX_BONUS, Self::MAX_BONUS);
         tables.hist[mv].update(bonus);
         if let Some(prev) = prev {
-            tables.conthist[prev][mv].update(bonus);
+            tables.conthist[0][prev][mv].update(bonus);
+        }
+        if let Some(prev) = prev2 {
+            tables.conthist[1][prev][mv].update(bonus);
         }
     }
 
     #[must_use]
-    pub fn score(&self, pos: &Position, mv: Move, prev: Option<Move>) -> i32 {
+    pub fn score(&self, pos: &Position, mv: Move, prev1: Option<Move>, prev2: Option<Move>) -> i32 {
         let tables = &self.tables[pos.stm()];
         let mut res = tables.hist[mv].get();
-        if let Some(prev) = prev {
-            res += tables.conthist[prev][mv].get();
+        if let Some(prev) = prev1 {
+            res += tables.conthist[0][prev][mv].get();
+        }
+        if let Some(prev) = prev2 {
+            res += tables.conthist[1][prev][mv].get();
         }
         res
     }

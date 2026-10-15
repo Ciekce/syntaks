@@ -79,7 +79,8 @@ pub struct Movepicker<'a> {
     idx: usize,
     tt_move: Option<Move>,
     killers: KillerTable,
-    prev_move: Option<Move>,
+    prev1_move: Option<Move>,
+    prev2_move: Option<Move>,
     stage: Stage,
 }
 
@@ -90,7 +91,8 @@ impl<'a> Movepicker<'a> {
         scores: &'a mut Vec<Score>,
         tt_move: Option<Move>,
         killers: KillerTable,
-        prev_move: Option<Move>,
+        prev1_move: Option<Move>,
+        prev2_move: Option<Move>,
     ) -> Self {
         Self {
             pos,
@@ -99,7 +101,8 @@ impl<'a> Movepicker<'a> {
             idx: 0,
             tt_move,
             killers,
-            prev_move,
+            prev1_move,
+            prev2_move,
             stage: Stage::TtMove,
         }
     }
@@ -107,7 +110,7 @@ impl<'a> Movepicker<'a> {
     fn score_moves(&mut self, history: &History) {
         self.scores.clear();
         for mv in self.moves.iter() {
-            let mut score = history.score(self.pos, *mv, self.prev_move);
+            let mut score = history.score(self.pos, *mv, self.prev1_move, self.prev2_move);
 
             if !mv.is_spread() {
                 score += 75;
