@@ -12,9 +12,9 @@ use bullet_lib::{
 };
 use inputs::*;
 use loader::TakReader;
-use syntaks::position::Position;
 use syntaks::core::{Score, is_decisive};
 use syntaks::format::GameResult;
+use syntaks::position::Position;
 use syntaks::takmove::Move;
 
 const HIDDEN_SIZE: usize = 512;
@@ -36,7 +36,7 @@ fn main() {
         .dual_perspective()
         .optimiser(AdamW)
         .inputs(TakTopRelativeStacks)
-        .output_buckets(StmBucket)
+        .output_buckets(StmReserveBuckets)
         .save_format(&[
             SavedFormat::id("l0w").round().quantise::<i16>(QA),
             SavedFormat::id("l0b").round().quantise::<i16>(QA),
@@ -46,7 +46,7 @@ fn main() {
         .loss_fn(|output, target| output.sigmoid().squared_error(target))
         .build(|builder, stm_inputs, ntm_inputs, output_buckets| {
             let l0 = builder.new_affine("l0", TakTopRelativeStacks::NUM_INPUTS, HIDDEN_SIZE);
-            let l1 = builder.new_affine("l1", 2 * HIDDEN_SIZE, 2);
+            let l1 = builder.new_affine("l1", 2 * HIDDEN_SIZE, 16);
 
             let stm_hidden = l0.forward(stm_inputs).screlu();
             let ntm_hidden = l0.forward(ntm_inputs).screlu();
@@ -54,7 +54,7 @@ fn main() {
         });
 
     let schedule = TrainingSchedule {
-        net_id: "net018".to_owned(),
+        net_id: "net022".to_owned(),
         eval_scale: SCALE as f32,
         steps: TrainingSteps {
             batch_size: 16_384,

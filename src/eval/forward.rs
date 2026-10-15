@@ -24,19 +24,26 @@
 use crate::core::Color;
 use crate::eval::accumulator::Accumulator;
 use crate::eval::nnue::*;
+use crate::position::Position;
 
 #[must_use]
-pub(super) fn forward(acc: &Accumulator, stm: Color) -> i32 {
+pub(super) fn forward(acc: &Accumulator, pos: &Position) -> i32 {
     use super::simd::*;
 
-    let bucket = stm.idx();
+    let w_reserves = pos.flats_in_hand(Color::White);
+    let b_reserves = pos.flats_in_hand(Color::Black);
+    let min_reserves = w_reserves.min(b_reserves);
+    let bucket = [
+        0, 0, 1, 2, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7,
+    ][min_reserves as usize];
+    let bucket = pos.stm().idx() * 8 + bucket;
 
     let zero = zero_i16();
     let one = set1_i16(FT_Q as i16);
 
     let mut sum = zero_i32();
 
-    for (values, weights) in [stm, stm.flip()]
+    for (values, weights) in [pos.stm(), pos.stm().flip()]
         .iter()
         .map(|&color| &acc.values[color])
         .zip(&NET.l1w[bucket])

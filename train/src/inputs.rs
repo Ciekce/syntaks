@@ -37,6 +37,23 @@ impl OutputBuckets<LoadedTakBoard> for StmBucket {
     }
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct StmReserveBuckets;
+
+impl OutputBuckets<LoadedTakBoard> for StmReserveBuckets {
+    const BUCKETS: usize = 16;
+
+    fn bucket(&self, pos: &LoadedTakBoard) -> u8 {
+        let w_reserves = pos.0.reserves(Color::White);
+        let b_reserves = pos.0.reserves(Color::Black);
+        let reserves = w_reserves.min(b_reserves);
+        let bucket = [
+            0, 0, 1, 2, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7,
+        ][reserves as usize];
+        pos.stm().raw() * 8 + bucket
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TakTopRelativeStacks;
 
