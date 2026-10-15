@@ -45,6 +45,9 @@ const WIDEN_REPORT_DELAY: f64 = 1.0;
 const VERBOSE_MULTIPV_DELAY: f64 = 1.0;
 const CURRMOVE_REPORT_DELAY: f64 = 2.5;
 
+const WDL_A: f64 = 204.89;
+const WDL_B: f64 = 139.97;
+
 #[derive(Clone, Debug)]
 pub struct SearchContext {
     max_depth: i32,
@@ -748,7 +751,7 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
             }
         }
     } else {
-        let scaled = score * 100 / 220;
+        let scaled = (score as f64 * 100.0 / WDL_A).round() as Score;
         print!("cp {}", scaled);
     }
 
@@ -770,7 +773,7 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
         }
     } else {
         let p = |cp: Score| {
-            let x = (-cp as f64 + 40.0) / 267.0;
+            let x = (WDL_A - cp as f64) / WDL_B;
             (1000.0 / (1.0 + x.exp())).round() as i32
         };
 
