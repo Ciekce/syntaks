@@ -22,7 +22,7 @@ const SCALE: i32 = 400;
 const QA: i16 = 255;
 const QB: i16 = 64;
 
-const SUPERBATCHES: usize = 100;
+const SUPERBATCHES: usize = 200;
 
 fn filter(_pos: &Position, _mv: Move, score: Score, _result: GameResult) -> bool {
     !is_decisive(score)
@@ -54,7 +54,7 @@ fn main() {
         });
 
     let schedule = TrainingSchedule {
-        net_id: "net022".to_owned(),
+        net_id: "net023".to_owned(),
         eval_scale: SCALE as f32,
         steps: TrainingSteps {
             batch_size: 16_384,
