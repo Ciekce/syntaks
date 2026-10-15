@@ -25,8 +25,13 @@ use crate::bitboard::Bitboard;
 use std::arch::x86_64::*;
 
 #[must_use]
-#[target_feature(enable = "sse4.2")]
 pub(super) fn influence(road_occ: Bitboard, edges: &mut [Bitboard; 4]) -> bool {
+    unsafe { influence_sse42(road_occ, edges) }
+}
+
+#[must_use]
+#[target_feature(enable = "sse4.2")]
+fn influence_sse42(road_occ: Bitboard, edges: &mut [Bitboard; 4]) -> bool {
     let mut masks_ul = _mm_set_epi64x(edges[2].raw() as i64, edges[0].raw() as i64);
     let mut masks_dr = _mm_set_epi64x(edges[3].raw() as i64, edges[1].raw() as i64);
 

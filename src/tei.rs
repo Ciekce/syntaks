@@ -32,10 +32,40 @@ use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
 use std::time::Instant;
 
 const NAME: &str = "syntaks";
-const AUTHORS: &str = "Ciekce";
+const AUTHORS: &str = "Ciekce and chef";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub const MAX_MULTIPV: usize = 2048;
+
+const DEFAULT_BENCH_DEPTH: i32 = 12;
+
+const BENCH_POSITIONS: [&str; 25] = [
+    "x6/x6/x6/x6/x6/x6 1 1",
+    "2,x5/x2,1,x2,1/x,2,1C,x3/x,1,2,2C,2,x/x,1,x,1,2,2/x5,1 1 11",
+    "2,x5/x,1,1,1,2,1/x,21C,x2,1,x/2,1,2,2C,2,x/x,1212,x,1,2,2/x5,1 1 17",
+    "2,x5/x,1,11,1S,2112S,1/1,2,1,x3/2,121C,2,2C,2,x/x,1212,1S,1,2,2/2,2S,x3,1 1 24",
+    "2,x5/x,1,1,2,x2/x,2,1,2,x2/x2,2C,1C,x2/1,x4,1/x,2,x,2,x,1 1 11",
+    "2,2,x4/2,1,1,2,x2/1,2,1,2,1,1/x,1,2C,1C,x,1/x,21,2,x,2S,1/x,2,2,2,x,1 1 17",
+    "2,2,x4/2,1,1,2,1,x/1,212,x,2221C,1,1/x2,112C,x,1,1/x,21,2,x2,12S/x,2,2,2,x,1 1 24",
+    "2,1,2,x,1,x/x2,2,x3/x3,2C,1,x/x2,1C,1,2,x/x2,2,1,x2/x2,2,1,x2 1 9",
+    "2,1,2,x,1,x/x,1,2,2,2,x/x,2,1,1,1,2/x,2,1C,12C,2,x/x,1,2,1,1,1/x2,2,1,x2 1 15",
+    "2,1,2,x3/2,1,2,2,21,1/x,2,1,1,12,x/212,21,1C,1,2,x/x,12,x,112C,1,1/x2,2,1,x2 1 22",
+    "2,x3,1,x/x4,1,1/x4,1C,x/x,2,x,2,2,12/x4,2S,1/x5,1 1 11",
+    "2,x3,1,x/2,x3,1,1/2C,1,1,x2,2S/2,2,2,2,21C,12/x,1S,2,1,2S,1/x2,1,x2,1 1 17",
+    "2,x,1,2,1,x/2,x,1,2,1,1/2C,2S,1,2,1,2S/2,21,2,221C,2,12/1,1S,2,1,2S,1/x,2,1,2,1,1 1 24",
+    "2,1,x4/1,2,2,x3/x,1,2,2,2,x/x,1C,2C,x3/x,1,x,1,x2/x2,1,x3 1 9",
+    "2,121212,1S,x3/x,2S,1S,x3/x,1,2,2,2,x/x,1C,2C,x3/x,1,x,1,2,x/x2,1,x,1,x 1 15",
+    "2,121212,1S,x3/x,2S,1S,x,1,1/x,1,2,2,2,2/x,1C,1,2,2,x/2,1,12C,1,2,1/1,2,1,1,1,2 1 22",
+    "2,x,2,1,x,1/x2,2,1,x2/x3,12C,x2/x2,2,1,x2/x,2,1,1,x2/x6 1 9",
+    "2,2,2,1,2,1/x,1,21C,1,2,1/x,1,2,12C,1,x/x2,2,1,2,x/x,2,1,1,2,x/x6 1 15",
+    "2,2,2,1,221,1/1,1,x,12S,21112C,1/x,1,221C,x3/x2,2,1,2,x/x,2,1,1,2,x/x3,1,2,x 1 22",
+    "2,1,x4/2,1,x4/x,2,2C,x3/x,1C,1,x3/x,2,1,1,2,1/x,2,x4 1 9",
+    "2,1,x4/2,1,2,x3/2,21,x,1,x2/2,1C,x,2,1,x/1,2,112C,1,2,1/1,2,x4 1 15",
+    "2,1,x4/2,1,2,x2,2/2,21,1,12S,x,1/21C,x,1,2,12,1/x,112112C,x,1,x,1/x,2,x3,1 1 22",
+    "2,x,1,x3/x6/x,2,x4/2,2,x2,2,x/x,1,1C,x,2S,x/x,1,2,1,1,1 1 11",
+    "2,x,1,x3/x4,2,x/x,2,2C,12,1,x/2,2,11C,1S,2,2/1,1,x2,2S,x/x,1,x,12,1,1 1 17",
+    "2,x,1,x3/2,21,1,x,2,x/2,2211C,2C,12,1,x/2,x,2,1S,2,2/1,12S,1,2,2S,x/x,1,1,12,1,1 1 24",
+];
 
 #[derive(Copy, Clone, Debug)]
 pub struct TeiOptions {
@@ -106,6 +136,7 @@ impl TeiHandler {
                 "d" => self.handle_d(),
                 "perft" => self.handle_perft(args),
                 "splitperft" => self.handle_splitperft(args),
+                "bench" => self.handle_bench(args.first().copied()),
                 "quit" => break,
                 unknown => eprintln!("Unknown command '{}'", unknown),
             }
@@ -512,6 +543,53 @@ impl TeiHandler {
         println!("Static eval (white-relative): {:+.2}", (static_eval as f64) / 100.0);
     }
 
+    fn handle_bench(&mut self, depth: Option<&str>) {
+        if self.searcher.is_searching() {
+            eprintln!("Search running (received 'bench')");
+            return;
+        }
+
+        let depth = match depth {
+            Some(depth) => match depth.parse::<i32>() {
+                Ok(depth) => depth.clamp(1, search::MAX_DEPTH),
+                Err(_) => {
+                    eprintln!("Invalid depth '{}'", depth);
+                    return;
+                }
+            },
+            None => DEFAULT_BENCH_DEPTH,
+        };
+
+        let options = TeiOptions {
+            silent: true,
+            ..TeiOptions::default()
+        };
+
+        let mut total_nodes = 0;
+        let mut total_time = 0.0;
+
+        for tps in BENCH_POSITIONS {
+            let parts: Vec<_> = tps.split_ascii_whitespace().collect();
+            let pos = Position::from_tps_parts(&parts).unwrap();
+
+            self.searcher.reset();
+
+            let start_time = Instant::now();
+            let limits = Limits::new(start_time);
+
+            self.searcher
+                .start_search(&pos, &[], start_time, limits, depth, &[], &options);
+            self.searcher.wait();
+
+            total_time += start_time.elapsed().as_secs_f64();
+            total_nodes += self.searcher.total_nodes();
+        }
+
+        let nps = ((total_nodes as f64) / total_time).round() as usize;
+
+        println!("{} nodes {} nps", total_nodes, nps);
+    }
+
     fn handle_perft(&self, args: &[&str]) {
         if args.is_empty() {
             eprintln!("Missing depth");
@@ -549,5 +627,12 @@ impl TeiHandler {
 
 pub fn run() {
     let mut handler = TeiHandler::new();
+
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() == Some("bench") {
+        handler.handle_bench(args.next().as_deref());
+        return;
+    }
+
     handler.run();
 }
