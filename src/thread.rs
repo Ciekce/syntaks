@@ -108,10 +108,10 @@ pub struct SharedContext {
 }
 
 impl SharedContext {
-    pub fn new() -> Self {
+    pub fn new(tt_size_mib: usize) -> Self {
         let time = Instant::now();
         Self {
-            tt: TranspositionTable::new(DEFAULT_TT_SIZE_MIB),
+            tt: TranspositionTable::new(tt_size_mib),
             options: Default::default(),
             start_time: time,
             limits: Limits::new(time),

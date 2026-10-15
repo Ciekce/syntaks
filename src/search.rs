@@ -828,8 +828,8 @@ pub struct Searcher {
 }
 
 impl Searcher {
-    pub fn new() -> Self {
-        let shared_ctx = Arc::new(SharedContext::new());
+    pub fn new(tt_size_mib: usize) -> Self {
+        let shared_ctx = Arc::new(SharedContext::new(tt_size_mib));
 
         let (mut sender, mut receiver) = channel(1);
 

@@ -33,12 +33,6 @@ static ERROR: AtomicBool = AtomicBool::new(false);
 
 static PRINT_MUTEX: Mutex<()> = Mutex::new(());
 
-fn new_searcher() -> Searcher {
-    let mut searcher = Searcher::new();
-    searcher.set_tt_size(TT_SIZE_MIB);
-    searcher
-}
-
 fn search(searcher: &mut Searcher, pos: &Position, key_history: &[u64], limits: Limits, max_depth: i32) -> RootMove {
     let options = TeiOptions {
         silent: true,
@@ -136,7 +130,7 @@ fn run_thread(id: u32, seed: u64, out_dir: &Path) {
 
     let mut rng = Sfc64::new(seed);
 
-    let mut searchers = [new_searcher(), new_searcher()];
+    let mut searchers = [Searcher::new(TT_SIZE_MIB), Searcher::new(TT_SIZE_MIB)];
 
     let mut game_count: usize = 0;
     let mut total_positions: usize = 0;

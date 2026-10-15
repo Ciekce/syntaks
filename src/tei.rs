@@ -101,7 +101,7 @@ impl TeiHandler {
         Self {
             pos: Position::startpos(),
             key_history: Vec::with_capacity(1024),
-            searcher: Searcher::new(),
+            searcher: Searcher::new(DEFAULT_TT_SIZE_MIB),
             options: TeiOptions::default(),
         }
     }
@@ -560,8 +560,10 @@ impl TeiHandler {
             None => DEFAULT_BENCH_DEPTH,
         };
 
+        let mut searcher = Searcher::new(16);
+
         let options = TeiOptions {
-            silent: true,
+            minimal: true,
             ..TeiOptions::default()
         };
 
@@ -569,24 +571,25 @@ impl TeiHandler {
         let mut total_time = 0.0;
 
         for tps in BENCH_POSITIONS {
-            let parts: Vec<_> = tps.split_ascii_whitespace().collect();
-            let pos = Position::from_tps_parts(&parts).unwrap();
+            println!("tps: {}", tps);
 
-            self.searcher.reset();
+            let pos = tps.parse().unwrap();
 
             let start_time = Instant::now();
             let limits = Limits::new(start_time);
 
-            self.searcher
-                .start_search(&pos, &[], start_time, limits, depth, &[], &options);
-            self.searcher.wait();
+            searcher.start_search(&pos, &[], start_time, limits, depth, &[], &options);
+            searcher.wait();
 
             total_time += start_time.elapsed().as_secs_f64();
-            total_nodes += self.searcher.total_nodes();
+            total_nodes += searcher.total_nodes();
+
+            println!();
         }
 
         let nps = ((total_nodes as f64) / total_time).round() as usize;
 
+        println!("{:.3} seconds", total_time);
         println!("{} nodes {} nps", total_nodes, nps);
     }
 
