@@ -19,8 +19,8 @@ use syntaks::format::GameResult;
 use syntaks::takmove::Move;
 
 const L1_SIZE: usize = 512;
-const L2_SIZE: usize = 16;
-const L3_SIZE: usize = 32;
+const L2_SIZE: usize = 32;
+const L3_SIZE: usize = 64;
 
 const OUTPUT_BUCKETS: usize = 2;
 
@@ -121,7 +121,7 @@ fn main() {
     trainer.optimiser.set_params_for_weight("l1w", l1_clip);
 
     let schedule = TrainingSchedule {
-        net_id: "net019".to_owned(),
+        net_id: "net021".to_owned(),
         eval_scale: SCALE as f32,
         steps: TrainingSteps {
             batch_size: 16_384,
@@ -145,8 +145,8 @@ fn main() {
         batch_queue_size: 64,
     };
 
-    //trainer.run(&schedule, &settings, &TakReader::new(data_paths, 1024, 4, filter));
+    trainer.run(&schedule, &settings, &TakReader::new(data_paths, 1024, 4, filter));
 
-    trainer.load_from_checkpoint("checkpoints/net019-100");
-    trainer.save_quantised("checkpoints/net019-100/quantised.bin").unwrap();
+    //trainer.load_from_checkpoint("checkpoints/net019-100");
+    //trainer.save_quantised("checkpoints/net019-100/quantised.bin").unwrap();
 }
