@@ -203,6 +203,10 @@ impl PackedTakBoard {
             Color::Black => stm_result.flip(),
         })
     }
+
+    pub fn reserves(&self, color: Color) -> u8 {
+        self.bytes[RESERVES_OFFSET + color.idx()]
+    }
 }
 
 impl TryFrom<&[u8]> for PackedTakBoard {

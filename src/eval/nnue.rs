@@ -51,7 +51,7 @@ pub const RESERVES_INPUT_SIZE: usize = 30 * Color::COUNT;
 
 pub const L1_SIZE: usize = 512;
 
-pub const OUTPUT_BUCKETS: usize = 2;
+pub const OUTPUT_BUCKETS: usize = 16;
 
 pub const FT_Q: i32 = 255;
 pub const L1_Q: i32 = 64;
@@ -74,7 +74,7 @@ pub(super) static NET: Network = unsafe { std::mem::transmute(*include_bytes!(en
 pub(super) fn evaluate_once(pos: &Position) -> i32 {
     let mut acc = Accumulator::default();
     acc.reset_both(pos);
-    forward(&acc, pos.stm())
+    forward(&acc, pos)
 }
 
 pub(super) fn top_feature_idx(perspective: Color, side: Color, pt: PieceType, sq: Square) -> usize {

@@ -6,9 +6,9 @@ use rand::seq::SliceRandom;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::mpsc::{self, SyncSender};
-use syntaks::position::Position;
 use syntaks::core::Score;
 use syntaks::format::{Game, GameResult, PackedTakBoard, parse_game, read_game_bytes};
+use syntaks::position::Position;
 use syntaks::takmove::Move;
 
 pub type TakFilter = fn(&Position, Move, Score, GameResult) -> bool;
