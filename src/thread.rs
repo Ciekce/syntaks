@@ -26,7 +26,7 @@ use crate::limit::Limits;
 use crate::node_counter::NodeCounter;
 use crate::position::FlatCountOutcome;
 use crate::tei::TeiOptions;
-use crate::ttable::{DEFAULT_TT_SIZE_MIB, TranspositionTable};
+use crate::ttable::TranspositionTable;
 use crate::{
     core::{SCORE_INF, Score},
     correction::CorrectionHistory,
