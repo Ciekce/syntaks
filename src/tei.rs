@@ -32,7 +32,7 @@ use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
 use std::time::Instant;
 
 const NAME: &str = "syntaks";
-const AUTHORS: &str = "Ciekce";
+const AUTHORS: &str = "Ciekce and chef";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub const MAX_MULTIPV: usize = 2048;
