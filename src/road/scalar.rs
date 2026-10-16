@@ -33,7 +33,7 @@ pub(super) fn influence(road_occ: Bitboard, edges: &mut [Bitboard; 4]) -> bool {
     let road_occ = road_occ.raw();
 
     let calc_next_masks = |masks: [u64; 4]| {
-        masks.map(|mask| (mask << 6) | (mask >> 6) | ((mask << 1) & !left_edge) | ((mask >> 1) & !right_edge))
+        masks.map(|mask| mask | (mask << 6) | (mask >> 6) | ((mask << 1) & !left_edge) | ((mask >> 1) & !right_edge))
     };
 
     let unchanged = |masks: [u64; 4], next_masks: [u64; 4]| {

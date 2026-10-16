@@ -54,7 +54,7 @@ fn influence_avx2(road_occ: Bitboard, edges: &mut [Bitboard; 4]) -> bool {
         let next_masks_r = _mm256_andnot_si256(right_edge, _mm256_srli_epi64::<1>(masks));
         let next_masks_lr = _mm256_or_si256(next_masks_l, next_masks_r);
 
-        _mm256_or_si256(next_masks_ud, next_masks_lr)
+        _mm256_or_si256(masks, _mm256_or_si256(next_masks_ud, next_masks_lr))
     };
 
     let mut influence_masks = calc_next_masks(masks);
