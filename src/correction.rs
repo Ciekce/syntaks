@@ -87,7 +87,6 @@ struct SidedTables {
     blocker: HashedTable<ENTRIES>,
     road: HashedTable<ENTRIES>,
     tops: HashedTable<ENTRIES>,
-    cap: HashedTable<ENTRIES>,
 }
 
 impl SidedTables {
@@ -95,7 +94,6 @@ impl SidedTables {
         self.blocker.clear();
         self.road.clear();
         self.tops.clear();
-        self.cap.clear();
     }
 }
 
@@ -136,7 +134,6 @@ impl CorrectionHistory {
         tables.blocker[pos.blocker_key()].update(bonus);
         tables.road[pos.road_key()].update(bonus);
         tables.tops[pos.top_key()].update(bonus);
-        tables.cap[pos.cap_key()].update(bonus);
 
         update_cont(1);
     }
@@ -159,7 +156,6 @@ impl CorrectionHistory {
         correction += tables.blocker[pos.blocker_key()].get();
         correction += tables.road[pos.road_key()].get();
         correction += tables.tops[pos.top_key()].get();
-        correction += tables.cap[pos.cap_key()].get();
 
         correction += cont(1);
 
