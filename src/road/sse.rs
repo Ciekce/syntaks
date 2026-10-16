@@ -49,7 +49,7 @@ fn influence_sse42(road_occ: Bitboard, edges: &mut [Bitboard; 4]) -> bool {
         let next_masks_r = _mm_andnot_si128(right_edge, _mm_srli_epi64::<1>(masks));
         let next_masks_lr = _mm_or_si128(next_masks_l, next_masks_r);
 
-        _mm_or_si128(next_masks_ud, next_masks_lr)
+        _mm_or_si128(masks, _mm_or_si128(next_masks_ud, next_masks_lr))
     };
 
     let mut influence_masks_ul = calc_next_masks(masks_ul);
