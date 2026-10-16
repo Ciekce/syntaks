@@ -197,6 +197,21 @@ fn search<NT: NodeType>(
             return SCORE_MATE - ply - 1;
         }
 
+        for sq in criticals & pos.piece_bb(PieceType::Flat) {
+            let bit = sq.bb();
+            let neighbors = bit.shift(Direction::Up)
+                | bit.shift(Direction::Down)
+                | bit.shift(Direction::Left)
+                | bit.shift(Direction::Right);
+            let attackers = neighbors & !pos.piece_bb(PieceType::Wall) & pos.color_bb(pos.stm());
+            let edge_bonus =
+                bit & (Bitboard::UPPER_EDGE | Bitboard::LOWER_EDGE | Bitboard::LEFT_EDGE | Bitboard::RIGHT_EDGE);
+            if (attackers | edge_bonus).popcount() >= 3 {
+                // todo push_to_pv
+                return SCORE_MATE - ply - 1;
+            }
+        }
+
         if pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0 && pos.fcd(pos.stm()) >= 0 {
             push_to_pv(!pos.occ());
             return SCORE_MATE - ply - 1;
