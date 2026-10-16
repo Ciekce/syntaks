@@ -189,7 +189,9 @@ fn search<NT: NodeType>(
 
         let influence = pos.influence(pos.stm());
 
-        let criticals = (influence[0] & influence[1]) | (influence[2] & influence[3]);
+        let vert_crit = influence[0] & influence[1];
+        let horz_crit = influence[2] & influence[3];
+        let criticals = vert_crit | horz_crit;
         let open_criticals = criticals & !pos.occ();
 
         if !open_criticals.is_empty() {
@@ -197,18 +199,22 @@ fn search<NT: NodeType>(
             return SCORE_MATE - ply - 1;
         }
 
-        for sq in criticals & pos.piece_bb(PieceType::Flat) {
-            let bit = sq.bb();
-            let neighbors = bit.shift(Direction::Up)
-                | bit.shift(Direction::Down)
-                | bit.shift(Direction::Left)
-                | bit.shift(Direction::Right);
-            let attackers = neighbors & !pos.piece_bb(PieceType::Wall) & pos.color_bb(pos.stm());
-            let edge_bonus =
-                bit & (Bitboard::UPPER_EDGE | Bitboard::LOWER_EDGE | Bitboard::LEFT_EDGE | Bitboard::RIGHT_EDGE);
-            if (attackers | edge_bonus).popcount() >= 3 {
-                // todo push_to_pv
-                return SCORE_MATE - ply - 1;
+        for (criticals, edges) in [
+            (vert_crit, Bitboard::UPPER_EDGE | Bitboard::LOWER_EDGE),
+            (horz_crit, Bitboard::LEFT_EDGE | Bitboard::RIGHT_EDGE),
+        ] {
+            for sq in criticals & pos.piece_bb(PieceType::Flat) {
+                let bit = sq.bb();
+                let neighbors = bit.shift(Direction::Up)
+                    | bit.shift(Direction::Down)
+                    | bit.shift(Direction::Left)
+                    | bit.shift(Direction::Right);
+                let attackers = neighbors & !pos.piece_bb(PieceType::Wall) & pos.color_bb(pos.stm());
+                let edge_bonus = bit & edges;
+                if (attackers | edge_bonus).popcount() >= 3 {
+                    // todo push_to_pv
+                    return SCORE_MATE - ply - 1;
+                }
             }
         }
 
