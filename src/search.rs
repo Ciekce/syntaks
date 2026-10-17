@@ -39,7 +39,7 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 pub const MAX_THREADS: u32 = 2048;
-pub const MAX_DEPTH: i32 = 255;
+pub const MAX_DEPTH: i32 = 248;
 
 const WIDEN_REPORT_DELAY: f64 = 1.0;
 const VERBOSE_MULTIPV_DELAY: f64 = 1.0;
@@ -256,7 +256,7 @@ fn search<NT: NodeType>(
         if !NT::PV_NODE
             && tt_entry.depth >= depth
             && match tt_entry.flag {
-                None => unreachable!(),
+                None => false,
                 Some(TtFlag::UpperBound) => tt_entry.score <= alpha,
                 Some(TtFlag::LowerBound) => tt_entry.score >= beta,
                 Some(TtFlag::Exact) => true,
@@ -281,6 +281,11 @@ fn search<NT: NodeType>(
     } else {
         static_eval(&mut thread.nnue_state, pos)
     };
+
+    if !tt_hit {
+        thread.shared().tt.store_static_eval(pos.key(), raw_eval);
+    }
+
     let correction = thread.corrhist.correction(pos, &thread.key_history);
     let static_eval = raw_eval + correction;
 
