@@ -383,12 +383,10 @@ impl TranspositionTable {
     pub fn estimate_full_permille(&self) -> usize {
         let mut filled = 0;
 
-        for cluster in self.clusters[0..1000 / ENTRIES_PER_CLUSTER].iter() {
-            for storage in &cluster.entries {
-                let entry = storage.load();
-                if entry.age_flag.flag().is_some() && entry.age_flag.age() == self.age {
-                    filled += 1;
-                }
+        for i in 0..1000 {
+            let entry = self.clusters[i / ENTRIES_PER_CLUSTER].entries[i % ENTRIES_PER_CLUSTER].load();
+            if entry.age_flag.flag().is_some() && entry.age_flag.age() == self.age {
+                filled += 1;
             }
         }
 
