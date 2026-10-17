@@ -218,7 +218,10 @@ fn search<NT: NodeType>(
             }
         }
 
-        if pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0 && pos.fcd(pos.stm()) >= 0 {
+        if ((pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0)
+            || pos.occ().popcount() == Square::COUNT as u32 - 1)
+            && pos.fcd(pos.stm()) >= 0
+        {
             push_to_pv(!pos.occ());
             return SCORE_MATE - ply - 1;
         }
