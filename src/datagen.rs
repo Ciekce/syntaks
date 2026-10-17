@@ -1,7 +1,6 @@
 use crate::core::*;
 use crate::format::{GameResult, write_game};
 use crate::limit::Limits;
-use crate::movegen::generate_moves;
 use crate::position::{FlatCountOutcome, Position};
 use crate::prng::{Sfc64, seed_from_entropy, splitmix64};
 use crate::search::{MAX_DEPTH, Searcher};
@@ -18,12 +17,13 @@ use std::time::Instant;
 const TT_SIZE_MIB: usize = 8;
 const REPORT_INTERVAL: usize = 512;
 
-const RANDOM_MOVES: usize = 6;
+const RANDOM_MOVES: usize = 8;
+const UNIFORM_ODDS: u64 = 16;
 
 const VERIF_DEPTH: i32 = 6;
 const VERIF_MAX_SCORE: i32 = 1000;
 
-const SOFT_NODES: usize = 5000;
+const SOFT_NODES: usize = 10000;
 const HARD_NODES: usize = 8388608;
 
 const MAX_GAME_PLIES: usize = 1000;
@@ -77,19 +77,64 @@ fn check_terminal(pos: &Position, key_history: &[u64], prev_move: Move) -> Optio
     None
 }
 
+fn corner_opening(rng: &mut Sfc64) -> [Move; 2] {
+    let file = 5 * (rng.next_u64() & 1) as u32;
+    let rank = 5 * (rng.next_u64() & 1) as u32;
+    let inward = |x: u32| if x == 0 { 1 } else { 4 };
+
+    let reply = match rng.next_u64() % 6 {
+        0 | 1 => (5 - file, 5 - rank),
+        2 => (5 - file, rank),
+        3 => (file, 5 - rank),
+        4 => (inward(file), rank),
+        _ => (file, inward(rank)),
+    };
+
+    [(file, rank), reply]
+        .map(|(file, rank)| Move::placement(PieceType::Flat, Square::from_file_rank(file, rank).unwrap()))
+}
+
+fn random_placement(rng: &mut Sfc64, pos: &Position) -> Move {
+    let sq = loop {
+        let sq = Square::from_raw((rng.next_u64() % Square::COUNT as u64) as u8).unwrap();
+        if pos.stacks().is_empty(sq) {
+            break sq;
+        }
+    };
+
+    let pt = loop {
+        match rng.next_u64() % 100 {
+            0..94 => break PieceType::Flat,
+            94..99 => break PieceType::Wall,
+            99 if pos.caps_in_hand(pos.stm()) > 0 => break PieceType::Capstone,
+            _ => {}
+        }
+    };
+
+    Move::placement(pt, sq)
+}
+
 #[must_use]
 fn start_game(key_history: &mut Vec<u64>, rng: &mut Sfc64, searcher: &mut Searcher) -> Position {
-    let mut moves = Vec::new();
-
     'games: loop {
         let mut pos = Position::startpos();
         key_history.clear();
 
-        for _ in 0..RANDOM_MOVES {
-            moves.clear();
-            generate_moves(&mut moves, &pos);
+        let corner = corner_opening(rng);
 
-            let mv = moves[rng.next_u64() as usize % moves.len()];
+        let opening: &[Move] = if rng.next_u64().is_multiple_of(UNIFORM_OPENING_ODDS) {
+            &[]
+        } else {
+            &corner
+        };
+
+        for mv in opening {
+            key_history.push(pos.key());
+            pos = pos.apply_move(mv);
+        }
+
+        for _ in opening.len()..RANDOM_MOVES {
+            let mv = random_placement(rng, &pos);
 
             key_history.push(pos.key());
             pos = pos.apply_move(mv);
@@ -162,10 +207,6 @@ fn run_thread(id: u32, seed: u64, out_dir: &Path) {
 
     while !STOP.load(Ordering::Acquire) {
         let root_pos = start_game(&mut key_history, &mut rng, &mut searchers[0]);
-
-        for searcher in searchers.iter_mut() {
-            searcher.reset();
-        }
 
         scored_moves.clear();
 
