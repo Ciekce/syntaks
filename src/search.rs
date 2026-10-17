@@ -264,6 +264,8 @@ fn search<NT: NodeType>(
         {
             return tt_entry.score;
         }
+
+        thread.stack[ply as usize].ttpv = NT::PV_NODE || tt_entry.pv;
     }
 
     let tt_move = if NT::ROOT_NODE && thread.root_depth > 1 {
@@ -271,6 +273,8 @@ fn search<NT: NodeType>(
     } else {
         tt_entry.mv
     };
+
+    let ttpv = thread.stack[ply as usize].ttpv;
 
     if excluded.is_none() && (NT::PV_NODE || expected_cutnode) && depth >= 3 && tt_move.is_none() {
         depth -= 1;
@@ -576,7 +580,7 @@ fn search<NT: NodeType>(
             thread
                 .shared()
                 .tt
-                .store(pos.key(), best_score, best_move, depth, ply, tt_flag);
+                .store(pos.key(), best_score, best_move, depth, ply, ttpv, tt_flag);
         }
     }
 

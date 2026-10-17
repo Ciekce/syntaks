@@ -46,7 +46,39 @@ struct Entry {
     score: i16,
     mv: Option<Move>,
     depth: u8,
-    flag: Option<TtFlag>,
+    pv_flag: PvFlag,
+}
+
+#[derive(Copy, Clone, Debug, Default)]
+#[repr(C)]
+struct PvFlag {
+    raw: u8,
+}
+
+impl PvFlag {
+    #[must_use]
+    fn new(pv: bool, flag: Option<TtFlag>) -> Self {
+        let flag = flag.map(|flag| flag as u8).unwrap_or(0);
+        Self {
+            raw: (u8::from(pv) << 2) | flag,
+        }
+    }
+
+    #[must_use]
+    fn pv(self) -> bool {
+        self.raw >> 2 != 0
+    }
+
+    #[must_use]
+    fn flag(self) -> Option<TtFlag> {
+        match self.raw & 0b11 {
+            0 => None,
+            1 => Some(TtFlag::UpperBound),
+            2 => Some(TtFlag::LowerBound),
+            3 => Some(TtFlag::Exact),
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -72,6 +104,7 @@ pub struct ProbedEntry {
     pub score: Score,
     pub mv: Option<Move>,
     pub depth: i32,
+    pub pv: bool,
     pub flag: Option<TtFlag>,
 }
 
@@ -207,12 +240,13 @@ impl TranspositionTable {
         probed.score = score_from_tt(entry.score, ply);
         probed.mv = entry.mv;
         probed.depth = entry.depth as i32;
-        probed.flag = entry.flag;
+        probed.pv = entry.pv_flag.pv();
+        probed.flag = entry.pv_flag.flag();
 
         (true, probed)
     }
 
-    pub fn store(&self, key: u64, score: Score, mv: Option<Move>, depth: i32, ply: i32, flag: TtFlag) {
+    pub fn store(&self, key: u64, score: Score, mv: Option<Move>, depth: i32, ply: i32, pv: bool, flag: TtFlag) {
         let idx = self.calc_index(key);
         let entry_key = pack_entry_key(key);
 
@@ -228,7 +262,7 @@ impl TranspositionTable {
         entry.key = entry_key;
         entry.score = score_to_tt(score, ply);
         entry.depth = depth as u8;
-        entry.flag = Some(flag);
+        entry.pv_flag = PvFlag::new(pv, Some(flag));
 
         storage.store(entry);
     }
@@ -246,7 +280,7 @@ impl TranspositionTable {
 
         for storage in self.entries[0..1000].iter() {
             let entry = storage.load();
-            if entry.flag.is_some() {
+            if entry.pv_flag.flag().is_some() {
                 filled += 1;
             }
         }
