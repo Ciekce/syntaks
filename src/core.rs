@@ -565,6 +565,7 @@ pub type Score = i32;
 pub const SCORE_INF: Score = 32767;
 pub const SCORE_MATE: Score = SCORE_INF - 1;
 pub const SCORE_WIN: Score = 25000;
+pub const SCORE_NONE: Score = -SCORE_INF;
 
 #[must_use]
 pub const fn is_win(score: Score) -> bool {

@@ -21,7 +21,7 @@
  * SOFTWARE.
  */
 
-use crate::core::{Score, is_loss, is_win};
+use crate::core::{SCORE_MATE, Score, is_loss, is_win};
 use crate::takmove::Move;
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
@@ -42,6 +42,8 @@ const AGE_MASK: u8 = AGE_CYCLE - 1;
 const AGE_PENALTY: i32 = 4;
 const EMPTY_PENALTY: i32 = 1024;
 
+const DEPTH_OFFSET: i32 = 7;
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum TtFlag {
@@ -56,8 +58,38 @@ struct Entry {
     score: i16,
     raw_static_eval: i16,
     mv: Option<Move>,
-    depth: u8,
+    offset_depth: u8,
     age_flag: AgeFlag,
+}
+
+impl Entry {
+    fn new(
+        score: Score,
+        static_eval: Score,
+        mv: Option<Move>,
+        depth: i32,
+        ply: i32,
+        age: u8,
+        flag: Option<TtFlag>,
+    ) -> Self {
+        Self {
+            score: score_to_tt(score, ply),
+            raw_static_eval: static_eval as i16,
+            mv,
+            offset_depth: (depth + DEPTH_OFFSET) as u8,
+            age_flag: AgeFlag::new(age, flag),
+        }
+    }
+
+    #[must_use]
+    fn is_present(&self) -> bool {
+        self.offset_depth != 0
+    }
+
+    #[must_use]
+    fn depth(&self) -> i32 {
+        self.offset_depth as i32 - DEPTH_OFFSET
+    }
 }
 
 const _: () = assert!(size_of::<Entry>() == 8);
@@ -304,21 +336,21 @@ impl TranspositionTable {
 
         let entry = cluster.entries[slot].load();
 
-        if entry.age_flag.flag().is_none() {
+        if !entry.is_present() {
             return (false, probed);
         }
 
         probed.score = score_from_tt(entry.score, ply);
         probed.raw_static_eval = entry.raw_static_eval as Score;
         probed.mv = entry.mv;
-        probed.depth = entry.depth as i32;
+        probed.depth = entry.depth();
         probed.flag = entry.age_flag.flag();
 
         (true, probed)
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn store(
+    fn store_internal(
         &self,
         key: u64,
         score: Score,
@@ -326,7 +358,7 @@ impl TranspositionTable {
         mv: Option<Move>,
         depth: i32,
         ply: i32,
-        flag: TtFlag,
+        flag: Option<TtFlag>,
     ) {
         let idx = self.calc_index(key);
         let entry_key = pack_entry_key(key);
@@ -342,14 +374,30 @@ impl TranspositionTable {
             mv
         };
 
-        cluster.entries[slot].store(Entry {
-            score: score_to_tt(score, ply),
-            raw_static_eval: static_eval as i16,
-            mv,
-            depth: depth as u8,
-            age_flag: AgeFlag::new(self.age, Some(flag)),
-        });
+        let entry = Entry::new(score, static_eval, mv, depth, ply, self.age, flag);
+
+        cluster.entries[slot].store(entry);
         cluster.keys.set(slot, entry_key);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn store(
+        &self,
+        key: u64,
+        score: Score,
+        static_eval: Score,
+        mv: Option<Move>,
+        depth: i32,
+        ply: i32,
+        flag: TtFlag,
+    ) {
+        self.store_internal(key, score, static_eval, mv, depth, ply, Some(flag));
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn store_static_eval(&self, key: u64, static_eval: Score) {
+        const STATIC_EVAL_DEPTH: i32 = -DEPTH_OFFSET + 1;
+        self.store_internal(key, SCORE_MATE, static_eval, None, STATIC_EVAL_DEPTH, 0, None);
     }
 
     #[must_use]
@@ -360,7 +408,7 @@ impl TranspositionTable {
 
         let value = |storage: &EntryStorage| {
             let entry = storage.load();
-            entry.depth as i32
+            entry.depth()
                 - AGE_PENALTY * self.relative_age(entry.age_flag)
                 - EMPTY_PENALTY * i32::from(entry.age_flag.flag().is_none())
         };
@@ -385,7 +433,7 @@ impl TranspositionTable {
 
         for i in 0..1000 {
             let entry = self.clusters[i / ENTRIES_PER_CLUSTER].entries[i % ENTRIES_PER_CLUSTER].load();
-            if entry.age_flag.flag().is_some() && entry.age_flag.age() == self.age {
+            if entry.is_present() && entry.age_flag.age() == self.age {
                 filled += 1;
             }
         }
