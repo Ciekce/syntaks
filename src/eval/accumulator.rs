@@ -37,11 +37,14 @@ impl Accumulator {
     pub fn reset(&mut self, pos: &Position, perspective: Color) {
         self.values[perspective] = NET.ftb;
 
-        let transform = normalizer(pos.cap_sq(perspective));
+        let cap_sq = pos.cap_sq(perspective);
+
+        let transform = normalizer(cap_sq);
+        let bucket = bucket_idx(cap_sq);
 
         let mut activate_top = |feature: usize| {
             let v = &mut self.values[perspective];
-            let w = &NET.ftw_top[feature];
+            let w = &NET.ftw[bucket].top[feature];
             for (v, w) in v.iter_mut().zip(w) {
                 *v += *w;
             }
@@ -60,7 +63,7 @@ impl Accumulator {
 
         let mut activate_stack = |feature: usize| {
             let v = &mut self.values[perspective];
-            let w = &NET.ftw_stack[feature];
+            let w = &NET.ftw[bucket].stack[feature];
             for (v, w) in v.iter_mut().zip(w) {
                 *v += *w;
             }
@@ -93,7 +96,7 @@ impl Accumulator {
 
         let mut activate_reserves = |feature: usize| {
             let v = &mut self.values[perspective];
-            let w = &NET.ftw_reserves[feature];
+            let w = &NET.ftw[bucket].reserves[feature];
             for (v, w) in v.iter_mut().zip(w) {
                 *v += *w;
             }
@@ -131,7 +134,7 @@ impl Accumulator {
         self.dirty[color]
     }
 
-    fn apply_top_updates(&mut self, src: &Self, perspective: Color, transform: Transform) {
+    fn apply_top_updates(&mut self, src: &Self, bucket: usize, perspective: Color, transform: Transform) {
         let map_sq = |sq: Square| sq.transform(transform);
 
         let dst = &mut self.values[perspective];
@@ -144,6 +147,8 @@ impl Accumulator {
             return;
         }
 
+        let w = &NET.ftw[bucket].top;
+
         let mut add_idx = 0;
         let mut sub_idx = 0;
 
@@ -155,7 +160,7 @@ impl Accumulator {
                 let (sub_piece, sub_sq) = updates.subs[0];
                 let sub = top_feature_idx(perspective, sub_piece.color(), sub_piece.piece_type(), map_sq(sub_sq));
 
-                Self::add_sub(&NET.ftw_top, dst, src, add, sub);
+                Self::add_sub(w, dst, src, add, sub);
 
                 add_idx += 1;
                 sub_idx += 1;
@@ -164,7 +169,7 @@ impl Accumulator {
                 let (add_piece, add_sq) = updates.adds[0];
                 let add = top_feature_idx(perspective, add_piece.color(), add_piece.piece_type(), map_sq(add_sq));
 
-                Self::add(&NET.ftw_top, dst, src, add);
+                Self::add(w, dst, src, add);
 
                 add_idx += 1;
             }
@@ -172,7 +177,7 @@ impl Accumulator {
                 let (sub_piece, sub_sq) = updates.subs[0];
                 let sub = top_feature_idx(perspective, sub_piece.color(), sub_piece.piece_type(), map_sq(sub_sq));
 
-                Self::sub(&NET.ftw_top, dst, src, sub);
+                Self::sub(w, dst, src, sub);
 
                 sub_idx += 1;
             }
@@ -183,7 +188,7 @@ impl Accumulator {
             let (add_piece, add_sq) = updates.adds[add_idx];
             let add = top_feature_idx(perspective, add_piece.color(), add_piece.piece_type(), map_sq(add_sq));
 
-            Self::add_in_place(&NET.ftw_top, dst, add);
+            Self::add_in_place(w, dst, add);
 
             add_idx += 1;
         }
@@ -192,15 +197,17 @@ impl Accumulator {
             let (sub_piece, sub_sq) = updates.subs[sub_idx];
             let sub = top_feature_idx(perspective, sub_piece.color(), sub_piece.piece_type(), map_sq(sub_sq));
 
-            Self::sub_in_place(&NET.ftw_top, dst, sub);
+            Self::sub_in_place(w, dst, sub);
 
             sub_idx += 1;
         }
     }
 
-    fn apply_stack_updates(&mut self, perspective: Color, transform: Transform) {
+    fn apply_stack_updates(&mut self, bucket: usize, perspective: Color, transform: Transform) {
         let acc = &mut self.values[perspective];
         let updates = &self.ctx.updates;
+
+        let w = &NET.ftw[bucket].stack;
 
         for &(sq, top_before, top_after, height_before, height_after, mut colors_before, mut colors_after) in
             updates.stacks.iter()
@@ -233,7 +240,7 @@ impl Accumulator {
                     let sub = stack_feature_idx(perspective, top_before.unwrap(), before, depth, perspective_sq);
                     let add = stack_feature_idx(perspective, top_after.unwrap(), after, depth, perspective_sq);
 
-                    Self::add_sub_in_place(&NET.ftw_stack, acc, add, sub);
+                    Self::add_sub_in_place(w, acc, add, sub);
 
                     depth += 1;
                 }
@@ -242,7 +249,7 @@ impl Accumulator {
                     let before = Color::from_raw((colors_before & 0x1) as u8).unwrap();
                     colors_before >>= 1;
                     let sub = stack_feature_idx(perspective, top_before.unwrap(), before, depth, perspective_sq);
-                    Self::sub_in_place(&NET.ftw_stack, acc, sub);
+                    Self::sub_in_place(w, acc, sub);
                     depth += 1;
                 }
 
@@ -250,7 +257,7 @@ impl Accumulator {
                     let after = Color::from_raw((colors_after & 0x1) as u8).unwrap();
                     colors_after >>= 1;
                     let add = stack_feature_idx(perspective, top_after.unwrap(), after, depth, perspective_sq);
-                    Self::add_in_place(&NET.ftw_stack, acc, add);
+                    Self::add_in_place(w, acc, add);
                     depth += 1;
                 }
 
@@ -276,7 +283,7 @@ impl Accumulator {
                 let sub = stack_feature_idx(perspective, top, before, depth, perspective_sq);
                 let add = stack_feature_idx(perspective, top, after, depth, perspective_sq);
 
-                Self::add_sub_in_place(&NET.ftw_stack, acc, add, sub);
+                Self::add_sub_in_place(w, acc, add, sub);
 
                 depth += 1;
             }
@@ -286,7 +293,7 @@ impl Accumulator {
                     let before = Color::from_raw((colors_before & 0x1) as u8).unwrap();
                     colors_before >>= 1;
                     let sub = stack_feature_idx(perspective, top, before, depth, perspective_sq);
-                    Self::sub_in_place(&NET.ftw_stack, acc, sub);
+                    Self::sub_in_place(w, acc, sub);
                     depth += 1;
                 }
             } else {
@@ -294,15 +301,17 @@ impl Accumulator {
                     let after = Color::from_raw((colors_after & 0x1) as u8).unwrap();
                     colors_after >>= 1;
                     let add = stack_feature_idx(perspective, top, after, depth, perspective_sq);
-                    Self::add_in_place(&NET.ftw_stack, acc, add);
+                    Self::add_in_place(w, acc, add);
                     depth += 1;
                 }
             }
         }
     }
 
-    fn apply_reserve_updates(&mut self, perspective: Color) {
+    fn apply_reserve_updates(&mut self, bucket: usize, perspective: Color) {
         let acc = &mut self.values[perspective];
+
+        let w = &NET.ftw[bucket].reserves;
 
         for color in [Color::White, Color::Black] {
             let [reserves_before, reserves_after] = self.ctx.reserves[color];
@@ -315,21 +324,24 @@ impl Accumulator {
 
             if reserves_after == 0 {
                 let sub = reserves_feature_idx(perspective, color, reserves_before);
-                Self::sub_in_place(&NET.ftw_reserves, acc, sub);
+                Self::sub_in_place(w, acc, sub);
             } else {
                 let sub = reserves_feature_idx(perspective, color, reserves_before);
                 let add = reserves_feature_idx(perspective, color, reserves_after);
-                Self::add_sub_in_place(&NET.ftw_reserves, acc, add, sub);
+                Self::add_sub_in_place(w, acc, add, sub);
             }
         }
     }
 
     pub fn apply_updates(&mut self, src: &Self, perspective: Color) {
-        let transform = normalizer(self.ctx.caps[perspective]);
+        let cap = self.ctx.caps[perspective];
 
-        self.apply_top_updates(src, perspective, transform);
-        self.apply_stack_updates(perspective, transform);
-        self.apply_reserve_updates(perspective);
+        let transform = normalizer(cap);
+        let bucket = bucket_idx(cap);
+
+        self.apply_top_updates(src, bucket, perspective, transform);
+        self.apply_stack_updates(bucket, perspective, transform);
+        self.apply_reserve_updates(bucket, perspective);
 
         self.set_updated(perspective);
     }

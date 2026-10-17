@@ -46,9 +46,15 @@ cfg_select! {
     }
 }
 
-pub const TOP_INPUT_SIZE: usize = Color::COUNT * PieceType::COUNT * Square::COUNT;
-pub const STACK_INPUT_SIZE: usize = 12 * Color::COUNT * PieceType::COUNT * Square::COUNT * Color::COUNT;
-pub const RESERVES_INPUT_SIZE: usize = 30 * Color::COUNT;
+#[rustfmt::skip]
+pub const CAP_BUCKETS: [usize; Square::COUNT] = [
+    0, 0, 0, 0, 0, 0,
+    0, 1, 1, 1, 1, 0,
+    0, 1, 2, 2, 1, 0,
+    0, 1, 2, 2, 1, 0,
+    0, 1, 1, 1, 1, 0,
+    0, 0, 0, 0, 0, 0,
+];
 
 pub const L1_SIZE: usize = 512;
 
@@ -59,11 +65,35 @@ pub const L1_Q: i32 = 64;
 
 pub const SCALE: i32 = 400;
 
+pub const CAP_BUCKET_COUNT: usize = {
+    let mut max = 0;
+
+    let mut i = 0;
+    while i < Square::COUNT {
+        let bucket = CAP_BUCKETS[i];
+        if bucket > max {
+            max = bucket;
+        }
+        i += 1;
+    }
+
+    max + 2
+};
+
+pub const TOP_INPUT_SIZE: usize = Color::COUNT * PieceType::COUNT * Square::COUNT;
+pub const STACK_INPUT_SIZE: usize = 12 * Color::COUNT * PieceType::COUNT * Square::COUNT * Color::COUNT;
+pub const RESERVES_INPUT_SIZE: usize = 30 * Color::COUNT;
+
+#[repr(C, align(64))]
+pub struct FeatureWeights {
+    pub top: [[i16; L1_SIZE]; TOP_INPUT_SIZE],
+    pub stack: [[i16; L1_SIZE]; STACK_INPUT_SIZE],
+    pub reserves: [[i16; L1_SIZE]; RESERVES_INPUT_SIZE],
+}
+
 #[repr(C, align(64))]
 pub(super) struct Network {
-    pub ftw_top: [[i16; L1_SIZE]; TOP_INPUT_SIZE],
-    pub ftw_stack: [[i16; L1_SIZE]; STACK_INPUT_SIZE],
-    pub ftw_reserves: [[i16; L1_SIZE]; RESERVES_INPUT_SIZE],
+    pub ftw: [FeatureWeights; CAP_BUCKET_COUNT],
     pub ftb: [i16; L1_SIZE],
     pub l1w: [[[i16; L1_SIZE]; 2]; OUTPUT_BUCKETS],
     pub l1b: [i16; OUTPUT_BUCKETS],
@@ -76,6 +106,10 @@ pub(super) fn evaluate_once(pos: &Position) -> i32 {
     let mut acc = Accumulator::default();
     acc.reset_both(pos);
     forward(&acc, pos)
+}
+
+pub(super) fn bucket_idx(cap_sq: Option<Square>) -> usize {
+    cap_sq.map(|sq| CAP_BUCKETS[sq]).unwrap_or(CAP_BUCKET_COUNT - 1)
 }
 
 pub(super) fn top_feature_idx(perspective: Color, side: Color, pt: PieceType, sq: Square) -> usize {
@@ -156,7 +190,12 @@ impl<'a> BoardObserver for NnueObserver<'a> {
     }
 
     fn finalize(&mut self, pos_before: &Position, pos_after: &Position) {
-        let should_refresh = |side: Color| normalizer(pos_before.cap_sq(side)) != normalizer(pos_after.cap_sq(side));
+        let should_refresh = |side: Color| {
+            let cap_before = pos_before.cap_sq(side);
+            let cap_after = pos_after.cap_sq(side);
+            normalizer(cap_before) != normalizer(cap_after) || bucket_idx(cap_before) != bucket_idx(cap_after)
+        };
+
         self.ctx.updates.refresh = [Color::White, Color::Black].map(should_refresh);
 
         let w_cap = pos_after.color_piece_bb(Piece::WhiteCapstone).lsb();

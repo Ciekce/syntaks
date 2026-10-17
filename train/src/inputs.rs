@@ -1,4 +1,4 @@
-use bullet_lib::game::inputs::SparseInputType;
+use bullet_lib::game::inputs::{SparseInputType, get_num_buckets};
 use bullet_lib::game::outputs::OutputBuckets;
 use bullet_lib::value::loader::{GameResult as LoaderResult, LoadableDataType};
 use std::ops::Deref;
@@ -54,10 +54,13 @@ impl OutputBuckets<LoadedTakBoard> for StmReserveBuckets {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct TakTopRelativeStacks;
+#[derive(Clone, Copy, Debug)]
+pub struct TakCapBucketedTopRelativeStacks {
+    buckets: [usize; 36],
+    num_buckets: usize,
+}
 
-impl TakTopRelativeStacks {
+impl TakCapBucketedTopRelativeStacks {
     const TOPS_COUNT: usize = Color::COUNT * PieceType::COUNT * Square::COUNT;
     const STACKS_COUNT: usize = 12 * Color::COUNT * PieceType::COUNT * Square::COUNT * Color::COUNT;
     const RESERVES_COUNT: usize = 30 * Color::COUNT;
@@ -65,14 +68,25 @@ impl TakTopRelativeStacks {
     const STACKS_OFFSET: usize = Self::TOPS_COUNT;
     const RESERVES_OFFSET: usize = Self::STACKS_OFFSET + Self::STACKS_COUNT;
 
-    pub const NUM_INPUTS: usize = Self::TOPS_COUNT + Self::STACKS_COUNT + Self::RESERVES_COUNT;
+    pub const NUM_BASE_INPUTS: usize = Self::TOPS_COUNT + Self::STACKS_COUNT + Self::RESERVES_COUNT;
+
+    pub fn new(buckets: [usize; 36]) -> Self {
+        Self {
+            buckets,
+            num_buckets: get_num_buckets(&buckets) + 1,
+        }
+    }
+
+    pub fn num_buckets(&self) -> usize {
+        self.num_buckets
+    }
 }
 
-impl SparseInputType for TakTopRelativeStacks {
+impl SparseInputType for TakCapBucketedTopRelativeStacks {
     type RequiredDataType = LoadedTakBoard;
 
     fn num_inputs(&self) -> usize {
-        Self::NUM_INPUTS
+        Self::NUM_BASE_INPUTS * self.num_buckets
     }
 
     fn max_active(&self) -> usize {
@@ -82,6 +96,16 @@ impl SparseInputType for TakTopRelativeStacks {
     fn map_features<F: FnMut(usize, usize)>(&self, pos: &LoadedTakBoard, mut f: F) {
         let pos = pos.decode_position().unwrap();
         let stm_flip = pos.stm().idx();
+
+        let bucket_offsets = [pos.stm(), pos.stm().flip()].map(|perspective| {
+            Self::NUM_BASE_INPUTS
+                * pos
+                    .cap_sq(perspective)
+                    .map(|sq| self.buckets[sq])
+                    .unwrap_or(self.num_buckets - 1)
+        });
+
+        let mut f = |stm: usize, ntm: usize| f(bucket_offsets[0] + stm, bucket_offsets[1] + ntm);
 
         let transforms = [Color::White, Color::Black].map(|perspective| normalizer(pos.cap_sq(perspective)));
         let map_sq = |perspective: Color, sq: Square| sq.transform(transforms[perspective]);
@@ -149,10 +173,10 @@ impl SparseInputType for TakTopRelativeStacks {
     }
 
     fn shorthand(&self) -> String {
-        Self::NUM_INPUTS.to_string()
+        format!("{}x{}", Self::NUM_BASE_INPUTS, self.num_buckets)
     }
 
     fn description(&self) -> String {
-        "tak top-relative stack inputs".to_string()
+        "tak cap-bucketed top-relative stack inputs".to_string()
     }
 }
