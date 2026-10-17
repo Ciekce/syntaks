@@ -131,6 +131,7 @@ impl SharedContext {
         self.options = *options;
         self.start_time = start_time;
         self.limits = limits;
+        self.tt.age();
         self.stopped.store(false, Ordering::Relaxed);
         self.counter.start();
         self.nodes.reset();

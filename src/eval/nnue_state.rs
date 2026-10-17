@@ -72,7 +72,7 @@ impl NnueState {
     fn ensure_up_to_date(&mut self, pos: &Position) {
         for side in [Color::White, Color::Black] {
             if !self.acc_stacc[self.top_idx].is_dirty(side) {
-                return;
+                continue;
             }
 
             if self.acc_stacc[self.top_idx].ctx.updates.requires_refresh(side) {

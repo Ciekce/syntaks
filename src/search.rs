@@ -244,14 +244,14 @@ fn search<NT: NodeType>(
 
     let excluded = thread.stack[ply as usize].excluded;
 
-    let _tt_hit;
+    let tt_hit;
     let tt_entry;
 
     if excluded.is_some() {
-        _tt_hit = false;
+        tt_hit = false;
         tt_entry = ProbedEntry::default();
     } else {
-        (_tt_hit, tt_entry) = thread.shared().tt.probe(pos.key(), ply);
+        (tt_hit, tt_entry) = thread.shared().tt.probe(pos.key(), ply);
 
         if !NT::PV_NODE
             && tt_entry.depth >= depth
@@ -276,7 +276,11 @@ fn search<NT: NodeType>(
         depth -= 1;
     }
 
-    let raw_eval = static_eval(&mut thread.nnue_state, pos);
+    let raw_eval = if tt_hit {
+        tt_entry.raw_static_eval
+    } else {
+        static_eval(&mut thread.nnue_state, pos)
+    };
     let correction = thread.corrhist.correction(pos, &thread.key_history);
     let static_eval = raw_eval + correction;
 
@@ -576,7 +580,7 @@ fn search<NT: NodeType>(
             thread
                 .shared()
                 .tt
-                .store(pos.key(), best_score, best_move, depth, ply, tt_flag);
+                .store(pos.key(), best_score, raw_eval, best_move, depth, ply, tt_flag);
         }
     }
 
