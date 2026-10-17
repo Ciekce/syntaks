@@ -218,12 +218,23 @@ fn search<NT: NodeType>(
             }
         }
 
-        if ((pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0)
-            || pos.occ().popcount() == Square::COUNT as u32 - 1)
-            && pos.fcd(pos.stm()) >= 0
+        if (pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0)
+            || pos.occ().popcount() == Square::COUNT as u32 - 1
         {
-            push_to_pv(!pos.occ());
-            return SCORE_MATE - ply - 1;
+            let fcd = pos.fcd(pos.stm());
+
+            if fcd >= 0 {
+                push_to_pv(!pos.occ());
+                return SCORE_MATE - ply - 1;
+            }
+
+            if fcd == -1 && alpha < 0 {
+                alpha = 0;
+                if alpha >= beta {
+                    push_to_pv(!pos.occ());
+                    return alpha;
+                }
+            }
         }
     }
 
