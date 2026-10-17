@@ -122,7 +122,7 @@ fn start_game(key_history: &mut Vec<u64>, rng: &mut Sfc64, searcher: &mut Search
 
         let corner = corner_opening(rng);
 
-        let opening: &[Move] = if rng.next_u64().is_multiple_of(UNIFORM_OPENING_ODDS) {
+        let opening: &[Move] = if rng.next_u64().is_multiple_of(UNIFORM_ODDS) {
             &[]
         } else {
             &corner
