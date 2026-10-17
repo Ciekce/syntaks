@@ -17,7 +17,7 @@ use syntaks::format::GameResult;
 use syntaks::position::Position;
 use syntaks::takmove::Move;
 
-const HIDDEN_SIZE: usize = 512;
+const HIDDEN_SIZE: usize = 768;
 const SCALE: i32 = 400;
 const QA: i16 = 255;
 const QB: i16 = 64;
@@ -54,7 +54,7 @@ fn main() {
         });
 
     let schedule = TrainingSchedule {
-        net_id: "net023".to_owned(),
+        net_id: "net025".to_owned(),
         eval_scale: SCALE as f32,
         steps: TrainingSteps {
             batch_size: 16_384,
