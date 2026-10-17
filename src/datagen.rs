@@ -128,7 +128,7 @@ fn start_game(key_history: &mut Vec<u64>, rng: &mut Sfc64, searcher: &mut Search
             &corner
         };
 
-        for mv in opening {
+        for &mv in opening {
             key_history.push(pos.key());
             pos = pos.apply_move(mv);
         }
