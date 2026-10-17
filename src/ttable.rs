@@ -293,7 +293,7 @@ impl TranspositionTable {
         let idx = self.calc_index(key);
         let entry_key = pack_entry_key(key);
 
-        let mut probed = ProbedEntry::default();
+        let mut probed = Default::default();
 
         //SAFETY: calc_index() cannot return an out-of-bounds index
         let cluster = unsafe { self.clusters.get_unchecked(idx) };
