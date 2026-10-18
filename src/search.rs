@@ -239,9 +239,7 @@ fn search<NT: NodeType>(
     }
 
     if depth <= 0 {
-        let static_eval = static_eval(&mut thread.nnue_state, pos);
-        let correction = thread.corrhist.correction(pos, &thread.key_history);
-        return static_eval + correction;
+        return leaf::<NT>(thread, pos, ply);
     }
 
     if NT::PV_NODE {
@@ -604,6 +602,29 @@ fn search<NT: NodeType>(
     }
 
     best_score
+}
+
+fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: i32) -> Score {
+    if NT::PV_NODE {
+        thread.update_seldepth(ply);
+    }
+
+    let (tt_hit, tt_entry) = thread.shared().tt.probe(pos.key(), ply);
+
+    let raw_eval = if tt_hit {
+        tt_entry.raw_static_eval
+    } else {
+        static_eval(&mut thread.nnue_state, pos)
+    };
+
+    if !tt_hit {
+        thread.shared().tt.store_static_eval(pos.key(), raw_eval);
+    }
+
+    let correction = thread.corrhist.correction(pos, &thread.key_history);
+    let static_eval = raw_eval + correction;
+
+    static_eval
 }
 
 fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut ThreadData) {
