@@ -239,7 +239,7 @@ fn search<NT: NodeType>(
     }
 
     if depth <= 0 {
-        return leaf::<NT>(thread, pos, ply);
+        return leaf::<NT>(thread, pos, ply, alpha, beta);
     }
 
     if NT::PV_NODE {
@@ -604,12 +604,23 @@ fn search<NT: NodeType>(
     best_score
 }
 
-fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: i32) -> Score {
+fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: i32, alpha: Score, beta: Score) -> Score {
     if NT::PV_NODE {
         thread.update_seldepth(ply);
     }
 
     let (tt_hit, tt_entry) = thread.shared().tt.probe(pos.key(), ply);
+
+    if !NT::PV_NODE
+        && match tt_entry.flag {
+            None => false,
+            Some(TtFlag::UpperBound) => tt_entry.score <= alpha,
+            Some(TtFlag::LowerBound) => tt_entry.score >= beta,
+            Some(TtFlag::Exact) => true,
+        }
+    {
+        return tt_entry.score;
+    }
 
     let raw_eval = if tt_hit {
         tt_entry.raw_static_eval
