@@ -47,12 +47,10 @@ impl Accumulator {
             }
         };
 
-        let stacks = pos.stacks();
-
         for side in [Color::White, Color::Black] {
             for sq in pos.color_bb(side) {
                 let perspective_sq = sq.transform(transform);
-                let pt = stacks.top(sq).unwrap();
+                let pt = pos.top_pt(sq).unwrap();
                 let feature = top_feature_idx(perspective, side, pt, perspective_sq);
                 activate_top(feature);
             }
@@ -67,20 +65,16 @@ impl Accumulator {
         };
 
         for sq in pos.occ() {
-            let height = stacks.height(sq);
+            let height = pos.height(sq);
 
             if height == 1 {
                 continue;
             }
 
-            let top = pos
-                .stacks()
-                .top(sq)
-                .map(|pt| pt.with_color(pos.stacks().top_color(sq).unwrap()))
-                .unwrap();
+            let top = pos.top(sq).unwrap();
             let perspective_sq = sq.transform(transform);
 
-            let mut colors = stacks.colors(sq) >> 1;
+            let mut colors = pos.colors(sq) >> 1;
             let count = height.min(13) - 1;
 
             for depth in 0..count {

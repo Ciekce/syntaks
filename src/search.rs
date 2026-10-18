@@ -433,7 +433,7 @@ fn search<NT: NodeType>(
         let new_pos = thread.apply_move(ply, pos, mv);
         thread.shared().tt.prefetch(new_pos.key());
 
-        let is_crush = mv.is_spread() && pos.stacks().top(mv.spread_dest()) == Some(PieceType::Wall);
+        let is_crush = mv.is_spread() && pos.top_pt(mv.spread_dest()) == Some(PieceType::Wall);
 
         if extension == 0 && is_crush {
             extension += 1;

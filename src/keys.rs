@@ -22,12 +22,12 @@
  */
 
 use crate::core::*;
-use crate::position::Stacks;
+use crate::position::Position;
 use crate::prng::Sfc64;
 
 const BLACK_COUNT: usize = 1;
 const TOP_COUNT: usize = PieceType::COUNT * Square::COUNT;
-const COLOR_COUNT: usize = Stacks::MAX_HEIGHT * Color::COUNT * Square::COUNT;
+const COLOR_COUNT: usize = Position::MAX_STACK_HEIGHT * Color::COUNT * Square::COUNT;
 
 const TOTAL_COUNT: usize = BLACK_COUNT + TOP_COUNT + COLOR_COUNT;
 
@@ -59,6 +59,9 @@ pub const fn top_key(pt: PieceType, sq: Square) -> u64 {
 
 #[must_use]
 pub const fn color_key(height: u8, color: Color, sq: Square) -> u64 {
-    assert!((height as usize) < Stacks::MAX_HEIGHT);
-    KEYS[COLOR_OFFSET + sq.idx() * Stacks::MAX_HEIGHT * Color::COUNT + height as usize * Color::COUNT + color.idx()]
+    assert!((height as usize) < Position::MAX_STACK_HEIGHT);
+    KEYS[COLOR_OFFSET
+        + sq.idx() * Position::MAX_STACK_HEIGHT * Color::COUNT
+        + height as usize * Color::COUNT
+        + color.idx()]
 }

@@ -1,5 +1,5 @@
 use crate::core::*;
-use crate::position::{Position, Stacks};
+use crate::position::Position;
 use crate::takmove::Move;
 use std::array::TryFromSliceError;
 use std::io::{Read, Write};
@@ -56,16 +56,14 @@ impl PackedTakBoard {
         let mut out = [0u8; POSITION_RECORD_SIZE];
         let mut bit = 0;
 
-        let stacks = pos.stacks();
-
         for sq in Square::all() {
-            match stacks.top(sq) {
+            match pos.top_pt(sq) {
                 None => put_token(&mut out, &mut bit, 0b00),
                 Some(pt) => {
                     put_token(&mut out, &mut bit, pt.raw() + 1);
 
-                    let height = stacks.height(sq);
-                    let colors = stacks.colors(sq);
+                    let height = pos.height(sq);
+                    let colors = pos.colors(sq);
 
                     for level in (0..height).rev() {
                         let color = ((colors >> (height - level - 1)) & 1) as u8;
@@ -112,7 +110,7 @@ impl PackedTakBoard {
         let mut flats_used = [0u32; 2];
         let mut caps_used = [0u32; 2];
 
-        let mut colors = [Color::White; Stacks::MAX_HEIGHT];
+        let mut colors = [Color::White; Position::MAX_STACK_HEIGHT];
 
         for sq in Square::all() {
             let header = get_token(&self.bytes, &mut bit);
@@ -124,7 +122,7 @@ impl PackedTakBoard {
 
             let mut height = 0;
             loop {
-                if bit + 2 > BOARD_BITS || height >= Stacks::MAX_HEIGHT {
+                if bit + 2 > BOARD_BITS || height >= Position::MAX_STACK_HEIGHT {
                     return Err(DecodeError::Overrun);
                 }
 

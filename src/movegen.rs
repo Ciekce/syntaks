@@ -66,8 +66,8 @@ fn do_spreads(dst: &mut Vec<Move>, sq: Square, dir: Direction, lsb: u16, mut pat
 
 fn generate_spreads(dst: &mut Vec<Move>, pos: &Position) {
     for sq in pos.color_bb(pos.stm()) {
-        let top = pos.stacks().top(sq).unwrap();
-        let max = pos.stacks().height(sq).min(6);
+        let top_pt = pos.top_pt(sq).unwrap();
+        let max = pos.height(sq).min(6);
 
         let start_bit = (1 << Position::CARRY_LIMIT) >> max;
 
@@ -82,9 +82,9 @@ fn generate_spreads(dst: &mut Vec<Move>, pos: &Position) {
 
             let mut limit = 1 << Position::CARRY_LIMIT;
 
-            match pos.stacks().top(hit_sq) {
+            match pos.top_pt(hit_sq) {
                 Some(PieceType::Wall) => {
-                    if top == PieceType::Capstone {
+                    if top_pt == PieceType::Capstone {
                         // Can smash - generate spreads here with msb set
                         do_spreads(
                             dst,

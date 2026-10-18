@@ -97,7 +97,7 @@ fn corner_opening(rng: &mut Sfc64) -> [Move; 2] {
 fn random_placement(rng: &mut Sfc64, pos: &Position) -> Move {
     let sq = loop {
         let sq = Square::from_raw((rng.next_u64() % Square::COUNT as u64) as u8).unwrap();
-        if pos.stacks().is_empty(sq) {
+        if pos.is_empty(sq) {
             break sq;
         }
     };

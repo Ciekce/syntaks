@@ -86,26 +86,24 @@ impl SparseInputType for TakTopRelativeStacks {
         let transforms = [Color::White, Color::Black].map(|perspective| normalizer(pos.cap_sq(perspective)));
         let map_sq = |perspective: Color, sq: Square| sq.transform(transforms[perspective]);
 
-        let stacks = pos.stacks();
-
         for sq in pos.occ() {
             let stm_sq = map_sq(pos.stm(), sq).idx();
             let nstm_sq = map_sq(pos.stm().flip(), sq).idx();
 
-            let top_pt = stacks.top(sq).unwrap().idx();
-            let top_color = stacks.top_color(sq).unwrap().idx();
+            let top_pt = pos.top_pt(sq).unwrap().idx();
+            let top_color = pos.top_color(sq).unwrap().idx();
 
             let top_stm = ((top_color ^ stm_flip) * PieceType::COUNT + top_pt) * Square::COUNT + stm_sq;
             let top_nstm = ((top_color ^ stm_flip ^ 1) * PieceType::COUNT + top_pt) * Square::COUNT + nstm_sq;
             f(top_stm, top_nstm);
 
-            let height = stacks.height(sq) as usize;
+            let height = pos.height(sq) as usize;
 
             if height == 1 {
                 continue;
             }
 
-            let mut colors = stacks.colors(sq) >> 1;
+            let mut colors = pos.colors(sq) >> 1;
             let count = height.min(13) - 1;
 
             for depth in 0..count {
