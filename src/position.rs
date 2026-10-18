@@ -71,7 +71,6 @@ struct Stacks {
 }
 
 impl Stacks {
-
     #[must_use]
     pub fn is_empty(&self, sq: Square) -> bool {
         self.tops[sq].is_none()
@@ -430,7 +429,7 @@ impl Position {
 
     #[must_use]
     pub fn blockers(&self, color: Color) -> Bitboard {
-        self.all_blockers() & self.color_bb(color)
+        self.color_bb(color) & !self.piece_bb(PieceType::Flat)
     }
 
     #[must_use]
@@ -440,7 +439,7 @@ impl Position {
 
     #[must_use]
     pub fn roads(&self, color: Color) -> Bitboard {
-        self.all_roads() & self.color_bb(color)
+        self.color_bb(color) & !self.piece_bb(PieceType::Wall)
     }
 
     #[must_use]

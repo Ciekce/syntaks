@@ -209,7 +209,7 @@ fn search<NT: NodeType>(
                     | bit.shift(Direction::Down)
                     | bit.shift(Direction::Left)
                     | bit.shift(Direction::Right);
-                let attackers = neighbors & !pos.piece_bb(PieceType::Wall) & pos.color_bb(pos.stm());
+                let attackers = neighbors & pos.roads(pos.stm());
                 let edge_bonus = bit & edges;
                 if (attackers | edge_bonus).popcount() >= 3 {
                     // todo push_to_pv
