@@ -88,6 +88,22 @@ fn l1w_layout(weights: Vec<f32>) -> Vec<f32> {
     out
 }
 
+fn l2w_layout(weights: Vec<f32>) -> Vec<f32> {
+    let bucketed = bucket_major(weights, L3);
+    let mut out = vec![0.0; bucketed.len()];
+    for ob in 0..OUTPUT_BUCKETS {
+        for k in 0..L2 / 2 {
+            let base = k / 4 * 4 + k % 2 * 2 + if k % 4 >= 2 { L2 / 2 } else { 0 };
+            for j in 0..L3 {
+                let to = ((ob * L2 / 2 + k) * L3 + j) * 2;
+                out[to] = bucketed[(ob * L2 + base) * L3 + j];
+                out[to + 1] = bucketed[(ob * L2 + base + 1) * L3 + j];
+            }
+        }
+    }
+    out
+}
+
 fn main() {
     let data_paths: Vec<String> = std::env::args().skip(1).collect();
     assert!(!data_paths.is_empty());
@@ -113,9 +129,9 @@ fn main() {
                 .quantise::<i8>(Q1),
             SavedFormat::id("l1b").round().quantise::<i32>(Q * 256),
             SavedFormat::id("l2w")
-                .transform(|_, values| bucket_major(values, L3))
+                .transform(|_, values| l2w_layout(values))
                 .round()
-                .quantise::<i32>(Q),
+                .quantise::<i16>(Q as i16),
             SavedFormat::id("l2b").round().quantise::<i32>(Q.pow(3)),
             SavedFormat::id("l3w")
                 .transform(|_, values| bucket_major(values, 1))

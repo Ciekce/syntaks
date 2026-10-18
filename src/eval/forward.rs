@@ -105,38 +105,46 @@ pub(super) fn forward(acc: &Accumulator, pos: &Position) -> i32 {
         }
     }
 
-    let mut l1_out = Align64([0i32; L2_SIZE]);
+    let mut l1_out = Align64([0i16; L2_SIZE]);
     {
         let l1_bias = NET.l1b[output_bucket].as_ptr();
 
-        let lo = zero_i32();
-        let hi = set1_i32(1 << (SHIFT + Q_BITS));
-
-        for i in 0..L2_SIZE / CHUNK_SIZE_I32 {
-            let mut biased = unsafe { load_i32(l1_bias.add(i * CHUNK_SIZE_I32)) };
+        let mut biased = [zero_i32(); L2_SIZE / CHUNK_SIZE_I32];
+        for (i, biased) in biased.iter_mut().enumerate() {
+            *biased = unsafe { load_i32(l1_bias.add(i * CHUNK_SIZE_I32)) };
             for unrolled in &l1_intermediate {
-                biased = add_i32(biased, unrolled[i]);
+                *biased = add_i32(*biased, unrolled[i]);
             }
+        }
 
-            let clamped = min_i32(max_i32(biased, lo), hi);
-            let screlu = shift_right_i32::<{ SHIFT * 2 }>(mul_i32(clamped, clamped));
+        let hi = set1_i16(1 << (SHIFT + Q_BITS));
 
-            unsafe { store_i32(l1_out.0.as_mut_ptr().add(i * CHUNK_SIZE_I32), screlu) };
+        for i in 0..L2_SIZE / CHUNK_SIZE_I16 {
+            let packed = packus_i32(biased[i], biased[i + L2_SIZE / CHUNK_SIZE_I16]);
+            let clamped = min_u16(packed, hi);
+            let screlu = mulhi_i16(clamped, clamped);
+
+            unsafe { store_i16(l1_out.0.as_mut_ptr().add(i * CHUNK_SIZE_I16), screlu) };
         }
     }
 
-    let mut l2_intermediate = [zero_i32(); L3_SIZE / CHUNK_SIZE_I32];
+    let mut l2_intermediate = [[zero_i32(); 2]; L3_SIZE / CHUNK_SIZE_I32];
     {
         let l2_weights = NET.l2w[output_bucket].as_ptr();
+        let l1_pairs = l1_out.0.as_ptr();
 
-        for (i, &l1_val) in l1_out.0.iter().enumerate() {
-            let l1_vec = set1_i32(l1_val);
+        for i in (0..L2_PAIR_COUNT).step_by(2) {
+            let l1_vec_0 = unsafe { set1_i16x2(l1_pairs.add(i * 2)) };
+            let l1_vec_1 = unsafe { set1_i16x2(l1_pairs.add((i + 1) * 2)) };
             for (j, intermediate) in l2_intermediate.iter_mut().enumerate() {
-                let l2_weight = unsafe { load_i32(l2_weights.add(i * L3_SIZE + j * CHUNK_SIZE_I32)) };
-                *intermediate = add_i32(*intermediate, mul_i32(l1_vec, l2_weight));
+                let l2_weight_0 = unsafe { load_i16(l2_weights.add((i * L3_SIZE + j * CHUNK_SIZE_I32) * 2)) };
+                let l2_weight_1 = unsafe { load_i16(l2_weights.add(((i + 1) * L3_SIZE + j * CHUNK_SIZE_I32) * 2)) };
+                *intermediate = dpwssdx2_i32(*intermediate, l1_vec_0, l2_weight_0, l1_vec_1, l2_weight_1);
             }
         }
     }
+
+    let l2_intermediate = l2_intermediate.map(reduce_dpwssd_i32);
 
     let mut l3_sum = zero_i32();
     {

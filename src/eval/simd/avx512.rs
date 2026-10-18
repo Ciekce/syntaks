@@ -40,6 +40,12 @@ pub unsafe fn set1_u8x4(ptr: *const u8) -> VecU8 {
     set1_i32(unsafe { ptr.cast::<i32>().read_unaligned() })
 }
 
+#[must_use]
+#[inline(always)]
+pub unsafe fn set1_i16x2(ptr: *const i16) -> VecI16 {
+    set1_i32(unsafe { ptr.cast::<i32>().read_unaligned() })
+}
+
 #[inline(always)]
 pub unsafe fn store_u8(ptr: *mut u8, vec: VecU8) {
     unsafe { _mm512_store_si512(ptr.cast(), vec) }
@@ -71,6 +77,11 @@ pub unsafe fn load_i16(ptr: *const i16) -> VecI16 {
     unsafe { _mm512_load_si512(ptr.cast()) }
 }
 
+#[inline(always)]
+pub unsafe fn store_i16(ptr: *mut i16, vec: VecI16) {
+    unsafe { _mm512_store_si512(ptr.cast(), vec) }
+}
+
 #[must_use]
 #[inline(always)]
 pub fn min_i16(a: VecI16, b: VecI16) -> VecI16 {
@@ -79,8 +90,20 @@ pub fn min_i16(a: VecI16, b: VecI16) -> VecI16 {
 
 #[must_use]
 #[inline(always)]
+pub fn min_u16(a: VecI16, b: VecI16) -> VecI16 {
+    unsafe { _mm512_min_epu16(a, b) }
+}
+
+#[must_use]
+#[inline(always)]
 pub fn max_i16(a: VecI16, b: VecI16) -> VecI16 {
     unsafe { _mm512_max_epi16(a, b) }
+}
+
+#[must_use]
+#[inline(always)]
+pub fn mulhi_i16(a: VecI16, b: VecI16) -> VecI16 {
+    unsafe { _mm512_mulhi_epi16(a, b) }
 }
 
 #[must_use]
@@ -93,6 +116,12 @@ pub fn mulhi_shift_i16<const SHIFT: i32>(a: VecI16, b: VecI16) -> VecI16 {
 #[inline(always)]
 pub fn packus_i16(a: VecI16, b: VecI16) -> VecU8 {
     unsafe { _mm512_packus_epi16(a, b) }
+}
+
+#[must_use]
+#[inline(always)]
+pub fn packus_i32(a: VecI32, b: VecI32) -> VecI16 {
+    unsafe { _mm512_packus_epi32(a, b) }
 }
 
 // ================================ i32 ================================
@@ -190,6 +219,31 @@ pub fn dpbusdx2_i32(sum: VecI32, a_1: VecU8, b_1: VecI8, a_2: VecU8, b_2: VecI8)
             result
         }
     }
+}
+
+#[must_use]
+#[inline(always)]
+pub fn dpwssdx2_i32(acc: [VecI32; 2], a_1: VecI16, b_1: VecI16, a_2: VecI16, b_2: VecI16) -> [VecI32; 2] {
+    cfg_select! {
+        target_feature = "avx512vnni" => unsafe {
+            [
+                _mm512_dpwssd_epi32(acc[0], a_1, b_1),
+                _mm512_dpwssd_epi32(acc[1], a_2, b_2),
+            ]
+        },
+        _ => unsafe {
+            [
+                add_i32(acc[0], _mm512_madd_epi16(a_1, b_1)),
+                add_i32(acc[1], _mm512_madd_epi16(a_2, b_2)),
+            ]
+        },
+    }
+}
+
+#[must_use]
+#[inline(always)]
+pub fn reduce_dpwssd_i32(acc: [VecI32; 2]) -> VecI32 {
+    add_i32(acc[0], acc[1])
 }
 
 pub fn hsum_i32(v: VecI32) -> i32 {
