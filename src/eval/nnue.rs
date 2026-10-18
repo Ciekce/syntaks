@@ -59,6 +59,7 @@ pub const L2_SIZE: usize = 32;
 pub const L3_SIZE: usize = 32;
 
 pub const L1_PAIR_COUNT: usize = L1_SIZE / 2;
+pub const L2_PAIR_COUNT: usize = L2_SIZE / 2;
 
 pub const OUTPUT_BUCKET_COUNT: usize = 16;
 
@@ -79,7 +80,7 @@ pub(super) struct Network {
     pub ftb: [i16; L1_SIZE],
     pub l1w: [[i8; L1_SIZE * L2_SIZE]; OUTPUT_BUCKET_COUNT],
     pub l1b: [[i32; L2_SIZE]; OUTPUT_BUCKET_COUNT],
-    pub l2w: [[i32; L2_SIZE * L3_SIZE]; OUTPUT_BUCKET_COUNT],
+    pub l2w: [[i16; L2_SIZE * L3_SIZE]; OUTPUT_BUCKET_COUNT],
     pub l2b: [[i32; L3_SIZE]; OUTPUT_BUCKET_COUNT],
     pub l3w: [[i32; L3_SIZE]; OUTPUT_BUCKET_COUNT],
     pub l3b: [i32; OUTPUT_BUCKET_COUNT],

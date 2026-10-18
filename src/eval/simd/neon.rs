@@ -40,6 +40,12 @@ pub unsafe fn set1_u8x4(ptr: *const u8) -> VecU8 {
     unsafe { vreinterpretq_u8_s32(set1_i32(ptr.cast::<i32>().read_unaligned())) }
 }
 
+#[must_use]
+#[inline(always)]
+pub unsafe fn set1_i16x2(ptr: *const i16) -> VecI16 {
+    unsafe { vreinterpretq_s16_s32(set1_i32(ptr.cast::<i32>().read_unaligned())) }
+}
+
 #[inline(always)]
 pub unsafe fn store_u8(ptr: *mut u8, vec: VecU8) {
     unsafe { vst1q_u8(ptr, vec) }
@@ -69,6 +75,11 @@ pub unsafe fn load_i16(ptr: *const i16) -> VecI16 {
     unsafe { vld1q_s16(ptr) }
 }
 
+#[inline(always)]
+pub unsafe fn store_i16(ptr: *mut i16, vec: VecI16) {
+    unsafe { vst1q_s16(ptr, vec) }
+}
+
 #[must_use]
 #[inline(always)]
 pub fn min_i16(a: VecI16, b: VecI16) -> VecI16 {
@@ -77,8 +88,20 @@ pub fn min_i16(a: VecI16, b: VecI16) -> VecI16 {
 
 #[must_use]
 #[inline(always)]
+pub fn min_u16(a: VecI16, b: VecI16) -> VecI16 {
+    unsafe { vreinterpretq_s16_u16(vminq_u16(vreinterpretq_u16_s16(a), vreinterpretq_u16_s16(b))) }
+}
+
+#[must_use]
+#[inline(always)]
 pub fn max_i16(a: VecI16, b: VecI16) -> VecI16 {
     unsafe { vmaxq_s16(a, b) }
+}
+
+#[must_use]
+#[inline(always)]
+pub fn mulhi_i16(a: VecI16, b: VecI16) -> VecI16 {
+    unsafe { vshrq_n_s16::<1>(vqdmulhq_s16(a, b)) }
 }
 
 #[must_use]
@@ -91,6 +114,12 @@ pub fn mulhi_shift_i16<const SHIFT: i32>(a: VecI16, b: VecI16) -> VecI16 {
 #[inline(always)]
 pub fn packus_i16(a: VecI16, b: VecI16) -> VecU8 {
     unsafe { vcombine_u8(vqmovun_s16(a), vqmovun_s16(b)) }
+}
+
+#[must_use]
+#[inline(always)]
+pub fn packus_i32(a: VecI32, b: VecI32) -> VecI16 {
+    unsafe { vreinterpretq_s16_u16(vcombine_u16(vqmovun_s32(a), vqmovun_s32(b))) }
 }
 
 #[must_use]
@@ -198,6 +227,23 @@ pub fn dpbusdx2_i32(sum: VecI32, a_1: VecU8, b_1: VecI8, a_2: VecU8, b_2: VecI8)
             result
         }
     }
+}
+
+#[must_use]
+#[inline(always)]
+pub fn dpwssdx2_i32(acc: [VecI32; 2], a_1: VecI16, b_1: VecI16, a_2: VecI16, b_2: VecI16) -> [VecI32; 2] {
+    unsafe {
+        let lo = vmlal_s16(acc[0], vget_low_s16(a_1), vget_low_s16(b_1));
+        let lo = vmlal_s16(lo, vget_low_s16(a_2), vget_low_s16(b_2));
+        let hi = vmlal_high_s16(vmlal_high_s16(acc[1], a_1, b_1), a_2, b_2);
+        [lo, hi]
+    }
+}
+
+#[must_use]
+#[inline(always)]
+pub fn reduce_dpwssd_i32(acc: [VecI32; 2]) -> VecI32 {
+    unsafe { vpaddq_s32(acc[0], acc[1]) }
 }
 
 pub fn hsum_i32(v: VecI32) -> i32 {

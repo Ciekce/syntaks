@@ -43,6 +43,17 @@ pub unsafe fn set1_u8x4(ptr: *const u8) -> VecU8 {
     out
 }
 
+#[must_use]
+#[inline(always)]
+pub unsafe fn set1_i16x2(ptr: *const i16) -> VecI16 {
+    let pair = unsafe { ptr.cast::<[i16; 2]>().read() };
+    let mut out = [0; 8];
+    for (out, &v) in out.iter_mut().zip(pair.iter().cycle()) {
+        *out = v;
+    }
+    out
+}
+
 #[inline(always)]
 pub unsafe fn store_u8(ptr: *mut u8, vec: VecU8) {
     unsafe { ptr.cast::<VecU8>().write(vec) }
@@ -72,6 +83,11 @@ pub unsafe fn load_i16(ptr: *const i16) -> VecI16 {
     unsafe { ptr.cast::<VecI16>().read() }
 }
 
+#[inline(always)]
+pub unsafe fn store_i16(ptr: *mut i16, vec: VecI16) {
+    unsafe { ptr.cast::<VecI16>().write(vec) }
+}
+
 #[must_use]
 #[inline(always)]
 pub fn min_i16(mut a: VecI16, b: VecI16) -> VecI16 {
@@ -83,9 +99,27 @@ pub fn min_i16(mut a: VecI16, b: VecI16) -> VecI16 {
 
 #[must_use]
 #[inline(always)]
+pub fn min_u16(mut a: VecI16, b: VecI16) -> VecI16 {
+    for (a, b) in a.iter_mut().zip(b) {
+        *a = (*a as u16).min(b as u16) as i16;
+    }
+    a
+}
+
+#[must_use]
+#[inline(always)]
 pub fn max_i16(mut a: VecI16, b: VecI16) -> VecI16 {
     for (a, b) in a.iter_mut().zip(b) {
         *a = (*a).max(b);
+    }
+    a
+}
+
+#[must_use]
+#[inline(always)]
+pub fn mulhi_i16(mut a: VecI16, b: VecI16) -> VecI16 {
+    for (a, b) in a.iter_mut().zip(b) {
+        *a = ((i32::from(*a) * i32::from(b)) >> 16) as i16;
     }
     a
 }
@@ -105,6 +139,16 @@ pub fn packus_i16(a: VecI16, b: VecI16) -> VecU8 {
     let mut out = [0; 16];
     for (out, v) in out.iter_mut().zip(a.into_iter().chain(b)) {
         *out = v.clamp(0, u8::MAX as i16) as u8;
+    }
+    out
+}
+
+#[must_use]
+#[inline(always)]
+pub fn packus_i32(a: VecI32, b: VecI32) -> VecI16 {
+    let mut out = [0; 8];
+    for (out, v) in out.iter_mut().zip(a.into_iter().chain(b)) {
+        *out = v.clamp(0, u16::MAX as i32) as u16 as i16;
     }
     out
 }
@@ -204,6 +248,25 @@ pub fn dpbusd_i32(mut sum: VecI32, a: VecU8, b: VecI8) -> VecI32 {
 #[inline(always)]
 pub fn dpbusdx2_i32(sum: VecI32, a_1: VecU8, b_1: VecI8, a_2: VecU8, b_2: VecI8) -> VecI32 {
     dpbusd_i32(dpbusd_i32(sum, a_1, b_1), a_2, b_2)
+}
+
+#[must_use]
+#[inline(always)]
+pub fn dpwssdx2_i32(mut acc: [VecI32; 2], a_1: VecI16, b_1: VecI16, a_2: VecI16, b_2: VecI16) -> [VecI32; 2] {
+    for (acc, (a, b)) in acc.iter_mut().zip([(a_1, b_1), (a_2, b_2)]) {
+        for ((sum, a), b) in acc.iter_mut().zip(a.as_chunks::<2>().0).zip(b.as_chunks::<2>().0) {
+            for (&a, &b) in a.iter().zip(b) {
+                *sum = sum.wrapping_add(i32::from(a) * i32::from(b));
+            }
+        }
+    }
+    acc
+}
+
+#[must_use]
+#[inline(always)]
+pub fn reduce_dpwssd_i32(acc: [VecI32; 2]) -> VecI32 {
+    add_i32(acc[0], acc[1])
 }
 
 pub fn hsum_i32(v: VecI32) -> i32 {
