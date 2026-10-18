@@ -21,55 +21,144 @@
  * SOFTWARE.
  */
 
-use crate::core::Color;
+use super::simd::*;
 use crate::eval::accumulator::Accumulator;
 use crate::eval::nnue::*;
 use crate::position::Position;
 
+#[repr(C, align(64))]
+struct Align64<T>(T);
+
+const PACKUS_LANE: usize = 8;
+const PACKUS_WIDTH: usize = 32;
+
+const fn packus_position(neuron: usize) -> usize {
+    let chunk = neuron % (2 * PACKUS_WIDTH);
+    let lane = chunk / (2 * PACKUS_LANE);
+    let half = chunk % (2 * PACKUS_LANE) / PACKUS_LANE;
+    neuron - chunk + half * PACKUS_WIDTH + lane * PACKUS_LANE + chunk % PACKUS_LANE
+}
+
+const EXPLICIT_MULHI_SHIFT_UP: i32 = 7;
+const IMPLIED_MULHI_SHIFT_DOWN: i32 = 16;
+const MULHI_SHIFT: i32 = EXPLICIT_MULHI_SHIFT_UP - IMPLIED_MULHI_SHIFT_DOWN;
+
+const SHIFT: i32 = Q0_BITS * 2 + MULHI_SHIFT + Q1_BITS - Q_BITS;
+
+const L2_UNROLL: usize = 8 / (L2_SIZE / CHUNK_SIZE_I32);
+
 #[must_use]
 pub(super) fn forward(acc: &Accumulator, pos: &Position) -> i32 {
-    use super::simd::*;
+    let output_bucket = which_output_bucket(pos);
 
-    let w_reserves = pos.flats_in_hand(Color::White);
-    let b_reserves = pos.flats_in_hand(Color::Black);
-    let min_reserves = w_reserves.min(b_reserves);
-    let bucket = [
-        0, 0, 1, 2, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7,
-    ][min_reserves as usize];
-    let bucket = pos.stm().idx() * 8 + bucket;
-
-    let zero = zero_i16();
-    let one = set1_i16(FT_Q as i16);
-
-    let mut sum = zero_i32();
-
-    for (values, weights) in [pos.stm(), pos.stm().flip()]
-        .iter()
-        .map(|&color| &acc.values[color])
-        .zip(&NET.l1w[bucket])
+    let mut activated_ft = Align64([0; L1_SIZE]);
     {
-        let values = values as *const i16;
-        let weights = weights as *const i16;
+        let lo = zero_i16();
+        let hi = set1_i16(Q0 as i16);
 
-        for i in (0..L1_SIZE).step_by(CHUNK_SIZE_I16) {
-            let v = unsafe { load_i16(values.offset(i as isize)) };
-            let w = unsafe { load_i16(weights.offset(i as isize)) };
+        for (values, out) in [pos.stm(), pos.stm().flip()]
+            .iter()
+            .map(|&color| &acc.values[color])
+            .zip(activated_ft.0.as_chunks_mut::<L1_PAIR_COUNT>().0)
+        {
+            let values = values.as_ptr();
+            let out = out.as_mut_ptr();
 
-            let v = max_i16(v, zero);
-            let v = min_i16(v, one);
+            let activate = |offset: usize| {
+                let a = unsafe { load_i16(values.add(offset)) };
+                let b = unsafe { load_i16(values.add(offset + L1_PAIR_COUNT)) };
 
-            let p = mul_i16(v, w);
+                let a = min_i16(max_i16(a, lo), hi);
+                let b = min_i16(b, hi);
 
-            let r = madd_i16(p, v);
+                mulhi_shift_i16::<EXPLICIT_MULHI_SHIFT_UP>(a, b)
+            };
 
-            sum = add_i32(sum, r);
+            for i in (0..L1_PAIR_COUNT).step_by(2 * CHUNK_SIZE_I16) {
+                let offset_1 = packus_position(i);
+                let offset_2 = packus_position(i + PACKUS_LANE);
+                let p = packus_i16(activate(offset_1), activate(offset_2));
+                unsafe { store_u8(out.add(i), p) };
+            }
+        }
+    }
+    debug_assert!(activated_ft.0.iter().all(|&e| e <= i8::MAX as u8));
+
+    let mut l1_intermediate = [[zero_i32(); L2_SIZE / CHUNK_SIZE_I32]; L2_UNROLL];
+    {
+        let w = NET.l1w[output_bucket].as_ptr();
+        let ft_groups = activated_ft.0.as_ptr();
+
+        for i_outer in (0..L1_SIZE / 4).step_by(2 * L2_UNROLL) {
+            for (i_inner, intermediate) in l1_intermediate.iter_mut().enumerate() {
+                let i_0 = i_outer + 2 * i_inner;
+                let i_1 = i_0 + 1;
+                let ft_vec_0 = unsafe { set1_u8x4(ft_groups.add(i_0 * 4)) };
+                let ft_vec_1 = unsafe { set1_u8x4(ft_groups.add(i_1 * 4)) };
+
+                for (j, intermediate) in intermediate.iter_mut().enumerate() {
+                    let weights_0 = unsafe { load_i8(w.add(i_0 * L2_SIZE * 4 + j * CHUNK_SIZE_I8)) };
+                    let weights_1 = unsafe { load_i8(w.add(i_1 * L2_SIZE * 4 + j * CHUNK_SIZE_I8)) };
+                    *intermediate = dpbusdx2_i32(*intermediate, ft_vec_0, weights_0, ft_vec_1, weights_1);
+                }
+            }
         }
     }
 
-    let mut sum = hsum_i32(sum);
+    let mut l1_out = Align64([0i32; L2_SIZE]);
+    {
+        let l1_bias = NET.l1b[output_bucket].as_ptr();
 
-    sum /= FT_Q;
-    sum += i32::from(NET.l1b[bucket]);
+        let lo = zero_i32();
+        let hi = set1_i32(1 << (SHIFT + Q_BITS));
 
-    sum * SCALE / (FT_Q * L1_Q)
+        for i in 0..L2_SIZE / CHUNK_SIZE_I32 {
+            let mut biased = unsafe { load_i32(l1_bias.add(i * CHUNK_SIZE_I32)) };
+            for unrolled in &l1_intermediate {
+                biased = add_i32(biased, unrolled[i]);
+            }
+
+            let clamped = min_i32(max_i32(biased, lo), hi);
+            let screlu = shift_right_i32::<{ SHIFT * 2 }>(mul_i32(clamped, clamped));
+
+            unsafe { store_i32(l1_out.0.as_mut_ptr().add(i * CHUNK_SIZE_I32), screlu) };
+        }
+    }
+
+    let mut l2_intermediate = [zero_i32(); L3_SIZE / CHUNK_SIZE_I32];
+    {
+        let l2_weights = NET.l2w[output_bucket].as_ptr();
+
+        for (i, &l1_val) in l1_out.0.iter().enumerate() {
+            let l1_vec = set1_i32(l1_val);
+            for (j, intermediate) in l2_intermediate.iter_mut().enumerate() {
+                let l2_weight = unsafe { load_i32(l2_weights.add(i * L3_SIZE + j * CHUNK_SIZE_I32)) };
+                *intermediate = add_i32(*intermediate, mul_i32(l1_vec, l2_weight));
+            }
+        }
+    }
+
+    let mut l3_sum = zero_i32();
+    {
+        let l2_biases = NET.l2b[output_bucket].as_ptr();
+        let l3_weights = NET.l3w[output_bucket].as_ptr();
+
+        let lo = zero_i32();
+        let hi3 = set1_i32(1 << (3 * Q_BITS));
+
+        for (i, &intermediate) in l2_intermediate.iter().enumerate() {
+            let l2_bias = unsafe { load_i32(l2_biases.add(i * CHUNK_SIZE_I32)) };
+            let l3_weight = unsafe { load_i32(l3_weights.add(i * CHUNK_SIZE_I32)) };
+
+            let biased = add_i32(intermediate, l2_bias);
+            let activated = min_i32(max_i32(biased, lo), hi3);
+
+            l3_sum = add_i32(l3_sum, mul_i32(activated, l3_weight));
+        }
+    }
+
+    let bias = NET.l3b[output_bucket];
+    let scaled = i64::from(hsum_i32(l3_sum) + bias) * i64::from(SCALE);
+
+    (scaled / i64::from(Q * Q * Q * Q)) as i32
 }

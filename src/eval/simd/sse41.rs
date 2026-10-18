@@ -25,18 +25,38 @@
 
 use std::arch::x86_64::*;
 
+pub type VecU8 = __m128i;
+pub type VecI8 = __m128i;
 pub type VecI16 = __m128i;
 pub type VecI32 = __m128i;
 
+pub const CHUNK_SIZE_I8: usize = size_of::<VecI8>() / size_of::<i8>();
 pub const CHUNK_SIZE_I16: usize = size_of::<VecI16>() / size_of::<i16>();
 pub const CHUNK_SIZE_I32: usize = size_of::<VecI32>() / size_of::<i32>();
+
+#[must_use]
+#[inline(always)]
+pub unsafe fn set1_u8x4(ptr: *const u8) -> VecU8 {
+    set1_i32(unsafe { ptr.cast::<i32>().read_unaligned() })
+}
+
+#[inline(always)]
+pub unsafe fn store_u8(ptr: *mut u8, vec: VecU8) {
+    unsafe { _mm_store_si128(ptr.cast(), vec) }
+}
+
+#[must_use]
+#[inline(always)]
+pub unsafe fn load_i8(ptr: *const i8) -> VecI8 {
+    unsafe { _mm_load_si128(ptr.cast()) }
+}
 
 // ================================ i16 ================================
 
 #[must_use]
 #[inline(always)]
 pub fn zero_i16() -> VecI16 {
-    unsafe { _mm_setzero_si128() }
+    set1_i16(0)
 }
 
 #[must_use]
@@ -49,29 +69,6 @@ pub fn set1_i16(v: i16) -> VecI16 {
 #[inline(always)]
 pub unsafe fn load_i16(ptr: *const i16) -> VecI16 {
     unsafe { _mm_load_si128(ptr.cast()) }
-}
-
-#[inline(always)]
-pub unsafe fn store_i16(ptr: *mut i16, vec: VecI16) {
-    unsafe { _mm_store_si128(ptr.cast(), vec) }
-}
-
-#[must_use]
-#[inline(always)]
-pub fn add_i16(a: VecI16, b: VecI16) -> VecI16 {
-    unsafe { _mm_add_epi16(a, b) }
-}
-
-#[must_use]
-#[inline(always)]
-pub fn sub_i16(a: VecI16, b: VecI16) -> VecI16 {
-    unsafe { _mm_sub_epi16(a, b) }
-}
-
-#[must_use]
-#[inline(always)]
-pub fn mul_i16(a: VecI16, b: VecI16) -> VecI16 {
-    unsafe { _mm_mullo_epi16(a, b) }
 }
 
 #[must_use]
@@ -88,8 +85,14 @@ pub fn max_i16(a: VecI16, b: VecI16) -> VecI16 {
 
 #[must_use]
 #[inline(always)]
-pub fn madd_i16(a: VecI16, b: VecI16) -> VecI32 {
-    unsafe { _mm_madd_epi16(a, b) }
+pub fn mulhi_shift_i16<const SHIFT: i32>(a: VecI16, b: VecI16) -> VecI16 {
+    unsafe { _mm_mulhrs_epi16(_mm_sll_epi16(a, _mm_cvtsi32_si128(SHIFT - 1)), b) }
+}
+
+#[must_use]
+#[inline(always)]
+pub fn packus_i16(a: VecI16, b: VecI16) -> VecU8 {
+    unsafe { _mm_packus_epi16(a, b) }
 }
 
 // ================================ i32 ================================
@@ -97,7 +100,7 @@ pub fn madd_i16(a: VecI16, b: VecI16) -> VecI32 {
 #[must_use]
 #[inline(always)]
 pub fn zero_i32() -> VecI32 {
-    unsafe { _mm_setzero_si128() }
+    set1_i32(0)
 }
 
 #[must_use]
@@ -119,14 +122,20 @@ pub unsafe fn store_i32(ptr: *mut i32, vec: VecI32) {
 
 #[must_use]
 #[inline(always)]
-pub fn add_i32(a: VecI32, b: VecI32) -> VecI32 {
-    unsafe { _mm_add_epi32(a, b) }
+pub fn to_array_i32(v: VecI32) -> [i32; CHUNK_SIZE_I32] {
+    unsafe { std::mem::transmute(v) }
 }
 
 #[must_use]
 #[inline(always)]
-pub fn sub_i32(a: VecI32, b: VecI32) -> VecI32 {
-    unsafe { _mm_sub_epi32(a, b) }
+pub fn from_array_i32(a: [i32; CHUNK_SIZE_I32]) -> VecI32 {
+    unsafe { std::mem::transmute(a) }
+}
+
+#[must_use]
+#[inline(always)]
+pub fn add_i32(a: VecI32, b: VecI32) -> VecI32 {
+    unsafe { _mm_add_epi32(a, b) }
 }
 
 #[must_use]
@@ -147,6 +156,34 @@ pub fn max_i32(a: VecI32, b: VecI32) -> VecI32 {
     unsafe { _mm_max_epi32(a, b) }
 }
 
+#[must_use]
+#[inline(always)]
+pub fn shift_right_i32<const SHIFT: i32>(a: VecI32) -> VecI32 {
+    unsafe { _mm_srai_epi32::<SHIFT>(a) }
+}
+
+#[must_use]
+#[inline(always)]
+pub fn dpbusd_i32(sum: VecI32, a: VecU8, b: VecI8) -> VecI32 {
+    unsafe { add_i32(sum, _mm_madd_epi16(_mm_maddubs_epi16(a, b), set1_i16(1))) }
+}
+
+#[must_use]
+#[inline(always)]
+pub fn dpbusdx2_i32(sum: VecI32, a_1: VecU8, b_1: VecI8, a_2: VecU8, b_2: VecI8) -> VecI32 {
+    let result = unsafe {
+        let products = _mm_add_epi16(_mm_maddubs_epi16(a_1, b_1), _mm_maddubs_epi16(a_2, b_2));
+        add_i32(sum, _mm_madd_epi16(products, set1_i16(1)))
+    };
+
+    debug_assert_eq!(
+        to_array_i32(result),
+        to_array_i32(dpbusd_i32(dpbusd_i32(sum, a_1, b_1), a_2, b_2)),
+    );
+
+    result
+}
+
 pub fn hsum_i32(v: VecI32) -> i32 {
     // https://github.com/rust-lang/rust/issues/111147
     const fn mm_shuffle(z: u32, y: u32, x: u32, w: u32) -> i32 {
@@ -155,10 +192,10 @@ pub fn hsum_i32(v: VecI32) -> i32 {
 
     unsafe {
         let hi64 = _mm_unpackhi_epi64(v, v);
-        let sum64 = _mm_add_epi32(v, hi64);
+        let sum64 = add_i32(v, hi64);
 
         let hi32 = _mm_shuffle_epi32(sum64, mm_shuffle(2, 3, 0, 1));
-        let sum32 = _mm_add_epi32(sum64, hi32);
+        let sum32 = add_i32(sum64, hi32);
 
         _mm_cvtsi128_si32(sum32)
     }

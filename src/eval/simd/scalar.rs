@@ -23,124 +23,193 @@
 
 #![allow(unused)]
 
-pub type VecI16 = i16;
-pub type VecI32 = i32;
+pub type VecU8 = [u8; 16];
+pub type VecI8 = [i8; 16];
+pub type VecI16 = [i16; 8];
+pub type VecI32 = [i32; 4];
 
-pub const CHUNK_SIZE_I16: usize = 1;
-pub const CHUNK_SIZE_I32: usize = 1;
+pub const CHUNK_SIZE_I8: usize = size_of::<VecI8>() / size_of::<i8>();
+pub const CHUNK_SIZE_I16: usize = size_of::<VecI16>() / size_of::<i16>();
+pub const CHUNK_SIZE_I32: usize = size_of::<VecI32>() / size_of::<i32>();
+
+#[must_use]
+#[inline(always)]
+pub unsafe fn set1_u8x4(ptr: *const u8) -> VecU8 {
+    let bytes = unsafe { ptr.cast::<[u8; 4]>().read() };
+    let mut out = [0; 16];
+    for (out, &byte) in out.iter_mut().zip(bytes.iter().cycle()) {
+        *out = byte;
+    }
+    out
+}
+
+#[inline(always)]
+pub unsafe fn store_u8(ptr: *mut u8, vec: VecU8) {
+    unsafe { ptr.cast::<VecU8>().write(vec) }
+}
+
+#[must_use]
+#[inline(always)]
+pub unsafe fn load_i8(ptr: *const i8) -> VecI8 {
+    unsafe { ptr.cast::<VecI8>().read() }
+}
 
 #[must_use]
 #[inline(always)]
 pub fn zero_i16() -> VecI16 {
-    0
+    set1_i16(0)
 }
 
 #[must_use]
 #[inline(always)]
 pub fn set1_i16(v: i16) -> VecI16 {
-    v
+    [v; 8]
 }
 
 #[must_use]
 #[inline(always)]
 pub unsafe fn load_i16(ptr: *const i16) -> VecI16 {
-    unsafe { ptr.read() }
-}
-
-#[inline(always)]
-pub unsafe fn store_i16(ptr: *mut i16, vec: VecI16) {
-    unsafe { ptr.write(vec) }
+    unsafe { ptr.cast::<VecI16>().read() }
 }
 
 #[must_use]
 #[inline(always)]
-pub fn add_i16(a: VecI16, b: VecI16) -> VecI16 {
-    a.wrapping_add(b)
+pub fn min_i16(mut a: VecI16, b: VecI16) -> VecI16 {
+    for (a, b) in a.iter_mut().zip(b) {
+        *a = (*a).min(b);
+    }
+    a
 }
 
 #[must_use]
 #[inline(always)]
-pub fn sub_i16(a: VecI16, b: VecI16) -> VecI16 {
-    a.wrapping_sub(b)
+pub fn max_i16(mut a: VecI16, b: VecI16) -> VecI16 {
+    for (a, b) in a.iter_mut().zip(b) {
+        *a = (*a).max(b);
+    }
+    a
 }
 
 #[must_use]
 #[inline(always)]
-pub fn mul_i16(a: VecI16, b: VecI16) -> VecI16 {
-    a.wrapping_mul(b)
+pub fn mulhi_shift_i16<const SHIFT: i32>(mut a: VecI16, b: VecI16) -> VecI16 {
+    for (a, b) in a.iter_mut().zip(b) {
+        *a = ((i32::from(*a) * i32::from(b) + (1 << (15 - SHIFT))) >> (16 - SHIFT)) as i16;
+    }
+    a
 }
 
 #[must_use]
 #[inline(always)]
-pub fn min_i16(a: VecI16, b: VecI16) -> VecI16 {
-    a.min(b)
-}
-
-#[must_use]
-#[inline(always)]
-pub fn max_i16(a: VecI16, b: VecI16) -> VecI16 {
-    a.max(b)
-}
-
-#[must_use]
-#[inline(always)]
-pub fn madd_i16(a: VecI16, b: VecI16) -> VecI32 {
-    i32::from(a) * i32::from(b)
+pub fn packus_i16(a: VecI16, b: VecI16) -> VecU8 {
+    let mut out = [0; 16];
+    for (out, v) in out.iter_mut().zip(a.into_iter().chain(b)) {
+        *out = v.clamp(0, u8::MAX as i16) as u8;
+    }
+    out
 }
 
 #[must_use]
 #[inline(always)]
 pub fn zero_i32() -> VecI32 {
-    0
+    set1_i32(0)
 }
 
 #[must_use]
 #[inline(always)]
 pub fn set1_i32(v: i32) -> VecI32 {
-    v
+    [v; 4]
 }
 
 #[must_use]
 #[inline(always)]
 pub unsafe fn load_i32(ptr: *const i32) -> VecI32 {
-    unsafe { ptr.read() }
+    unsafe { ptr.cast::<VecI32>().read() }
 }
 
 #[inline(always)]
 pub unsafe fn store_i32(ptr: *mut i32, vec: VecI32) {
-    unsafe { ptr.write(vec) }
+    unsafe { ptr.cast::<VecI32>().write(vec) }
 }
 
 #[must_use]
 #[inline(always)]
-pub fn add_i32(a: VecI32, b: VecI32) -> VecI32 {
-    a.wrapping_add(b)
+pub fn to_array_i32(v: VecI32) -> [i32; CHUNK_SIZE_I32] {
+    v
 }
 
 #[must_use]
 #[inline(always)]
-pub fn sub_i32(a: VecI32, b: VecI32) -> VecI32 {
-    a.wrapping_sub(b)
+pub fn from_array_i32(a: [i32; CHUNK_SIZE_I32]) -> VecI32 {
+    a
 }
 
 #[must_use]
 #[inline(always)]
-pub fn mul_i32(a: VecI32, b: VecI32) -> VecI32 {
-    a.wrapping_mul(b)
+pub fn add_i32(mut a: VecI32, b: VecI32) -> VecI32 {
+    for (a, b) in a.iter_mut().zip(b) {
+        *a = a.wrapping_add(b);
+    }
+    a
 }
 
 #[must_use]
 #[inline(always)]
-pub fn min_i32(a: VecI32, b: VecI32) -> VecI32 {
-    a.min(b)
+pub fn mul_i32(mut a: VecI32, b: VecI32) -> VecI32 {
+    for (a, b) in a.iter_mut().zip(b) {
+        *a = a.wrapping_mul(b);
+    }
+    a
 }
 
 #[must_use]
 #[inline(always)]
-pub fn max_i32(a: VecI32, b: VecI32) -> VecI32 {
-    a.max(b)
+pub fn min_i32(mut a: VecI32, b: VecI32) -> VecI32 {
+    for (a, b) in a.iter_mut().zip(b) {
+        *a = (*a).min(b);
+    }
+    a
+}
+
+#[must_use]
+#[inline(always)]
+pub fn max_i32(mut a: VecI32, b: VecI32) -> VecI32 {
+    for (a, b) in a.iter_mut().zip(b) {
+        *a = (*a).max(b);
+    }
+    a
+}
+
+#[must_use]
+#[inline(always)]
+pub fn shift_right_i32<const SHIFT: i32>(mut a: VecI32) -> VecI32 {
+    for a in a.iter_mut() {
+        *a >>= SHIFT;
+    }
+    a
+}
+
+#[must_use]
+#[inline(always)]
+pub fn dpbusd_i32(mut sum: VecI32, a: VecU8, b: VecI8) -> VecI32 {
+    for ((sum, a), b) in sum.iter_mut().zip(a.as_chunks::<4>().0).zip(b.as_chunks::<4>().0) {
+        for (&a, &b) in a.iter().zip(b) {
+            *sum = sum.wrapping_add(i32::from(a) * i32::from(b));
+        }
+    }
+    sum
+}
+
+#[must_use]
+#[inline(always)]
+pub fn dpbusdx2_i32(sum: VecI32, a_1: VecU8, b_1: VecI8, a_2: VecU8, b_2: VecI8) -> VecI32 {
+    dpbusd_i32(dpbusd_i32(sum, a_1, b_1), a_2, b_2)
 }
 
 pub fn hsum_i32(v: VecI32) -> i32 {
-    v
+    let mut sum = 0i32;
+    for v in v {
+        sum = sum.wrapping_add(v);
+    }
+    sum
 }

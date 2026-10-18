@@ -40,6 +40,10 @@ cfg_select! {
         #[path = "simd/sse41.rs"]
         pub(super) mod simd;
     }
+    all(target_arch = "aarch64", target_feature = "neon") => {
+        #[path = "simd/neon.rs"]
+        pub(super) mod simd;
+    }
     _ => {
         #[path = "simd/scalar.rs"]
         pub(super) mod simd;
@@ -51,11 +55,19 @@ pub const STACK_INPUT_SIZE: usize = 12 * Color::COUNT * PieceType::COUNT * Squar
 pub const RESERVES_INPUT_SIZE: usize = 30 * Color::COUNT;
 
 pub const L1_SIZE: usize = 768;
+pub const L2_SIZE: usize = 32;
+pub const L3_SIZE: usize = 32;
 
-pub const OUTPUT_BUCKETS: usize = 16;
+pub const L1_PAIR_COUNT: usize = L1_SIZE / 2;
 
-pub const FT_Q: i32 = 255;
-pub const L1_Q: i32 = 64;
+pub const OUTPUT_BUCKET_COUNT: usize = 16;
+
+pub const Q0: i32 = 255;
+pub const Q: i32 = 64;
+
+pub const Q0_BITS: i32 = 8;
+pub const Q1_BITS: i32 = 7;
+pub const Q_BITS: i32 = 6;
 
 pub const SCALE: i32 = 400;
 
@@ -65,11 +77,26 @@ pub(super) struct Network {
     pub ftw_stack: [[i16; L1_SIZE]; STACK_INPUT_SIZE],
     pub ftw_reserves: [[i16; L1_SIZE]; RESERVES_INPUT_SIZE],
     pub ftb: [i16; L1_SIZE],
-    pub l1w: [[[i16; L1_SIZE]; 2]; OUTPUT_BUCKETS],
-    pub l1b: [i16; OUTPUT_BUCKETS],
+    pub l1w: [[i8; L1_SIZE * L2_SIZE]; OUTPUT_BUCKET_COUNT],
+    pub l1b: [[i32; L2_SIZE]; OUTPUT_BUCKET_COUNT],
+    pub l2w: [[i32; L2_SIZE * L3_SIZE]; OUTPUT_BUCKET_COUNT],
+    pub l2b: [[i32; L3_SIZE]; OUTPUT_BUCKET_COUNT],
+    pub l3w: [[i32; L3_SIZE]; OUTPUT_BUCKET_COUNT],
+    pub l3b: [i32; OUTPUT_BUCKET_COUNT],
 }
 
 pub(super) static NET: Network = unsafe { std::mem::transmute(*include_bytes!(env!("EVALFILE"))) };
+
+#[must_use]
+pub(super) fn which_output_bucket(pos: &Position) -> usize {
+    let w_reserves = pos.flats_in_hand(Color::White);
+    let b_reserves = pos.flats_in_hand(Color::Black);
+    let min_reserves = w_reserves.min(b_reserves);
+    let bucket = [
+        0, 0, 1, 2, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7,
+    ][min_reserves as usize];
+    pos.stm().idx() * 8 + bucket
+}
 
 #[must_use]
 pub(super) fn evaluate_once(pos: &Position) -> i32 {
