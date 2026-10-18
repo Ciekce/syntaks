@@ -171,6 +171,8 @@ fn search<NT: NodeType>(
 
     thread.inc_nodes();
 
+    let draw_score = thread.draw_score();
+
     if !NT::ROOT_NODE {
         let mut push_to_pv = |bb: Bitboard| {
             if NT::PV_NODE {
@@ -228,8 +230,8 @@ fn search<NT: NodeType>(
                 return SCORE_MATE - ply - 1;
             }
 
-            if fcd == -1 && alpha < 0 {
-                alpha = 0;
+            if fcd == -1 && alpha < draw_score {
+                alpha = draw_score;
                 if alpha >= beta {
                     push_to_pv(!pos.occ());
                     return alpha;
@@ -446,7 +448,7 @@ fn search<NT: NodeType>(
         let score = if let Some(state) = thread.check_terminal_state(ply, &new_pos, mv) {
             match state {
                 TerminalState::Win => SCORE_MATE - ply - 1,
-                TerminalState::Draw => 0,
+                TerminalState::Draw => draw_score,
                 TerminalState::Loss => -SCORE_MATE + ply + 1,
             }
         } else {
@@ -764,6 +766,12 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
     }
 
     assert_ne!(score, -SCORE_INF);
+
+    // clamp draw scores to 0
+    let score = match score.abs() <= 2 {
+        true => 0,
+        false => score,
+    };
 
     let ms = (time * 1000.0) as usize;
     let nps = ((nodes as f64) / time) as usize;

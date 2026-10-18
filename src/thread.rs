@@ -356,6 +356,11 @@ impl ThreadData {
         self.key_history.pop();
     }
 
+    pub fn draw_score(&self) -> Score {
+        let nodes = self.nodes();
+        2 - (nodes % 4) as Score
+    }
+
     fn is_drawn_by_repetition(&self, curr: u64, ply: i32) -> bool {
         let mut ply = ply - 1;
         let mut repetitions = 0;
