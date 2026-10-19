@@ -229,9 +229,9 @@ fn search<NT: NodeType>(
             }
 
             if fcd == -1 && alpha < 0 {
+                push_to_pv(!pos.occ());
                 alpha = 0;
                 if alpha >= beta {
-                    push_to_pv(!pos.occ());
                     return alpha;
                 }
             }
