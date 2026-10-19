@@ -64,7 +64,7 @@ fn do_spreads(dst: &mut Vec<Move>, sq: Square, dir: Direction, lsb: u16, mut pat
     }
 }
 
-fn generate_spreads(dst: &mut Vec<Move>, pos: &Position) {
+pub fn generate_spreads(dst: &mut Vec<Move>, pos: &Position) {
     for sq in pos.color_bb(pos.stm()) {
         let top_pt = pos.top_pt(sq).unwrap();
         let max = pos.height(sq).min(6);

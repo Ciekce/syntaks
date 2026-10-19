@@ -25,9 +25,9 @@ use crate::bitboard::Bitboard;
 use crate::core::*;
 use crate::eval::static_eval;
 use crate::limit::Limits;
-use crate::movegen::generate_moves;
+use crate::movegen::{generate_moves, generate_spreads};
 use crate::movepick::Movepicker;
-use crate::position::Position;
+use crate::position::{FlatCountOutcome, Position};
 use crate::takmove::Move;
 use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, set_pv, update_pv};
@@ -171,10 +171,18 @@ fn search<NT: NodeType>(
 
     let beta = beta;
 
+    if depth <= 0 {
+        return esearch::<NT>(thread, data_stack, pos, ply, alpha, beta);
+    }
+
     thread.inc_nodes();
 
+    if NT::PV_NODE {
+        thread.update_seldepth(ply);
+    }
+
     if !NT::ROOT_NODE {
-        let mut push_to_pv = |bb: Bitboard| {
+        let mut push_placement_to_pv = |bb: Bitboard| {
             if NT::PV_NODE {
                 let pt = if pos.flats_in_hand(pos.stm()) > 0 {
                     PieceType::Flat
@@ -189,59 +197,24 @@ fn search<NT: NodeType>(
             }
         };
 
-        let influence = pos.influence(pos.stm());
-
-        let vert_crit = influence[0] & influence[1];
-        let horz_crit = influence[2] & influence[3];
-        let criticals = vert_crit | horz_crit;
-        let open_criticals = criticals & !pos.occ();
-
-        if !open_criticals.is_empty() {
-            push_to_pv(open_criticals);
-            return SCORE_MATE - ply - 1;
-        }
-
-        for (criticals, edges) in [
-            (vert_crit, Bitboard::UPPER_EDGE | Bitboard::LOWER_EDGE),
-            (horz_crit, Bitboard::LEFT_EDGE | Bitboard::RIGHT_EDGE),
-        ] {
-            for sq in criticals & pos.piece_bb(PieceType::Flat) {
-                let neighbors = Bitboard::neighbors(sq);
-                let attackers = neighbors & pos.roads(pos.stm());
-                let edge_bonus = sq.bb() & edges;
-                if (attackers | edge_bonus).popcount() >= 3 {
-                    // todo push_to_pv
-                    return SCORE_MATE - ply - 1;
-                }
-            }
-        }
-
-        if (pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0)
-            || pos.occ().popcount() == Square::COUNT as u32 - 1
-        {
-            let fcd = pos.fcd(pos.stm());
-
-            if fcd >= 0 {
-                push_to_pv(!pos.occ());
+        match check_terminal_in_advance(pos) {
+            Some(AchievableTerminalState::Win(placements)) => {
+                if let Some(placements) = placements {
+                    push_placement_to_pv(placements);
+                };
                 return SCORE_MATE - ply - 1;
             }
-
-            if fcd == -1 && alpha < 0 {
-                push_to_pv(!pos.occ());
-                alpha = 0;
-                if alpha >= beta {
-                    return alpha;
+            Some(AchievableTerminalState::Draw(placements)) => {
+                if alpha < 0 {
+                    push_placement_to_pv(placements);
+                    alpha = 0;
+                    if alpha >= beta {
+                        return alpha;
+                    }
                 }
             }
+            _ => {}
         }
-    }
-
-    if depth <= 0 {
-        return leaf::<NT>(thread, pos, ply, alpha, beta);
-    }
-
-    if NT::PV_NODE {
-        thread.update_seldepth(ply);
     }
 
     if ply > MAX_DEPTH {
@@ -603,9 +576,58 @@ fn search<NT: NodeType>(
     best_score
 }
 
-fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: i32, alpha: Score, beta: Score) -> Score {
+fn esearch<NT: NodeType>(
+    thread: &mut ThreadData,
+    data_stack: &mut [PlyData],
+    pos: &Position,
+    ply: i32,
+    mut alpha: Score,
+    beta: Score,
+) -> Score {
+    thread.inc_nodes();
+
     if NT::PV_NODE {
         thread.update_seldepth(ply);
+    }
+
+    let mut push_placement_to_pv = |bb: Bitboard| {
+        if NT::PV_NODE {
+            let pt = if pos.flats_in_hand(pos.stm()) > 0 {
+                PieceType::Flat
+            } else {
+                PieceType::Capstone
+            };
+
+            let sq = bb.lsb().unwrap();
+            let mv = Move::placement(pt, sq);
+
+            set_pv(&mut data_stack[0].pv, mv);
+        }
+    };
+
+    match check_terminal_in_advance(pos) {
+        Some(AchievableTerminalState::Win(placements)) => {
+            if let Some(placements) = placements {
+                push_placement_to_pv(placements);
+            };
+            return SCORE_MATE - ply - 1;
+        }
+        Some(AchievableTerminalState::Draw(placements)) => {
+            if alpha < 0 {
+                push_placement_to_pv(placements);
+                alpha = 0;
+                if alpha >= beta {
+                    return alpha;
+                }
+            }
+        }
+        _ => {}
+    }
+
+    if ply >= MAX_DEPTH {
+        let static_eval = static_eval(&mut thread.nnue_state, pos);
+        let correction = thread.corrhist.correction(pos, &thread.key_history);
+        return static_eval + correction;
     }
 
     let (tt_hit, tt_entry) = thread.shared().tt.probe(pos.key(), ply);
@@ -621,20 +643,144 @@ fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: i32, alpha: 
         return tt_entry.score;
     }
 
-    let raw_eval = if tt_hit {
-        tt_entry.raw_static_eval
-    } else {
-        static_eval(&mut thread.nnue_state, pos)
-    };
+    if !is_in_tak(pos, &mut data_stack[0].movelist) {
+        let raw_eval = if tt_hit {
+            tt_entry.raw_static_eval
+        } else {
+            static_eval(&mut thread.nnue_state, pos)
+        };
 
-    if !tt_hit {
-        thread.shared().tt.store_static_eval(pos.key(), raw_eval);
+        if !tt_hit {
+            thread.shared().tt.store_static_eval(pos.key(), raw_eval);
+        }
+
+        let correction = thread.corrhist.correction(pos, &thread.key_history);
+        let static_eval = raw_eval + correction;
+
+        return static_eval;
     }
 
-    let correction = thread.corrhist.correction(pos, &thread.key_history);
-    let static_eval = raw_eval + correction;
+    let (data, child_data) = data_stack.split_first_mut().unwrap();
 
-    static_eval
+    let mut best_score = -SCORE_INF;
+
+    let prev_move = if ply > 0 {
+        thread.stack[(ply - 1) as usize].mv
+    } else {
+        None
+    };
+
+    let mut movepicker = Movepicker::new(
+        pos,
+        &mut data.movelist,
+        &mut data.scores,
+        tt_entry.mv,
+        thread.killers[ply as usize],
+        prev_move,
+    );
+
+    while let Some(mv) = movepicker.next(&thread.history) {
+        let new_pos = thread.apply_move(ply, pos, mv);
+
+        let score = if let Some(state) = thread.check_terminal_state(ply, &new_pos, mv) {
+            match state {
+                TerminalState::Win => SCORE_MATE - ply - 1,
+                TerminalState::Draw => 0,
+                TerminalState::Loss => -SCORE_MATE + ply + 1,
+            }
+        } else {
+            -esearch::<NT>(thread, child_data, &new_pos, ply + 1, -beta, -alpha)
+        };
+
+        thread.pop_move();
+
+        if score > best_score {
+            best_score = score;
+        }
+
+        if !is_loss(best_score) {
+            break;
+        }
+    }
+
+    best_score
+}
+
+#[must_use]
+fn is_in_tak(pos: &Position, movelist: &mut Vec<Move>) -> bool {
+    let pos = pos.apply_nullmove();
+
+    match check_terminal_in_advance(&pos) {
+        Some(AchievableTerminalState::Win(_)) => return true,
+        _ => {}
+    };
+
+    movelist.clear();
+    generate_spreads(movelist, &pos);
+
+    for &mv in movelist.iter() {
+        let new_pos = pos.apply_move(mv);
+
+        if new_pos.has_road(pos.stm()) {
+            return true;
+        }
+
+        match new_pos.count_flats() {
+            FlatCountOutcome::Win(color) if color == pos.stm() => return true,
+            _ => {}
+        }
+    }
+
+    false
+}
+
+enum AchievableTerminalState {
+    Draw(Bitboard),
+    Win(Option<Bitboard>),
+}
+
+fn check_terminal_in_advance(pos: &Position) -> Option<AchievableTerminalState> {
+    let influence = pos.influence(pos.stm());
+
+    let vert_crit = influence[0] & influence[1];
+    let horz_crit = influence[2] & influence[3];
+    let criticals = vert_crit | horz_crit;
+    let open_criticals = criticals & !pos.occ();
+
+    if !open_criticals.is_empty() {
+        return Some(AchievableTerminalState::Win(Some(open_criticals)));
+    }
+
+    for (criticals, edges) in [
+        (vert_crit, Bitboard::UPPER_EDGE | Bitboard::LOWER_EDGE),
+        (horz_crit, Bitboard::LEFT_EDGE | Bitboard::RIGHT_EDGE),
+    ] {
+        for sq in criticals & pos.piece_bb(PieceType::Flat) {
+            let neighbors = Bitboard::neighbors(sq);
+            let attackers = neighbors & pos.roads(pos.stm());
+            let edge_bonus = sq.bb() & edges;
+            if (attackers | edge_bonus).popcount() >= 3 {
+                // todo push_to_pv
+                return Some(AchievableTerminalState::Win(None));
+            }
+        }
+    }
+
+    if (pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0)
+        || pos.occ().popcount() == Square::COUNT as u32 - 1
+    {
+        let fcd = pos.fcd(pos.stm());
+
+        if fcd >= 0 {
+            return Some(AchievableTerminalState::Win(Some(!pos.occ())));
+        }
+
+        if fcd == -1 {
+            return Some(AchievableTerminalState::Draw(!pos.occ()));
+        }
+    }
+
+    None
 }
 
 fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut ThreadData) {

@@ -272,7 +272,7 @@ pub struct ThreadData {
     pub stack: Vec<StackEntry>,
     pub corrhist: Box<CorrectionHistory>,
     pub history: Box<History>,
-    pub killers: [KillerTable; MAX_DEPTH as usize],
+    pub killers: [KillerTable; MAX_DEPTH as usize + 1],
     pub nnue_state: NnueState,
     pub shared: Option<Arc<SharedContext>>,
 }
@@ -289,7 +289,7 @@ impl ThreadData {
             stack: vec![StackEntry::default(); MAX_DEPTH as usize + 1],
             corrhist: CorrectionHistory::boxed(),
             history: History::boxed(),
-            killers: [Default::default(); MAX_DEPTH as usize],
+            killers: [Default::default(); _],
             nnue_state: NnueState::new(),
             shared: None,
         }
