@@ -28,6 +28,7 @@ use crate::limit::Limits;
 use crate::movegen::generate_moves;
 use crate::movepick::Movepicker;
 use crate::position::Position;
+use crate::prng::seed_from_entropy;
 use crate::takmove::Move;
 use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, set_pv, update_pv};
@@ -767,6 +768,13 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
         }
 
         if !thread.shared().options.silent {
+            if thread.shared().options.pick_random {
+                let random = seed_from_entropy() as usize % ctx.multipv;
+                if random != 0 {
+                    thread.root_moves.swap(0, random);
+                }
+            }
+
             let time = thread.shared().elapsed();
             final_report(thread, thread.root_depth, time, ctx.multipv);
         }

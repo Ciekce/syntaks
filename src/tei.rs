@@ -74,6 +74,7 @@ pub struct TeiOptions {
     pub mate_scores: bool,
     pub show_curr_move: bool,
     pub silent: bool,
+    pub pick_random: bool,
 }
 
 impl Default for TeiOptions {
@@ -84,6 +85,7 @@ impl Default for TeiOptions {
             mate_scores: true,
             show_curr_move: false,
             silent: false,
+            pick_random: false,
         }
     }
 }
@@ -352,6 +354,18 @@ impl TeiHandler {
     fn handle_go(&mut self, args: &[&str], start_time: Instant) {
         if self.searcher.is_searching() {
             eprintln!("Search running (received 'go')");
+            return;
+        }
+
+        if self.pos.ply() < 4 {
+            let multipv = self.options.multipv;
+            self.options.multipv = 6;
+            self.options.pick_random = true;
+            let limits = Limits::new(start_time);
+            self.searcher
+                .start_search(&self.pos, &self.key_history, start_time, limits, 8, &[], &self.options);
+            self.options.multipv = multipv;
+            self.options.pick_random = false;
             return;
         }
 
