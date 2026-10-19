@@ -25,6 +25,7 @@ use crate::core::*;
 use std::ops::*;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
+#[repr(C)]
 pub struct Bitboard {
     raw: u64,
 }
