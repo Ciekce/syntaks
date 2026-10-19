@@ -24,6 +24,27 @@
 use crate::core::*;
 use std::ops::*;
 
+const NEIGHBORS: [Bitboard; Square::COUNT] = {
+    let mut neighbors = [Bitboard::empty(); _];
+
+    let mut i = 0;
+    while i < Square::COUNT {
+        let bit = Square::from_raw(i as u8).unwrap().bb();
+
+        let neighbor_bb = bit
+            .shift(Direction::Up)
+            .or(bit.shift(Direction::Down))
+            .or(bit.shift(Direction::Left))
+            .or(bit.shift(Direction::Right));
+
+        neighbors[i] = neighbor_bb;
+
+        i += 1;
+    }
+
+    neighbors
+};
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
 #[repr(C)]
 pub struct Bitboard {
@@ -171,6 +192,11 @@ impl Bitboard {
             Direction::Left => self.and(Self::LEFT_EDGE.cmpl()).shr(-dir.offset() as u32),
             Direction::Right => self.and(Self::RIGHT_EDGE.cmpl()).shl(dir.offset() as u32),
         }
+    }
+
+    #[must_use]
+    pub const fn neighbors(sq: Square) -> Self {
+        NEIGHBORS[sq.idx()]
     }
 }
 

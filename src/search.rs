@@ -204,13 +204,9 @@ fn search<NT: NodeType>(
             (horz_crit, Bitboard::LEFT_EDGE | Bitboard::RIGHT_EDGE),
         ] {
             for sq in criticals & pos.piece_bb(PieceType::Flat) {
-                let bit = sq.bb();
-                let neighbors = bit.shift(Direction::Up)
-                    | bit.shift(Direction::Down)
-                    | bit.shift(Direction::Left)
-                    | bit.shift(Direction::Right);
+                let neighbors = Bitboard::neighbors(sq);
                 let attackers = neighbors & pos.roads(pos.stm());
-                let edge_bonus = bit & edges;
+                let edge_bonus = sq.bb() & edges;
                 if (attackers | edge_bonus).popcount() >= 3 {
                     // todo push_to_pv
                     return SCORE_MATE - ply - 1;
