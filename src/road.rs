@@ -40,17 +40,7 @@ use crate::bitboard::Bitboard;
 
 #[must_use]
 pub fn influence(road_occ: Bitboard) -> (bool, [Bitboard; 4]) {
-    let upper_edge = Bitboard::UPPER_EDGE;
-    let lower_edge = Bitboard::LOWER_EDGE;
-    let left_edge = Bitboard::LEFT_EDGE;
-    let right_edge = Bitboard::RIGHT_EDGE;
-
-    let mut edges = [
-        road_occ & upper_edge,
-        road_occ & lower_edge,
-        road_occ & left_edge,
-        road_occ & right_edge,
-    ];
+    let mut edges = Bitboard::EDGES.map(|edge| road_occ & edge);
 
     edges[0] |= edges[0] >> 6 & road_occ;
     edges[1] |= edges[1] << 6 & road_occ;

@@ -38,6 +38,8 @@ impl Bitboard {
     pub const LEFT_EDGE: Self = Self::from_raw(0x41041041);
     pub const RIGHT_EDGE: Self = Self::from_raw(0x820820820);
 
+    pub const EDGES: [Self; 4] = [Self::UPPER_EDGE, Self::LOWER_EDGE, Self::LEFT_EDGE, Self::RIGHT_EDGE];
+
     #[must_use]
     pub const fn empty() -> Self {
         Self { raw: 0 }
@@ -50,7 +52,7 @@ impl Bitboard {
 
     #[must_use]
     pub const fn edge(dir: Direction) -> Self {
-        [Self::UPPER_EDGE, Self::LOWER_EDGE, Self::LEFT_EDGE, Self::RIGHT_EDGE][dir.idx()]
+        Self::EDGES[dir.idx()]
     }
 
     #[must_use]
