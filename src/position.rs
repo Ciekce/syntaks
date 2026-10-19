@@ -205,7 +205,7 @@ pub struct Position {
 }
 
 impl Position {
-    pub const CARRY_LIMIT: u8 = 6;
+    pub const CARRY_LIMIT: u32 = 6;
     pub const KOMI: u32 = 2;
 
     // all flats + cap
@@ -360,6 +360,14 @@ impl Position {
     #[inline(always)]
     pub fn colors(&self, sq: Square) -> u64 {
         self.stacks.colors(sq)
+    }
+
+    #[must_use]
+    #[inline(always)]
+    pub fn colors_for(&self, sq: Square, color: Color) -> u64 {
+        let colors = self.colors(sq);
+        let colors = if color == Color::White { !colors } else { colors };
+        colors & ((1u64 << self.height(sq)) - 1)
     }
 
     #[must_use]
@@ -559,7 +567,7 @@ impl Position {
             let dir = mv.dir();
 
             let dropped = pattern.trailing_zeros();
-            let taken = 6 - dropped;
+            let taken = Self::CARRY_LIMIT - dropped;
 
             let mut pattern = pattern >> dropped;
             let (colors, top, new_top_color) = new_pos.stacks.take(mv.sq(), taken as u8);

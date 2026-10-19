@@ -245,7 +245,7 @@ impl FromStr for Move {
 
         next += 1;
 
-        let taken = taken.unwrap_or(1);
+        let taken = u32::from(taken.unwrap_or(1));
         let bytes = bytes.strip_suffix(b"*").unwrap_or(bytes);
 
         if (s.len() - next) > 6 {
