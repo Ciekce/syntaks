@@ -368,15 +368,27 @@ impl TranspositionTable {
 
         let slot = self.write_slot(cluster, entry_key);
 
-        let mv = if cluster.keys.get(slot) == entry_key {
-            mv.or_else(|| cluster.entries[slot].load().mv)
+        let existing_key = cluster.keys.get(slot);
+        let existing_entry = cluster.entries[slot].load();
+
+        let replace = flag == Some(TtFlag::Exact)
+            || entry_key != existing_key
+            || existing_entry.age_flag.age() != self.age
+            || depth + 4 > existing_entry.depth();
+
+        if !replace {
+            return;
+        }
+
+        let mv = if existing_key == entry_key {
+            mv.or_else(|| existing_entry.mv)
         } else {
             mv
         };
 
-        let entry = Entry::new(score, static_eval, mv, depth, ply, self.age, flag);
+        let new_entry = Entry::new(score, static_eval, mv, depth, ply, self.age, flag);
 
-        cluster.entries[slot].store(entry);
+        cluster.entries[slot].store(new_entry);
         cluster.keys.set(slot, entry_key);
     }
 
@@ -410,7 +422,7 @@ impl TranspositionTable {
             let entry = storage.load();
             entry.depth()
                 - AGE_PENALTY * self.relative_age(entry.age_flag)
-                - EMPTY_PENALTY * i32::from(entry.age_flag.flag().is_none())
+                - EMPTY_PENALTY * i32::from(!entry.is_present())
         };
 
         (0..ENTRIES_PER_CLUSTER)
