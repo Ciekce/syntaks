@@ -169,6 +169,8 @@ fn search<NT: NodeType>(
         }
     }
 
+    let beta = beta;
+
     thread.inc_nodes();
 
     if !NT::ROOT_NODE {
