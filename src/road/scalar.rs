@@ -69,6 +69,10 @@ pub(super) fn influence(road_occ: Bitboard, edges: &mut [Bitboard; 4]) -> bool {
         }
     };
 
+    for (mask, edge) in influence_masks.iter_mut().zip(Bitboard::EDGES) {
+        *mask |= edge.raw();
+    }
+
     *edges = influence_masks.map(Bitboard::from_raw);
 
     result
