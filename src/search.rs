@@ -45,8 +45,8 @@ const WIDEN_REPORT_DELAY: f64 = 1.0;
 const VERBOSE_MULTIPV_DELAY: f64 = 1.0;
 const CURRMOVE_REPORT_DELAY: f64 = 2.5;
 
-const WDL_A: f64 = 204.89;
-const WDL_B: f64 = 139.97;
+const WDL_A: f64 = 222.13;
+const WDL_B: f64 = 138.82;
 
 #[derive(Clone, Debug)]
 pub struct SearchContext {
