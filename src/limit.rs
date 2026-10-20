@@ -23,6 +23,8 @@
 
 use std::time::Instant;
 
+pub const MAX_MOVE_OVERHEAD_MS: u64 = 10000;
+
 const TIME_CHECK_INTERVAL: usize = 4096;
 
 #[derive(Copy, Clone, Debug)]
@@ -32,7 +34,11 @@ struct TimeManager {
 }
 
 impl TimeManager {
-    fn new(remaining: f64, increment: f64) -> Self {
+    fn new(remaining: f64, increment: f64, overhead: f64) -> Self {
+        println!("remaining: {}, overhead: {}", remaining, overhead);
+        let remaining = (remaining - overhead).max(0.001);
+        println!("remaining: {}", remaining);
+
         let base_time = remaining / 20.0 + increment;
 
         let max_time = remaining * 0.8;
@@ -101,10 +107,10 @@ impl Limits {
         }
     }
 
-    pub fn set_time_manager(&mut self, remaining: f64, increment: f64) -> bool {
+    pub fn set_time_manager(&mut self, remaining: f64, increment: f64, overhead: f64) -> bool {
         match self.time_manager {
             None => {
-                self.time_manager = Some(TimeManager::new(remaining, increment));
+                self.time_manager = Some(TimeManager::new(remaining, increment, overhead));
                 true
             }
             Some(_) => false,

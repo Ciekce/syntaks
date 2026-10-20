@@ -23,7 +23,7 @@
 
 use crate::core::Color;
 use crate::eval::static_eval_once;
-use crate::limit::Limits;
+use crate::limit::{Limits, MAX_MOVE_OVERHEAD_MS};
 use crate::perft::{perft, split_perft};
 use crate::position::*;
 use crate::search;
@@ -74,6 +74,7 @@ pub struct TeiOptions {
     pub mate_scores: bool,
     pub show_curr_move: bool,
     pub silent: bool,
+    pub move_overhead_ms: u64,
 }
 
 impl Default for TeiOptions {
@@ -84,6 +85,7 @@ impl Default for TeiOptions {
             mate_scores: true,
             show_curr_move: false,
             silent: false,
+            move_overhead_ms: 10,
         }
     }
 }
@@ -147,6 +149,7 @@ impl TeiHandler {
 
     fn handle_tei(&self) {
         let half_komi = Position::KOMI * 2;
+        let default_options = TeiOptions::default();
 
         println!("id name {} {}", NAME, VERSION);
         println!("id author {}", AUTHORS);
@@ -160,10 +163,23 @@ impl TeiHandler {
             DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB
         );
         println!("option name Threads type spin default 1 min 1 max {}", MAX_THREADS);
-        println!("option name MultiPV type spin default 1 min 1 max {}", MAX_MULTIPV);
-        println!("option name Minimal type check default false");
-        println!("option name MateScores type check default true");
-        println!("option name ShowCurrMove type check default false");
+        println!(
+            "option name MultiPV type spin default {} min 1 max {}",
+            default_options.multipv, MAX_MULTIPV
+        );
+        println!("option name Minimal type check default {}", default_options.minimal);
+        println!(
+            "option name MateScores type check default {}",
+            default_options.mate_scores
+        );
+        println!(
+            "option name ShowCurrMove type check default {}",
+            default_options.show_curr_move
+        );
+        println!(
+            "option name MoveOverhead type spin default {} min 0 max {}",
+            default_options.move_overhead_ms, MAX_MOVE_OVERHEAD_MS
+        );
 
         println!("teiok");
     }
@@ -271,6 +287,12 @@ impl TeiHandler {
             "showcurrmove" => {
                 if let Ok(show_curr_move) = value.parse::<bool>() {
                     self.options.show_curr_move = show_curr_move;
+                }
+            }
+            "moveoverhead" => {
+                if let Ok(overhead) = value.parse::<u64>() {
+                    let overhead = overhead.clamp(0, MAX_MOVE_OVERHEAD_MS);
+                    self.options.move_overhead_ms = overhead;
                 }
             }
             unknown => eprintln!("Unknown option '{}'", unknown),
@@ -487,8 +509,9 @@ impl TeiHandler {
         }
 
         if let Some(our_time) = our_time {
+            let overhead = self.options.move_overhead_ms as f64 / 1000.0;
             let our_inc = our_inc.unwrap_or(0.0);
-            limits.set_time_manager(our_time, our_inc);
+            limits.set_time_manager(our_time, our_inc, overhead);
         }
 
         let max_depth = max_depth.unwrap_or(search::MAX_DEPTH).clamp(1, search::MAX_DEPTH);
