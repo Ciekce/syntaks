@@ -182,14 +182,16 @@ fn main() {
             let ntm_hidden = ft(ntm_inputs, 0, L1 / 2) * ft(ntm_inputs, L1 / 2, L1);
 
             let hl1 = stm_hidden.concat(ntm_hidden);
-            let hl2 = (l1.slice(0, OUTPUT_BUCKETS * L2).forward(hl1).select(output_buckets)
-                + l1.slice(OUTPUT_BUCKETS * L2, (OUTPUT_BUCKETS + 1) * L2).forward(hl1))
-            .screlu();
+            let l1_out = l1.slice(0, OUTPUT_BUCKETS * L2).forward(hl1).select(output_buckets)
+                + l1.slice(OUTPUT_BUCKETS * L2, (OUTPUT_BUCKETS + 1) * L2).forward(hl1);
+            let skip = l1_out.slice_rows(0, 1);
+            let hl2 = l1_out.screlu();
             let hl3 = (l2.slice(0, OUTPUT_BUCKETS * L3).forward(hl2).select(output_buckets)
                 + l2.slice(OUTPUT_BUCKETS * L3, (OUTPUT_BUCKETS + 1) * L3).forward(hl2))
             .crelu();
             l3.slice(0, OUTPUT_BUCKETS).forward(hl3).select(output_buckets)
                 + l3.slice(OUTPUT_BUCKETS, OUTPUT_BUCKETS + 1).forward(hl3)
+                + skip
         });
 
     let l1_clip = AdamWParams {
