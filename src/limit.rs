@@ -35,9 +35,7 @@ struct TimeManager {
 
 impl TimeManager {
     fn new(remaining: f64, increment: f64, overhead: f64) -> Self {
-        println!("remaining: {}, overhead: {}", remaining, overhead);
         let remaining = (remaining - overhead).max(0.001);
-        println!("remaining: {}", remaining);
 
         let base_time = remaining / 20.0 + increment;
 
