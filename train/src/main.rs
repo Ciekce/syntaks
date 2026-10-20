@@ -15,12 +15,13 @@ use bullet_lib::{
 };
 use inputs::*;
 use loader::TakReader;
+use rand::{Rng, rng};
 use syntaks::core::{Score, is_decisive};
 use syntaks::format::GameResult;
 use syntaks::position::Position;
 use syntaks::takmove::Move;
 
-const L1: usize = 768;
+const L1: usize = 1024;
 const L2: usize = 32;
 const L3: usize = 32;
 const OUTPUT_BUCKETS: usize = 16;
@@ -40,7 +41,8 @@ const PACKUS_WIDTH: usize = 32;
 const SUPERBATCHES: usize = 200;
 
 fn filter(_pos: &Position, _mv: Move, score: Score, _result: GameResult) -> bool {
-    !is_decisive(score)
+    let mut rng = rng();
+    !is_decisive(score) && rng.random_bool(0.5)
 }
 
 fn packus_position(neuron: usize) -> usize {
