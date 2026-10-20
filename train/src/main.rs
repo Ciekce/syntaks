@@ -2,7 +2,10 @@ mod inputs;
 mod loader;
 
 use bullet_lib::{
-    nn::optimiser::{AdamW, AdamWParams},
+    nn::{
+        Affine,
+        optimiser::{AdamW, AdamWParams},
+    },
     trainer::{
         save::SavedFormat,
         schedule::{TrainingSchedule, TrainingSteps, lr, wdl},
@@ -75,6 +78,22 @@ fn bucket_major(weights: Vec<f32>, inner: usize) -> Vec<f32> {
     out
 }
 
+fn merge_fac(weights: Vec<f32>, inner: usize) -> Vec<f32> {
+    let rows = weights.len() / ((OUTPUT_BUCKETS + 1) * inner);
+    let mut out = vec![0.0; rows * OUTPUT_BUCKETS * inner];
+    for row in 0..rows {
+        let fac = (row * (OUTPUT_BUCKETS + 1) + OUTPUT_BUCKETS) * inner;
+        for ob in 0..OUTPUT_BUCKETS {
+            let from = (row * (OUTPUT_BUCKETS + 1) + ob) * inner;
+            let to = (row * OUTPUT_BUCKETS + ob) * inner;
+            for i in 0..inner {
+                out[to + i] = weights[from + i] + weights[fac + i];
+            }
+        }
+    }
+    out
+}
+
 fn l1w_layout(weights: Vec<f32>) -> Vec<f32> {
     let bucketed = bucket_major(weights, L2);
     let mut out = vec![0.0; bucketed.len()];
@@ -123,42 +142,59 @@ fn main() {
                 .round()
                 .quantise::<i16>(Q0),
             SavedFormat::id("l1w")
+                .transform(|_, values| merge_fac(values, L2))
                 .transform(|_, values| values.iter().map(|f| f / (FT_SHIFT_SCALE * FT_SHIFT_SCALE)).collect())
                 .transform(|_, values| l1w_layout(values))
                 .round()
                 .quantise::<i8>(Q1),
-            SavedFormat::id("l1b").round().quantise::<i32>(Q * 256),
+            SavedFormat::id("l1b")
+                .transform(|_, values| merge_fac(values, L2))
+                .round()
+                .quantise::<i32>(Q * 256),
             SavedFormat::id("l2w")
+                .transform(|_, values| merge_fac(values, L3))
                 .transform(|_, values| l2w_layout(values))
                 .round()
                 .quantise::<i16>(Q as i16),
-            SavedFormat::id("l2b").round().quantise::<i32>(Q.pow(3)),
+            SavedFormat::id("l2b")
+                .transform(|_, values| merge_fac(values, L3))
+                .round()
+                .quantise::<i32>(Q.pow(3)),
             SavedFormat::id("l3w")
+                .transform(|_, values| merge_fac(values, 1))
                 .transform(|_, values| bucket_major(values, 1))
                 .round()
                 .quantise::<i32>(Q),
-            SavedFormat::id("l3b").round().quantise::<i32>(Q.pow(4)),
+            SavedFormat::id("l3b")
+                .transform(|_, values| merge_fac(values, 1))
+                .round()
+                .quantise::<i32>(Q.pow(4)),
         ])
         .loss_fn(|output, target| output.sigmoid().squared_error(target))
         .build(|builder, stm_inputs, ntm_inputs, output_buckets| {
             let l0 = builder.new_affine("l0", TakTopRelativeStacks::NUM_INPUTS, L1);
-            let l1 = builder.new_affine("l1", L1, OUTPUT_BUCKETS * L2);
-            let l2 = builder.new_affine("l2", L2, OUTPUT_BUCKETS * L3);
-            let l3 = builder.new_affine("l3", L3, OUTPUT_BUCKETS);
+            let l1 = builder.new_affine("l1", L1, (OUTPUT_BUCKETS + 1) * L2);
+            let l2 = builder.new_affine("l2", L2, (OUTPUT_BUCKETS + 1) * L3);
+            let l3 = builder.new_affine("l3", L3, OUTPUT_BUCKETS + 1);
 
             let ft = |input, start, end| l0.slice(start, end).forward(input).crelu();
             let stm_hidden = ft(stm_inputs, 0, L1 / 2) * ft(stm_inputs, L1 / 2, L1);
             let ntm_hidden = ft(ntm_inputs, 0, L1 / 2) * ft(ntm_inputs, L1 / 2, L1);
 
             let hl1 = stm_hidden.concat(ntm_hidden);
-            let hl2 = l1.forward(hl1).select(output_buckets).screlu();
-            let hl3 = l2.forward(hl2).select(output_buckets).crelu();
-            l3.forward(hl3).select(output_buckets)
+            let hl2 = (l1.slice(0, OUTPUT_BUCKETS * L2).forward(hl1).select(output_buckets)
+                + l1.slice(OUTPUT_BUCKETS * L2, (OUTPUT_BUCKETS + 1) * L2).forward(hl1))
+            .screlu();
+            let hl3 = (l2.slice(0, OUTPUT_BUCKETS * L3).forward(hl2).select(output_buckets)
+                + l2.slice(OUTPUT_BUCKETS * L3, (OUTPUT_BUCKETS + 1) * L3).forward(hl2))
+            .crelu();
+            l3.slice(0, OUTPUT_BUCKETS).forward(hl3).select(output_buckets)
+                + l3.slice(OUTPUT_BUCKETS, OUTPUT_BUCKETS + 1).forward(hl3)
         });
 
     let l1_clip = AdamWParams {
-        max_weight: L1_RANGE,
-        min_weight: -L1_RANGE,
+        max_weight: L1_RANGE / 2.0,
+        min_weight: -L1_RANGE / 2.0,
         ..Default::default()
     };
     trainer.optimiser.set_params_for_weight("l1w", l1_clip);
