@@ -24,6 +24,7 @@
 use crate::core::{Color, Square, Transform, normalizer};
 use crate::eval::nnue::*;
 use crate::position::Position;
+use arrayvec::ArrayVec;
 
 #[derive(Clone)]
 #[repr(align(64))]
@@ -35,34 +36,18 @@ pub(super) struct Accumulator {
 
 impl Accumulator {
     pub fn reset(&mut self, pos: &Position, perspective: Color) {
-        self.values[perspective] = NET.ftb;
-
         let transform = normalizer(pos.cap_sq(perspective));
 
-        let mut activate_top = |feature: usize| {
-            let v = &mut self.values[perspective];
-            let w = &NET.ftw_top[feature];
-            for (v, w) in v.iter_mut().zip(w) {
-                *v += *w;
-            }
-        };
+        let mut rows = Updates::default();
 
         for side in [Color::White, Color::Black] {
             for sq in pos.color_bb(side) {
                 let perspective_sq = sq.transform(transform);
                 let pt = pos.top_pt(sq).unwrap();
-                let feature = top_feature_idx(perspective, side, pt, perspective_sq);
-                activate_top(feature);
+                rows.adds
+                    .push(&NET.ftw_top[top_feature_idx(perspective, side, pt, perspective_sq)]);
             }
         }
-
-        let mut activate_stack = |feature: usize| {
-            let v = &mut self.values[perspective];
-            let w = &NET.ftw_stack[feature];
-            for (v, w) in v.iter_mut().zip(w) {
-                *v += *w;
-            }
-        };
 
         for sq in pos.occ() {
             let height = pos.height(sq);
@@ -79,19 +64,11 @@ impl Accumulator {
 
             for depth in 0..count {
                 let color = Color::from_raw((colors & 0x1) as u8).unwrap();
-                let feature = stack_feature_idx(perspective, top, color, depth, perspective_sq);
-                activate_stack(feature);
+                rows.adds
+                    .push(&NET.ftw_stack[stack_feature_idx(perspective, top, color, depth, perspective_sq)]);
                 colors >>= 1;
             }
         }
-
-        let mut activate_reserves = |feature: usize| {
-            let v = &mut self.values[perspective];
-            let w = &NET.ftw_reserves[feature];
-            for (v, w) in v.iter_mut().zip(w) {
-                *v += *w;
-            }
-        };
 
         for color in [Color::White, Color::Black] {
             let reserves = pos.flats_in_hand(color);
@@ -100,9 +77,11 @@ impl Accumulator {
                 continue;
             }
 
-            let feature = reserves_feature_idx(perspective, color, reserves);
-            activate_reserves(feature);
+            rows.adds
+                .push(&NET.ftw_reserves[reserves_feature_idx(perspective, color, reserves)]);
         }
+
+        rows.apply(&mut self.values[perspective], &NET.ftb);
 
         self.set_updated(perspective);
     }
@@ -125,75 +104,22 @@ impl Accumulator {
         self.dirty[color]
     }
 
-    fn apply_top_updates(&mut self, src: &Self, perspective: Color, transform: Transform) {
+    fn collect_top_updates(&self, perspective: Color, transform: Transform, rows: &mut Updates) {
         let map_sq = |sq: Square| sq.transform(transform);
-
-        let dst = &mut self.values[perspective];
-        let src = &src.values[perspective];
-
         let updates = &self.ctx.updates;
 
-        if updates.adds.is_empty() && updates.subs.is_empty() {
-            *dst = *src;
-            return;
+        for &(piece, sq) in updates.adds.iter() {
+            rows.adds
+                .push(&NET.ftw_top[top_feature_idx(perspective, piece.color(), piece.piece_type(), map_sq(sq))]);
         }
 
-        let mut add_idx = 0;
-        let mut sub_idx = 0;
-
-        match (updates.adds.is_empty(), updates.subs.is_empty()) {
-            (false, false) => {
-                let (add_piece, add_sq) = updates.adds[0];
-                let add = top_feature_idx(perspective, add_piece.color(), add_piece.piece_type(), map_sq(add_sq));
-
-                let (sub_piece, sub_sq) = updates.subs[0];
-                let sub = top_feature_idx(perspective, sub_piece.color(), sub_piece.piece_type(), map_sq(sub_sq));
-
-                Self::add_sub(&NET.ftw_top, dst, src, add, sub);
-
-                add_idx += 1;
-                sub_idx += 1;
-            }
-            (false, true) => {
-                let (add_piece, add_sq) = updates.adds[0];
-                let add = top_feature_idx(perspective, add_piece.color(), add_piece.piece_type(), map_sq(add_sq));
-
-                Self::add(&NET.ftw_top, dst, src, add);
-
-                add_idx += 1;
-            }
-            (true, false) => {
-                let (sub_piece, sub_sq) = updates.subs[0];
-                let sub = top_feature_idx(perspective, sub_piece.color(), sub_piece.piece_type(), map_sq(sub_sq));
-
-                Self::sub(&NET.ftw_top, dst, src, sub);
-
-                sub_idx += 1;
-            }
-            _ => {}
-        }
-
-        while add_idx < updates.adds.len() {
-            let (add_piece, add_sq) = updates.adds[add_idx];
-            let add = top_feature_idx(perspective, add_piece.color(), add_piece.piece_type(), map_sq(add_sq));
-
-            Self::add_in_place(&NET.ftw_top, dst, add);
-
-            add_idx += 1;
-        }
-
-        while sub_idx < updates.subs.len() {
-            let (sub_piece, sub_sq) = updates.subs[sub_idx];
-            let sub = top_feature_idx(perspective, sub_piece.color(), sub_piece.piece_type(), map_sq(sub_sq));
-
-            Self::sub_in_place(&NET.ftw_top, dst, sub);
-
-            sub_idx += 1;
+        for &(piece, sq) in updates.subs.iter() {
+            rows.subs
+                .push(&NET.ftw_top[top_feature_idx(perspective, piece.color(), piece.piece_type(), map_sq(sq))]);
         }
     }
 
-    fn apply_stack_updates(&mut self, perspective: Color, transform: Transform) {
-        let acc = &mut self.values[perspective];
+    fn collect_stack_updates(&self, perspective: Color, transform: Transform, rows: &mut Updates) {
         let updates = &self.ctx.updates;
 
         for &(sq, top_before, top_after, height_before, height_after, mut colors_before, mut colors_after) in
@@ -215,37 +141,22 @@ impl Accumulator {
 
             // top changed, must refresh
             if top_before != top_after {
-                let mut depth = 0;
-
-                while depth < height_before.min(height_after) {
-                    let before = Color::from_raw((colors_before & 0x1) as u8).unwrap();
-                    let after = Color::from_raw((colors_after & 0x1) as u8).unwrap();
-
-                    colors_before >>= 1;
-                    colors_after >>= 1;
-
-                    let sub = stack_feature_idx(perspective, top_before.unwrap(), before, depth, perspective_sq);
-                    let add = stack_feature_idx(perspective, top_after.unwrap(), after, depth, perspective_sq);
-
-                    Self::add_sub_in_place(&NET.ftw_stack, acc, add, sub);
-
-                    depth += 1;
-                }
-
-                while depth < height_before {
+                for depth in 0..height_before {
                     let before = Color::from_raw((colors_before & 0x1) as u8).unwrap();
                     colors_before >>= 1;
-                    let sub = stack_feature_idx(perspective, top_before.unwrap(), before, depth, perspective_sq);
-                    Self::sub_in_place(&NET.ftw_stack, acc, sub);
-                    depth += 1;
+                    rows.subs.push(
+                        &NET.ftw_stack
+                            [stack_feature_idx(perspective, top_before.unwrap(), before, depth, perspective_sq)],
+                    );
                 }
 
-                while depth < height_after {
+                for depth in 0..height_after {
                     let after = Color::from_raw((colors_after & 0x1) as u8).unwrap();
                     colors_after >>= 1;
-                    let add = stack_feature_idx(perspective, top_after.unwrap(), after, depth, perspective_sq);
-                    Self::add_in_place(&NET.ftw_stack, acc, add);
-                    depth += 1;
+                    rows.adds.push(
+                        &NET.ftw_stack
+                            [stack_feature_idx(perspective, top_after.unwrap(), after, depth, perspective_sq)],
+                    );
                 }
 
                 continue;
@@ -253,51 +164,34 @@ impl Accumulator {
 
             let top = top_before.unwrap();
 
-            let mut depth = 0;
-
-            while depth < height_before.min(height_after) {
+            for depth in 0..height_before.max(height_after) {
                 let before = Color::from_raw((colors_before & 0x1) as u8).unwrap();
                 let after = Color::from_raw((colors_after & 0x1) as u8).unwrap();
 
                 colors_before >>= 1;
                 colors_after >>= 1;
 
-                if before == after {
-                    depth += 1;
+                let in_before = depth < height_before;
+                let in_after = depth < height_after;
+
+                if in_before && in_after && before == after {
                     continue;
                 }
 
-                let sub = stack_feature_idx(perspective, top, before, depth, perspective_sq);
-                let add = stack_feature_idx(perspective, top, after, depth, perspective_sq);
-
-                Self::add_sub_in_place(&NET.ftw_stack, acc, add, sub);
-
-                depth += 1;
-            }
-
-            if height_before > height_after {
-                while depth < height_before {
-                    let before = Color::from_raw((colors_before & 0x1) as u8).unwrap();
-                    colors_before >>= 1;
-                    let sub = stack_feature_idx(perspective, top, before, depth, perspective_sq);
-                    Self::sub_in_place(&NET.ftw_stack, acc, sub);
-                    depth += 1;
+                if in_before {
+                    rows.subs
+                        .push(&NET.ftw_stack[stack_feature_idx(perspective, top, before, depth, perspective_sq)]);
                 }
-            } else {
-                while depth < height_after {
-                    let after = Color::from_raw((colors_after & 0x1) as u8).unwrap();
-                    colors_after >>= 1;
-                    let add = stack_feature_idx(perspective, top, after, depth, perspective_sq);
-                    Self::add_in_place(&NET.ftw_stack, acc, add);
-                    depth += 1;
+
+                if in_after {
+                    rows.adds
+                        .push(&NET.ftw_stack[stack_feature_idx(perspective, top, after, depth, perspective_sq)]);
                 }
             }
         }
     }
 
-    fn apply_reserve_updates(&mut self, perspective: Color) {
-        let acc = &mut self.values[perspective];
-
+    fn collect_reserve_updates(&self, perspective: Color, rows: &mut Updates) {
         for color in [Color::White, Color::Black] {
             let [reserves_before, reserves_after] = self.ctx.reserves[color];
 
@@ -307,13 +201,12 @@ impl Accumulator {
 
             assert!(reserves_before > reserves_after);
 
-            if reserves_after == 0 {
-                let sub = reserves_feature_idx(perspective, color, reserves_before);
-                Self::sub_in_place(&NET.ftw_reserves, acc, sub);
-            } else {
-                let sub = reserves_feature_idx(perspective, color, reserves_before);
-                let add = reserves_feature_idx(perspective, color, reserves_after);
-                Self::add_sub_in_place(&NET.ftw_reserves, acc, add, sub);
+            rows.subs
+                .push(&NET.ftw_reserves[reserves_feature_idx(perspective, color, reserves_before)]);
+
+            if reserves_after != 0 {
+                rows.adds
+                    .push(&NET.ftw_reserves[reserves_feature_idx(perspective, color, reserves_after)]);
             }
         }
     }
@@ -321,46 +214,55 @@ impl Accumulator {
     pub fn apply_updates(&mut self, src: &Self, perspective: Color) {
         let transform = normalizer(self.ctx.caps[perspective]);
 
-        self.apply_top_updates(src, perspective, transform);
-        self.apply_stack_updates(perspective, transform);
-        self.apply_reserve_updates(perspective);
+        let mut rows = Updates::default();
+        self.collect_top_updates(perspective, transform, &mut rows);
+        self.collect_stack_updates(perspective, transform, &mut rows);
+        self.collect_reserve_updates(perspective, &mut rows);
+
+        rows.apply(&mut self.values[perspective], &src.values[perspective]);
 
         self.set_updated(perspective);
     }
+}
 
-    fn add_sub(w: &[[i16; L1_SIZE]], dst: &mut [i16; L1_SIZE], src: &[i16; L1_SIZE], add: usize, sub: usize) {
-        for (((dst, src), add), sub) in dst.iter_mut().zip(src).zip(&w[add]).zip(&w[sub]) {
-            *dst = *src + *add - *sub;
-        }
-    }
+#[cfg(target_feature = "avx512f")]
+const UPDATE_CHUNK: usize = L1_SIZE;
+#[cfg(not(target_feature = "avx512f"))]
+const UPDATE_CHUNK: usize = 256;
+const MAX_UPDATE_ROWS: usize = 128;
 
-    fn add(w: &[[i16; L1_SIZE]], dst: &mut [i16; L1_SIZE], src: &[i16; L1_SIZE], add: usize) {
-        for ((dst, src), add) in dst.iter_mut().zip(src).zip(&w[add]) {
-            *dst = *src + *add;
-        }
-    }
+#[derive(Default)]
+struct Updates {
+    adds: ArrayVec<&'static [i16; L1_SIZE], MAX_UPDATE_ROWS>,
+    subs: ArrayVec<&'static [i16; L1_SIZE], MAX_UPDATE_ROWS>,
+}
 
-    fn sub(w: &[[i16; L1_SIZE]], dst: &mut [i16; L1_SIZE], src: &[i16; L1_SIZE], sub: usize) {
-        for ((dst, src), sub) in dst.iter_mut().zip(src).zip(&w[sub]) {
-            *dst = *src - *sub;
-        }
-    }
+impl Updates {
+    fn apply(&self, dst: &mut [i16; L1_SIZE], src: &[i16; L1_SIZE]) {
+        let paired = self.adds.len().min(self.subs.len());
 
-    fn add_sub_in_place(w: &[[i16; L1_SIZE]], v: &mut [i16; L1_SIZE], add: usize, sub: usize) {
-        for ((v, add), sub) in v.iter_mut().zip(&w[add]).zip(&w[sub]) {
-            *v += *add - *sub;
-        }
-    }
+        for offset in (0..L1_SIZE).step_by(UPDATE_CHUNK) {
+            let mut chunk: [i16; UPDATE_CHUNK] = src[offset..offset + UPDATE_CHUNK].try_into().unwrap();
 
-    fn add_in_place(w: &[[i16; L1_SIZE]], v: &mut [i16; L1_SIZE], add: usize) {
-        for (v, add) in v.iter_mut().zip(&w[add]) {
-            *v += *add;
-        }
-    }
+            for (&add, &sub) in self.adds.iter().zip(self.subs.iter()) {
+                for ((v, add), sub) in chunk.iter_mut().zip(&add[offset..]).zip(&sub[offset..]) {
+                    *v += *add - *sub;
+                }
+            }
 
-    fn sub_in_place(w: &[[i16; L1_SIZE]], v: &mut [i16; L1_SIZE], sub: usize) {
-        for (v, sub) in v.iter_mut().zip(&w[sub]) {
-            *v -= *sub;
+            for &add in &self.adds[paired..] {
+                for (v, add) in chunk.iter_mut().zip(&add[offset..]) {
+                    *v += *add;
+                }
+            }
+
+            for &sub in &self.subs[paired..] {
+                for (v, sub) in chunk.iter_mut().zip(&sub[offset..]) {
+                    *v -= *sub;
+                }
+            }
+
+            dst[offset..offset + UPDATE_CHUNK].copy_from_slice(&chunk);
         }
     }
 }
