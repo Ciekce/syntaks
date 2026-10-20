@@ -54,7 +54,7 @@ pub const TOP_INPUT_SIZE: usize = Color::COUNT * PieceType::COUNT * Square::COUN
 pub const STACK_INPUT_SIZE: usize = 12 * Color::COUNT * PieceType::COUNT * Square::COUNT * Color::COUNT;
 pub const RESERVES_INPUT_SIZE: usize = 30 * Color::COUNT;
 
-pub const L1_SIZE: usize = 768;
+pub const L1_SIZE: usize = 1024;
 pub const L2_SIZE: usize = 32;
 pub const L3_SIZE: usize = 32;
 
