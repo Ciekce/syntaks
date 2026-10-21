@@ -21,12 +21,19 @@
  * SOFTWARE.
  */
 
+use crate::takmove::Move;
 use crate::thread::RootMove;
 use std::time::Instant;
 
 pub const MAX_MOVE_OVERHEAD_MS: u64 = 10000;
 
 const TIME_CHECK_INTERVAL: usize = 4096;
+
+#[derive(Clone, Debug, Default)]
+pub struct TmContext {
+    last_best_move: Option<Move>,
+    stability: u32,
+}
 
 #[derive(Copy, Clone, Debug)]
 struct TimeManager {
@@ -46,10 +53,33 @@ impl TimeManager {
         Self { max_time, opt_time }
     }
 
-    fn should_stop_soft(&self, time: f64, _depth: i32, total_nodes: usize, pv_move: &RootMove) -> bool {
+    fn should_stop_soft(
+        &self,
+        ctx: &mut TmContext,
+        time: f64,
+        depth: i32,
+        total_nodes: usize,
+        pv_move: &RootMove,
+    ) -> bool {
+        let mut scale = 1.0;
+
+        let mv = pv_move.mv();
+        if ctx.last_best_move == Some(mv) {
+            ctx.stability += 1;
+        } else {
+            ctx.stability = 1;
+            ctx.last_best_move = Some(mv);
+        }
+
+        if depth >= 5 {
+            let stability = ctx.stability as f64;
+            scale *= (0.8 + 8.6 * (stability + 0.9).powf(-2.6)).min(2.3);
+        }
+
         let best_move_nodes_fraction = pv_move.nodes as f64 / total_nodes as f64;
-        let nodetm_scale = (2.5 - 2.5 * best_move_nodes_fraction).max(0.5);
-        time >= self.opt_time * nodetm_scale
+        scale *= (2.5 - 2.5 * best_move_nodes_fraction).max(0.5);
+
+        time >= self.opt_time * scale
     }
 
     fn should_stop_hard(&self, _nodes: usize, time: f64) -> bool {
@@ -118,7 +148,7 @@ impl Limits {
     }
 
     #[must_use]
-    pub fn should_stop_soft(&self, depth: i32, total_nodes: usize, pv_move: &RootMove) -> bool {
+    pub fn should_stop_soft(&self, ctx: &mut TmContext, depth: i32, total_nodes: usize, pv_move: &RootMove) -> bool {
         if let Some(max_nodes) = self.soft_nodes
             && total_nodes >= max_nodes
         {
@@ -134,7 +164,7 @@ impl Limits {
         }
 
         if let Some(time_manager) = self.time_manager
-            && time_manager.should_stop_soft(time, depth, total_nodes, pv_move)
+            && time_manager.should_stop_soft(ctx, time, depth, total_nodes, pv_move)
         {
             return true;
         }

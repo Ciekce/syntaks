@@ -22,7 +22,7 @@
  */
 
 use crate::eval::nnue_state::NnueState;
-use crate::limit::Limits;
+use crate::limit::{Limits, TmContext};
 use crate::node_counter::NodeCounter;
 use crate::position::FlatCountOutcome;
 use crate::tei::TeiOptions;
@@ -159,8 +159,8 @@ impl SharedContext {
         self.counter.count.load(Ordering::Relaxed) > 0
     }
 
-    fn check_stop_soft(&self, depth: i32, total_nodes: usize, pv_move: &RootMove) -> bool {
-        if self.limits.should_stop_soft(depth, total_nodes, pv_move) {
+    fn check_stop_soft(&self, ctx: &mut TmContext, depth: i32, total_nodes: usize, pv_move: &RootMove) -> bool {
+        if self.limits.should_stop_soft(ctx, depth, total_nodes, pv_move) {
             self.stopped.store(true, Ordering::Relaxed);
             return true;
         }
@@ -275,6 +275,7 @@ pub struct ThreadData {
     pub killers: [KillerTable; MAX_DEPTH as usize],
     pub nnue_state: NnueState,
     pub shared: Option<Arc<SharedContext>>,
+    pub tm_ctx: TmContext,
 }
 
 impl ThreadData {
@@ -292,6 +293,7 @@ impl ThreadData {
             killers: [Default::default(); _],
             nnue_state: NnueState::new(),
             shared: None,
+            tm_ctx: Default::default(),
         }
     }
 
@@ -304,9 +306,11 @@ impl ThreadData {
     }
 
     #[must_use]
-    pub fn check_stop_soft(&self) -> bool {
-        self.shared()
-            .check_stop_soft(self.root_depth, self.nodes(), self.pv_move())
+    pub fn check_stop_soft(&mut self) -> bool {
+        let nodes = self.nodes();
+        let pv_move = &self.root_moves[0];
+        let shared = self.shared.as_deref().unwrap();
+        shared.check_stop_soft(&mut self.tm_ctx, self.root_depth, nodes, pv_move)
     }
 
     #[must_use]
