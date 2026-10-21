@@ -29,6 +29,7 @@ use crate::position::*;
 use crate::search;
 use crate::search::{MAX_THREADS, Searcher};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
+use crate::wdl;
 use std::time::Instant;
 
 const NAME: &str = "syntaks";
@@ -136,6 +137,7 @@ impl TeiHandler {
                 "move" => self.handle_move(args),
                 "wait" => self.handle_wait(),
                 "d" => self.handle_d(),
+                "eval" => self.handle_eval(),
                 "perft" => self.handle_perft(args),
                 "splitperft" => self.handle_splitperft(args),
                 "bench" => self.handle_bench(args.first().copied()),
@@ -564,6 +566,15 @@ impl TeiHandler {
         };
 
         println!("Static eval (white-relative): {:+.2}", (static_eval as f64) / 100.0);
+    }
+
+    fn handle_eval(&self) {
+        let static_eval = static_eval_once(&self.pos);
+        println!(
+            "Static eval (stm-relative): raw {} cp {}",
+            static_eval,
+            wdl::normalise_score(static_eval)
+        );
     }
 
     fn handle_bench(&mut self, depth: Option<&str>) {

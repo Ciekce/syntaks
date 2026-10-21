@@ -22,3 +22,4 @@ pub mod tei;
 mod thread;
 mod ttable;
 mod util;
+mod wdl;

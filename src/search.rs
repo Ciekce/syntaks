@@ -33,6 +33,7 @@ use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, set_pv, update_pv};
 use crate::ttable::{ProbedEntry, TtFlag};
 use crate::util::command_channel::{Receiver, Sender, channel};
+use crate::wdl;
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
@@ -44,9 +45,6 @@ pub const MAX_DEPTH: i32 = 248;
 const WIDEN_REPORT_DELAY: f64 = 1.0;
 const VERBOSE_MULTIPV_DELAY: f64 = 1.0;
 const CURRMOVE_REPORT_DELAY: f64 = 2.5;
-
-const WDL_A: f64 = 222.13;
-const WDL_B: f64 = 138.82;
 
 #[derive(Clone, Debug)]
 pub struct SearchContext {
@@ -823,8 +821,7 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
             }
         }
     } else {
-        let scaled = (score as f64 * 100.0 / WDL_A).round() as Score;
-        print!("cp {}", scaled);
+        print!("cp {}", wdl::normalise_score(score));
     }
 
     if upper_bound {
@@ -844,15 +841,7 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
             print!(" wdl 0 0 1000");
         }
     } else {
-        let p = |cp: Score| {
-            let x = (WDL_A - cp as f64) / WDL_B;
-            (1000.0 / (1.0 + x.exp())).round() as i32
-        };
-
-        let w = p(score);
-        let l = p(-score);
-        let d = 1000 - w - l;
-
+        let (w, d, l) = wdl::probabilities(score);
         print!(" wdl {} {} {}", w, d, l);
     }
 
