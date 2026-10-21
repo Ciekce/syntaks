@@ -21,6 +21,7 @@
  * SOFTWARE.
  */
 
+use crate::thread::RootMove;
 use std::time::Instant;
 
 pub const MAX_MOVE_OVERHEAD_MS: u64 = 10000;
@@ -45,7 +46,8 @@ impl TimeManager {
         Self { max_time, opt_time }
     }
 
-    fn should_stop_soft(&self, _nodes: usize, time: f64, best_move_nodes_fraction: f64) -> bool {
+    fn should_stop_soft(&self, time: f64, _depth: i32, total_nodes: usize, pv_move: &RootMove) -> bool {
+        let best_move_nodes_fraction = pv_move.nodes as f64 / total_nodes as f64;
         let nodetm_scale = (2.5 - 2.5 * best_move_nodes_fraction).max(0.5);
         time >= self.opt_time * nodetm_scale
     }
@@ -116,9 +118,9 @@ impl Limits {
     }
 
     #[must_use]
-    pub fn should_stop_soft(&self, nodes: usize, best_move_nodes_fraction: f64) -> bool {
+    pub fn should_stop_soft(&self, depth: i32, total_nodes: usize, pv_move: &RootMove) -> bool {
         if let Some(max_nodes) = self.soft_nodes
-            && nodes >= max_nodes
+            && total_nodes >= max_nodes
         {
             return true;
         }
@@ -132,7 +134,7 @@ impl Limits {
         }
 
         if let Some(time_manager) = self.time_manager
-            && time_manager.should_stop_soft(nodes, time, best_move_nodes_fraction)
+            && time_manager.should_stop_soft(time, depth, total_nodes, pv_move)
         {
             return true;
         }

@@ -153,11 +153,7 @@ fn search<NT: NodeType>(
         return 0;
     }
 
-    if !NT::ROOT_NODE
-        && thread.is_main_thread()
-        && thread.root_depth > 1
-        && thread.shared().check_stop_hard(thread.nodes())
-    {
+    if !NT::ROOT_NODE && thread.is_main_thread() && thread.root_depth > 1 && thread.check_stop_hard() {
         return 0;
     }
 
@@ -727,10 +723,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
 
                 if last_pv
                     && !thread.shared().has_stopped()
-                    && (thread.root_depth >= ctx.max_depth
-                        || thread
-                            .shared()
-                            .check_stop_soft(thread.nodes(), thread.pv_move().nodes as f64 / (thread.nodes() as f64)))
+                    && (thread.root_depth >= ctx.max_depth || thread.check_stop_soft())
                 {
                     thread.shared().stop();
                 }

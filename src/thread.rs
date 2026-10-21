@@ -159,8 +159,8 @@ impl SharedContext {
         self.counter.count.load(Ordering::Relaxed) > 0
     }
 
-    pub fn check_stop_soft(&self, nodes: usize, best_move_nodes_fraction: f64) -> bool {
-        if self.limits.should_stop_soft(nodes, best_move_nodes_fraction) {
+    fn check_stop_soft(&self, depth: i32, total_nodes: usize, pv_move: &RootMove) -> bool {
+        if self.limits.should_stop_soft(depth, total_nodes, pv_move) {
             self.stopped.store(true, Ordering::Relaxed);
             return true;
         }
@@ -168,7 +168,7 @@ impl SharedContext {
         false
     }
 
-    pub fn check_stop_hard(&self, nodes: usize) -> bool {
+    fn check_stop_hard(&self, nodes: usize) -> bool {
         if self.limits.should_stop_hard(nodes) {
             self.stopped.store(true, Ordering::Relaxed);
             return true;
@@ -301,6 +301,17 @@ impl ThreadData {
 
     pub fn shared(&self) -> &SharedContext {
         self.shared.as_deref().unwrap()
+    }
+
+    #[must_use]
+    pub fn check_stop_soft(&self) -> bool {
+        self.shared()
+            .check_stop_soft(self.root_depth, self.nodes(), self.pv_move())
+    }
+
+    #[must_use]
+    pub fn check_stop_hard(&self) -> bool {
+        self.shared().check_stop_hard(self.nodes())
     }
 
     pub fn inc_nodes(&mut self) {
