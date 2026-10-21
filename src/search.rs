@@ -654,6 +654,10 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
 
     thread.nnue_state.reset(&ctx.root_pos);
 
+    if thread.is_main_thread() {
+        thread.tm_ctx = Default::default();
+    }
+
     let mut data_stack = vec![PlyData::new(); MAX_DEPTH as usize * 2];
 
     thread.root_depth = 1;
