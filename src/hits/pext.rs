@@ -45,7 +45,7 @@ struct Data {
 }
 
 const SQUARE_DATA: Data = {
-    let mut squares = [SquareData::new(); Square::COUNT];
+    let mut squares = [SquareData::new(); _];
     let mut table_size = 0;
 
     let mut idx = 0;
@@ -65,7 +65,7 @@ const SQUARE_DATA: Data = {
 
 #[static_init::dynamic]
 static HITS: [super::Hits; SQUARE_DATA.table_size] = {
-    let mut result = [[(0, Square::A1); Direction::COUNT]; SQUARE_DATA.table_size];
+    let mut result = [[(0, Square::A1); _]; _];
 
     for sq in Square::all() {
         let sq_data = &SQUARE_DATA.squares[sq];

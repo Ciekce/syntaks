@@ -84,7 +84,7 @@ static LMR_REDUCTIONS: [[i32; LMR_TABLE_MOVES]; MAX_DEPTH as usize] = {
     const BASE: f64 = 0.0;
     const DIVISOR: f64 = 3.0;
 
-    let mut reductions = [[0; LMR_TABLE_MOVES]; MAX_DEPTH as usize];
+    let mut reductions = [[0; _]; _];
 
     for depth in 1..MAX_DEPTH as usize {
         let ln_depth = (depth as f64).ln();

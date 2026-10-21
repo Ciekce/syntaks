@@ -84,7 +84,9 @@ fn influence_avx2(road_occ: Bitboard, edges: &mut [Bitboard; 4]) -> bool {
         }
     };
 
-    influence_masks = _mm256_or_si256(influence_masks, unsafe { std::mem::transmute(Bitboard::EDGES) });
+    influence_masks = _mm256_or_si256(influence_masks, unsafe {
+        std::mem::transmute::<[Bitboard; 4], __m256i>(Bitboard::EDGES)
+    });
 
     *edges = unsafe { std::mem::transmute::<__m256i, [Bitboard; 4]>(influence_masks) };
 

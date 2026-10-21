@@ -53,7 +53,7 @@ pub struct PackedTakBoard {
 impl PackedTakBoard {
     #[must_use]
     pub fn encode_position(pos: &Position) -> Self {
-        let mut out = [0u8; POSITION_RECORD_SIZE];
+        let mut out = [0u8; _];
         let mut bit = 0;
 
         for sq in Square::all() {

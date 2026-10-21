@@ -289,7 +289,7 @@ impl ThreadData {
             stack: vec![StackEntry::default(); MAX_DEPTH as usize + 1],
             corrhist: CorrectionHistory::boxed(),
             history: History::boxed(),
-            killers: [Default::default(); MAX_DEPTH as usize],
+            killers: [Default::default(); _],
             nnue_state: NnueState::new(),
             shared: None,
         }
