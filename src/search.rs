@@ -369,7 +369,7 @@ fn search<NT: NodeType>(
 
         #[allow(clippy::collapsible_if)]
         if !NT::ROOT_NODE && !is_loss(best_score) && (!NT::PV_NODE || !cfg!(feature = "datagen")) {
-            if depth <= 6 && move_count as i32 >= 5 + 2 * depth * depth {
+            if depth <= 6 && move_count as i32 >= (5 + 2 * depth * depth) / (2 - i32::from(improving)) {
                 break;
             }
         }
