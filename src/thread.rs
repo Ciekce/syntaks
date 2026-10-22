@@ -36,30 +36,25 @@ use crate::{
     search::MAX_DEPTH,
     takmove::Move,
 };
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
-
-#[cfg(feature = "datagen")]
-use std::sync::Mutex;
 
 pub struct SearcherCount {
     count: AtomicU32,
+    completion: Mutex<()>,
 }
 
 impl SearcherCount {
     fn new() -> Self {
         Self {
             count: AtomicU32::new(0),
+            completion: Mutex::new(()),
         }
     }
 
-    fn start(&self) {
-        self.count.store(1, Ordering::Relaxed);
-    }
-
-    pub fn register_thread(&self) {
-        self.count.fetch_add(1, Ordering::Release);
+    fn start(&self, threads: u32) {
+        self.count.store(threads + 1, Ordering::Release);
     }
 
     pub fn unregister_thread(&self) {
@@ -76,7 +71,9 @@ impl SearcherCount {
         }
     }
 
-    pub fn complete_search(&self) {
+    pub fn complete_search(&self, report: impl FnOnce()) {
+        let _completion = self.completion.lock().unwrap();
+        report();
         let count = self.count.fetch_sub(1, Ordering::AcqRel);
         assert_eq!(count, 1);
         atomic_wait::wake_all(&self.count);
@@ -127,13 +124,13 @@ impl SharedContext {
         self.nodes.resize(threads as usize);
     }
 
-    pub fn init_search(&mut self, options: &TeiOptions, start_time: Instant, limits: Limits) {
+    pub fn init_search(&mut self, options: &TeiOptions, start_time: Instant, limits: Limits, threads: u32) {
         self.options = *options;
         self.start_time = start_time;
         self.limits = limits;
         self.tt.age();
         self.stopped.store(false, Ordering::Relaxed);
-        self.counter.start();
+        self.counter.start(threads);
         self.nodes.reset();
         #[cfg(feature = "datagen")]
         {
@@ -156,7 +153,8 @@ impl SharedContext {
     }
 
     pub fn is_searching(&self) -> bool {
-        self.counter.count.load(Ordering::Relaxed) > 0
+        let _completion = self.counter.completion.lock().unwrap();
+        self.counter.count.load(Ordering::Acquire) > 0
     }
 
     fn check_stop_soft(&self, ctx: &mut TmContext, depth: i32, total_nodes: usize, pv_move: &RootMove) -> bool {
