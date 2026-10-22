@@ -216,14 +216,14 @@ fn search<NT: NodeType>(
         if (pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0)
             || pos.occ().popcount() == Square::COUNT as u32 - 1
         {
-            let fcd = pos.hfcd(pos.stm());
+            let hfcd = pos.hfcd(pos.stm());
 
-            if fcd >= -1 {
+            if hfcd >= -1 {
                 push_to_pv(!pos.occ());
                 return SCORE_MATE - ply - 1;
             }
 
-            if fcd == -2 && alpha < 0 {
+            if hfcd == -2 && alpha < 0 {
                 push_to_pv(!pos.occ());
                 alpha = 0;
                 if alpha >= beta {
