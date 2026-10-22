@@ -20,7 +20,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-
 use crate::core::Color;
 use crate::eval::static_eval_once;
 use crate::limit::{Limits, MAX_MOVE_OVERHEAD_MS};
@@ -29,6 +28,7 @@ use crate::position::*;
 use crate::search;
 use crate::search::{MAX_THREADS, Searcher};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 const NAME: &str = "syntaks";
@@ -75,6 +75,7 @@ pub struct TeiOptions {
     pub show_curr_move: bool,
     pub silent: bool,
     pub move_overhead_ms: u64,
+    pub double_black_stack: bool,
 }
 
 impl Default for TeiOptions {
@@ -86,6 +87,7 @@ impl Default for TeiOptions {
             show_curr_move: false,
             silent: false,
             move_overhead_ms: 10,
+            double_black_stack: false,
         }
     }
 }
@@ -180,6 +182,7 @@ impl TeiHandler {
             "option name MoveOverhead type spin default {} min 0 max {}",
             default_options.move_overhead_ms, MAX_MOVE_OVERHEAD_MS
         );
+        println!("option name DoubleBlackStack type check default false");
 
         println!("teiok");
     }
@@ -293,6 +296,11 @@ impl TeiHandler {
                 if let Ok(overhead) = value.parse::<u64>() {
                     let overhead = overhead.clamp(0, MAX_MOVE_OVERHEAD_MS);
                     self.options.move_overhead_ms = overhead;
+                }
+            }
+            "doubleblackstack" => {
+                if let Ok(double_black_stack) = value.parse::<bool>() {
+                    DOUBLE_BLACK_STACK.store(double_black_stack, Ordering::Relaxed);
                 }
             }
             unknown => eprintln!("Unknown option '{}'", unknown),
