@@ -70,7 +70,7 @@ pub const Q0_BITS: i32 = 8;
 pub const Q1_BITS: i32 = 7;
 pub const Q_BITS: i32 = 6;
 
-pub const SCALE: i32 = 400;
+pub const SCALE: i32 = 390;
 
 #[repr(C, align(64))]
 pub(super) struct Network {
