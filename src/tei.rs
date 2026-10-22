@@ -73,6 +73,7 @@ pub struct TeiOptions {
     pub multipv: usize,
     pub minimal: bool,
     pub mate_scores: bool,
+    pub human_wdl: bool,
     pub show_curr_move: bool,
     pub silent: bool,
     pub move_overhead_ms: u64,
@@ -84,6 +85,7 @@ impl Default for TeiOptions {
             multipv: 1,
             minimal: false,
             mate_scores: true,
+            human_wdl: false,
             show_curr_move: false,
             silent: false,
             move_overhead_ms: 10,
@@ -185,6 +187,7 @@ impl TeiHandler {
             "option name MateScores type check default {}",
             default_options.mate_scores
         );
+        println!("option name HumanWDL type check default {}", default_options.human_wdl);
         println!(
             "option name ShowCurrMove type check default {}",
             default_options.show_curr_move
@@ -318,6 +321,13 @@ impl TeiHandler {
             "matescores" => {
                 if let Ok(mate_scores) = value.parse::<bool>() {
                     self.options.mate_scores = mate_scores;
+                } else {
+                    invalid(&value);
+                }
+            }
+            "humanwdl" => {
+                if let Ok(human_wdl) = value.parse::<bool>() {
+                    self.options.human_wdl = human_wdl;
                 } else {
                     invalid(&value);
                 }

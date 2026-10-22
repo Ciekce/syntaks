@@ -705,7 +705,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                     let time = thread.shared().elapsed();
                     if time >= WIDEN_REPORT_DELAY {
                         let nodes = thread.shared().total_nodes();
-                        report_single(thread, time, nodes, ctx.multipv, thread.pv_idx);
+                        report_single(thread, ctx, time, nodes, thread.pv_idx);
                     }
                 }
 
@@ -734,7 +734,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                         || (!thread.shared().options.minimal
                             && (last_pv || thread.shared().elapsed() >= VERBOSE_MULTIPV_DELAY)))
                 {
-                    report(thread, thread.shared().elapsed(), ctx.multipv);
+                    report(thread, ctx, thread.shared().elapsed());
                 }
             }
 
@@ -775,7 +775,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
     }
 }
 
-fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, pv_idx: usize) -> bool {
+fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usize, pv_idx: usize) -> bool {
     let root_move = &thread.root_moves[pv_idx];
 
     // previous scores are exact, as the depth was completed
@@ -798,7 +798,7 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
     let mut out = std::io::stdout().lock();
     write!(out, "info ").unwrap();
 
-    if multipv > 1 {
+    if ctx.multipv > 1 {
         write!(out, "multipv {} ", pv_idx + 1).unwrap();
     }
 
@@ -845,7 +845,11 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
             write!(out, " wdl 0 0 1000").unwrap();
         }
     } else {
-        let (w, d, l) = wdl::probabilities(score);
+        let (w, d, l) = if thread.shared().options.human_wdl {
+            wdl::human_probabilities(score, &ctx.root_pos)
+        } else {
+            wdl::probabilities(score)
+        };
         write!(out, " wdl {} {} {}", w, d, l).unwrap();
     }
 
@@ -863,10 +867,10 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
     true
 }
 
-fn report(thread: &ThreadData, time: f64, multipv: usize) {
+fn report(thread: &ThreadData, ctx: &SearchContext, time: f64) {
     let nodes = thread.shared().total_nodes();
-    for pv_idx in 0..multipv {
-        if !report_single(thread, time, nodes, multipv, pv_idx) {
+    for pv_idx in 0..ctx.multipv {
+        if !report_single(thread, ctx, time, nodes, pv_idx) {
             break;
         }
     }
