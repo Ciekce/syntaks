@@ -34,6 +34,7 @@ use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, set_pv, update_pv};
 use crate::ttable::{ProbedEntry, TtFlag};
 use crate::util::command_channel::{Receiver, Sender, channel};
+use std::io::Write;
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
@@ -46,8 +47,8 @@ const WIDEN_REPORT_DELAY: f64 = 1.0;
 const VERBOSE_MULTIPV_DELAY: f64 = 1.0;
 const CURRMOVE_REPORT_DELAY: f64 = 2.5;
 
-const WDL_A: f64 = 204.89;
-const WDL_B: f64 = 139.97;
+const WDL_A: f64 = 222.13;
+const WDL_B: f64 = 138.82;
 
 #[derive(Clone, Debug)]
 pub struct SearchContext {
@@ -85,7 +86,7 @@ static LMR_REDUCTIONS: [[i32; LMR_TABLE_MOVES]; MAX_DEPTH as usize] = {
     const BASE: f64 = 0.0;
     const DIVISOR: f64 = 3.0;
 
-    let mut reductions = [[0; LMR_TABLE_MOVES]; MAX_DEPTH as usize];
+    let mut reductions = [[0; _]; _];
 
     for depth in 1..MAX_DEPTH as usize {
         let ln_depth = (depth as f64).ln();
@@ -154,11 +155,7 @@ fn search<NT: NodeType>(
         return 0;
     }
 
-    if !NT::ROOT_NODE
-        && thread.is_main_thread()
-        && thread.root_depth > 1
-        && thread.shared().check_stop_hard(thread.nodes())
-    {
+    if !NT::ROOT_NODE && thread.is_main_thread() && thread.root_depth > 1 && thread.check_stop_hard() {
         return 0;
     }
 
@@ -374,7 +371,7 @@ fn search<NT: NodeType>(
 
         #[allow(clippy::collapsible_if)]
         if !NT::ROOT_NODE && !is_loss(best_score) && (!NT::PV_NODE || !cfg!(feature = "datagen")) {
-            if depth <= 6 && move_count as i32 >= 5 + 2 * depth * depth {
+            if depth <= 6 && move_count as i32 >= (5 + 2 * depth * depth) / (2 - i32::from(improving)) {
                 break;
             }
         }
@@ -655,9 +652,11 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
     thread.key_history.reserve(ctx.key_history.len());
     thread.key_history.extend_from_slice(&ctx.key_history);
 
-    counter.register_thread();
-
     thread.nnue_state.reset(&ctx.root_pos);
+
+    if thread.is_main_thread() {
+        thread.tm_ctx = Default::default();
+    }
 
     let mut data_stack = vec![PlyData::new(); MAX_DEPTH as usize * 2];
 
@@ -728,10 +727,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
 
                 if last_pv
                     && !thread.shared().has_stopped()
-                    && (thread.root_depth >= ctx.max_depth
-                        || thread
-                            .shared()
-                            .check_stop_soft(thread.nodes(), thread.pv_move().nodes as f64 / (thread.nodes() as f64)))
+                    && (thread.root_depth >= ctx.max_depth || thread.check_stop_soft())
                 {
                     thread.shared().stop();
                 }
@@ -767,20 +763,22 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
             thread.shared().set_result(thread.pv_move().clone());
         }
 
-        if !thread.shared().options.silent {
-            if thread.shared().options.pick_random {
-                let random = seed_from_entropy() as usize % ctx.multipv;
-                if random != 0 {
-                    thread.root_moves.swap(0, random);
-                }
+        if thread.shared().options.pick_random {
+            let random = seed_from_entropy() as usize % ctx.multipv;
+            if random != 0 {
+                thread.root_moves.swap(0, random);
             }
-
-            let time = thread.shared().elapsed();
-            final_report(thread, thread.root_depth, time, ctx.multipv);
         }
 
+        let silent = thread.shared().options.silent;
+        let best_move = thread.pv_move().mv();
+
         thread.shared = None;
-        counter.complete_search();
+        counter.complete_search(|| {
+            if !silent {
+                final_report(best_move);
+            }
+        });
     } else {
         thread.shared = None;
         counter.unregister_thread();
@@ -807,52 +805,55 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
     let ms = (time * 1000.0) as usize;
     let nps = ((nodes as f64) / time) as usize;
 
-    print!("info ");
+    let mut out = std::io::stdout().lock();
+    write!(out, "info ").unwrap();
 
     if multipv > 1 {
-        print!("multipv {} ", pv_idx + 1);
+        write!(out, "multipv {} ", pv_idx + 1).unwrap();
     }
 
-    print!(
+    write!(
+        out,
         "depth {} seldepth {} time {} nodes {} nps {} score ",
         root_move.searched_depth, root_move.seldepth, ms, nodes, nps
-    );
+    )
+    .unwrap();
 
     if is_decisive(score) {
         if thread.shared().options.mate_scores {
             if score > 0 {
-                print!("mate {}", (SCORE_MATE - score + 1) / 2);
+                write!(out, "mate {}", (SCORE_MATE - score + 1) / 2).unwrap();
             } else {
-                print!("mate {}", -(SCORE_MATE + score) / 2);
+                write!(out, "mate {}", -(SCORE_MATE + score) / 2).unwrap();
             }
         } else {
             const MATE_DISPLAY_BASE: Score = 30000;
             if score > 0 {
-                print!("cp {}", MATE_DISPLAY_BASE + score - SCORE_MATE);
+                write!(out, "cp {}", MATE_DISPLAY_BASE + score - SCORE_MATE).unwrap();
             } else {
-                print!("cp {}", -MATE_DISPLAY_BASE + score + SCORE_MATE);
+                write!(out, "cp {}", -MATE_DISPLAY_BASE + score + SCORE_MATE).unwrap();
             }
         }
     } else {
         let scaled = (score as f64 * 100.0 / WDL_A).round() as Score;
-        print!("cp {}", scaled);
+        write!(out, "cp {}", scaled).unwrap();
     }
 
     if upper_bound {
         assert!(!lower_bound);
-        print!(" upperbound");
+        write!(out, " upperbound").unwrap();
     }
 
     if lower_bound {
         assert!(!upper_bound);
-        print!(" lowerbound");
+        write!(out, " lowerbound").unwrap();
     }
 
     if is_decisive(score) {
         if score > 0 {
-            print!(" wdl 1000 0 0");
+            write!(out, " wdl 1000 0 0").unwrap();
         } else {
-            print!(" wdl 0 0 1000");
+            write!(out, " wdl 0 0 1000").unwrap();
         }
     } else {
         let p = |cp: Score| {
@@ -864,19 +865,19 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
         let l = p(-score);
         let d = 1000 - w - l;
 
-        print!(" wdl {} {} {}", w, d, l);
+        write!(out, " wdl {} {} {}", w, d, l).unwrap();
     }
 
     let hashfull = thread.shared().tt.estimate_full_permille();
-    print!(" hashfull {}", hashfull);
+    write!(out, " hashfull {}", hashfull).unwrap();
 
-    print!(" pv");
+    write!(out, " pv").unwrap();
 
     for mv in root_move.pv.iter() {
-        print!(" {}", mv);
+        write!(out, " {}", mv).unwrap();
     }
 
-    println!();
+    writeln!(out).unwrap();
 
     true
 }
@@ -890,9 +891,8 @@ fn report(thread: &ThreadData, time: f64, multipv: usize) {
     }
 }
 
-fn final_report(thread: &ThreadData, _depth: i32, _time: f64, _multipv: usize) {
-    let mv = thread.pv_move().mv();
-    println!("bestmove {}", mv);
+fn final_report(best_move: Move) {
+    println!("bestmove {}", best_move);
 }
 
 #[derive(Clone)]
@@ -966,8 +966,9 @@ impl Searcher {
         moves_to_search: &[Move],
         options: &TeiOptions,
     ) {
+        let threads = self.threads.len() as u32;
         self.modify_shared_ctx(|ctx| {
-            ctx.init_search(options, start_time, limits);
+            ctx.init_search(options, start_time, limits, threads);
         });
 
         let root_moves = init_root_moves(pos, moves_to_search);
@@ -1019,7 +1020,9 @@ impl Searcher {
     where
         F: Fn(&mut SharedContext),
     {
-        let ctx = Arc::get_mut(&mut self.shared_ctx).unwrap();
+        debug_assert!(!self.is_searching());
+        let ctx =
+            Arc::get_mut(&mut self.shared_ctx).expect("shared search context still referenced by a search thread");
         func(ctx);
     }
 

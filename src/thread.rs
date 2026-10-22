@@ -22,7 +22,7 @@
  */
 
 use crate::eval::nnue_state::NnueState;
-use crate::limit::Limits;
+use crate::limit::{Limits, TmContext};
 use crate::node_counter::NodeCounter;
 use crate::position::FlatCountOutcome;
 use crate::tei::TeiOptions;
@@ -36,30 +36,25 @@ use crate::{
     search::MAX_DEPTH,
     takmove::Move,
 };
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
-
-#[cfg(feature = "datagen")]
-use std::sync::Mutex;
 
 pub struct SearcherCount {
     count: AtomicU32,
+    completion: Mutex<()>,
 }
 
 impl SearcherCount {
     fn new() -> Self {
         Self {
             count: AtomicU32::new(0),
+            completion: Mutex::new(()),
         }
     }
 
-    fn start(&self) {
-        self.count.store(1, Ordering::Relaxed);
-    }
-
-    pub fn register_thread(&self) {
-        self.count.fetch_add(1, Ordering::Release);
+    fn start(&self, threads: u32) {
+        self.count.store(threads + 1, Ordering::Release);
     }
 
     pub fn unregister_thread(&self) {
@@ -76,7 +71,9 @@ impl SearcherCount {
         }
     }
 
-    pub fn complete_search(&self) {
+    pub fn complete_search(&self, report: impl FnOnce()) {
+        let _completion = self.completion.lock().unwrap();
+        report();
         let count = self.count.fetch_sub(1, Ordering::AcqRel);
         assert_eq!(count, 1);
         atomic_wait::wake_all(&self.count);
@@ -127,13 +124,13 @@ impl SharedContext {
         self.nodes.resize(threads as usize);
     }
 
-    pub fn init_search(&mut self, options: &TeiOptions, start_time: Instant, limits: Limits) {
+    pub fn init_search(&mut self, options: &TeiOptions, start_time: Instant, limits: Limits, threads: u32) {
         self.options = *options;
         self.start_time = start_time;
         self.limits = limits;
         self.tt.age();
         self.stopped.store(false, Ordering::Relaxed);
-        self.counter.start();
+        self.counter.start(threads);
         self.nodes.reset();
         #[cfg(feature = "datagen")]
         {
@@ -156,11 +153,12 @@ impl SharedContext {
     }
 
     pub fn is_searching(&self) -> bool {
-        self.counter.count.load(Ordering::Relaxed) > 0
+        let _completion = self.counter.completion.lock().unwrap();
+        self.counter.count.load(Ordering::Acquire) > 0
     }
 
-    pub fn check_stop_soft(&self, nodes: usize, best_move_nodes_fraction: f64) -> bool {
-        if self.limits.should_stop_soft(nodes, best_move_nodes_fraction) {
+    fn check_stop_soft(&self, ctx: &mut TmContext, depth: i32, total_nodes: usize, pv_move: &RootMove) -> bool {
+        if self.limits.should_stop_soft(ctx, depth, total_nodes, pv_move) {
             self.stopped.store(true, Ordering::Relaxed);
             return true;
         }
@@ -168,7 +166,7 @@ impl SharedContext {
         false
     }
 
-    pub fn check_stop_hard(&self, nodes: usize) -> bool {
+    fn check_stop_hard(&self, nodes: usize) -> bool {
         if self.limits.should_stop_hard(nodes) {
             self.stopped.store(true, Ordering::Relaxed);
             return true;
@@ -275,6 +273,7 @@ pub struct ThreadData {
     pub killers: [KillerTable; MAX_DEPTH as usize],
     pub nnue_state: NnueState,
     pub shared: Option<Arc<SharedContext>>,
+    pub tm_ctx: TmContext,
 }
 
 impl ThreadData {
@@ -289,9 +288,10 @@ impl ThreadData {
             stack: vec![StackEntry::default(); MAX_DEPTH as usize + 1],
             corrhist: CorrectionHistory::boxed(),
             history: History::boxed(),
-            killers: [Default::default(); MAX_DEPTH as usize],
+            killers: [Default::default(); _],
             nnue_state: NnueState::new(),
             shared: None,
+            tm_ctx: Default::default(),
         }
     }
 
@@ -301,6 +301,19 @@ impl ThreadData {
 
     pub fn shared(&self) -> &SharedContext {
         self.shared.as_deref().unwrap()
+    }
+
+    #[must_use]
+    pub fn check_stop_soft(&mut self) -> bool {
+        let nodes = self.nodes();
+        let pv_move = &self.root_moves[0];
+        let shared = self.shared.as_deref().unwrap();
+        shared.check_stop_soft(&mut self.tm_ctx, self.root_depth, nodes, pv_move)
+    }
+
+    #[must_use]
+    pub fn check_stop_hard(&self) -> bool {
+        self.shared().check_stop_hard(self.nodes())
     }
 
     pub fn inc_nodes(&mut self) {

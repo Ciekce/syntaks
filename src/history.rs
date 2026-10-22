@@ -96,7 +96,7 @@ impl ConthistSubTable {
 impl Default for ConthistSubTable {
     fn default() -> Self {
         Self {
-            entries: [Default::default(); ConthistTable::ENTRIES],
+            entries: [Default::default(); _],
         }
     }
 }
@@ -145,7 +145,7 @@ impl ConthistTable {
 impl Default for ConthistTable {
     fn default() -> Self {
         Self {
-            entries: [Default::default(); Self::ENTRIES],
+            entries: [Default::default(); _],
         }
     }
 }

@@ -106,6 +106,7 @@ pub(super) fn forward(acc: &Accumulator, pos: &Position) -> i32 {
     }
 
     let mut l1_out = Align64([0i16; L2_SIZE]);
+    let skip;
     {
         let l1_bias = NET.l1b[output_bucket].as_ptr();
 
@@ -116,6 +117,8 @@ pub(super) fn forward(acc: &Accumulator, pos: &Position) -> i32 {
                 *biased = add_i32(*biased, unrolled[i]);
             }
         }
+
+        skip = to_array_i32(biased[0])[0];
 
         let hi = set1_i16(1 << (SHIFT + Q_BITS));
 
@@ -166,7 +169,8 @@ pub(super) fn forward(acc: &Accumulator, pos: &Position) -> i32 {
     }
 
     let bias = NET.l3b[output_bucket];
-    let scaled = i64::from(hsum_i32(l3_sum) + bias) * i64::from(SCALE);
+    let skip = i64::from(skip) * i64::from(Q * Q * Q * Q / (Q * 256));
+    let scaled = (i64::from(hsum_i32(l3_sum) + bias) + skip) * i64::from(SCALE);
 
     (scaled / i64::from(Q * Q * Q * Q)) as i32
 }

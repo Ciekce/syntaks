@@ -176,9 +176,9 @@ impl Stacks {
 impl Default for Stacks {
     fn default() -> Self {
         Self {
-            colors: [u64::default(); Square::COUNT],
-            heights: [u8::default(); Square::COUNT],
-            tops: [None; Square::COUNT],
+            colors: [Default::default(); _],
+            heights: [Default::default(); _],
+            tops: [Default::default(); _],
             keys: Default::default(),
         }
     }
@@ -215,10 +215,10 @@ impl Position {
     pub fn startpos() -> Self {
         Self {
             stacks: Stacks::default(),
-            colors: [Bitboard::empty(); Color::COUNT],
-            pieces: [Bitboard::empty(); PieceType::COUNT],
-            flats_in_hand: [TOTAL_FLATS; Color::COUNT],
-            caps_in_hand: [TOTAL_CAPS; Color::COUNT],
+            colors: [Bitboard::empty(); _],
+            pieces: [Bitboard::empty(); _],
+            flats_in_hand: [TOTAL_FLATS; _],
+            caps_in_hand: [TOTAL_CAPS; _],
             stm: Color::White,
             ply: 0,
             stm_key: 0,

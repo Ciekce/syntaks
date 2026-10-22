@@ -381,7 +381,7 @@ impl TranspositionTable {
         }
 
         let mv = if existing_key == entry_key {
-            mv.or_else(|| existing_entry.mv)
+            mv.or(existing_entry.mv)
         } else {
             mv
         };

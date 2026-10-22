@@ -39,7 +39,7 @@ const COLOR_OFFSET: usize = TOP_OFFSET + TOP_COUNT;
 const KEYS: [u64; TOTAL_COUNT] = {
     const SEED: u64 = 0x75e83deec533723c;
 
-    let mut result = [0; TOTAL_COUNT];
+    let mut result = [0; _];
 
     let mut prng = Sfc64::new(SEED);
     prng.fill(&mut result);

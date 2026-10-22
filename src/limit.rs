@@ -21,9 +21,19 @@
  * SOFTWARE.
  */
 
+use crate::takmove::Move;
+use crate::thread::RootMove;
 use std::time::Instant;
 
+pub const MAX_MOVE_OVERHEAD_MS: u64 = 10000;
+
 const TIME_CHECK_INTERVAL: usize = 4096;
+
+#[derive(Clone, Debug, Default)]
+pub struct TmContext {
+    last_best_move: Option<Move>,
+    stability: u32,
+}
 
 #[derive(Copy, Clone, Debug)]
 struct TimeManager {
@@ -32,7 +42,9 @@ struct TimeManager {
 }
 
 impl TimeManager {
-    fn new(remaining: f64, increment: f64) -> Self {
+    fn new(remaining: f64, increment: f64, overhead: f64) -> Self {
+        let remaining = (remaining - overhead).max(0.001);
+
         let base_time = remaining / 20.0 + increment;
 
         let max_time = remaining * 0.8;
@@ -41,9 +53,33 @@ impl TimeManager {
         Self { max_time, opt_time }
     }
 
-    fn should_stop_soft(&self, _nodes: usize, time: f64, best_move_nodes_fraction: f64) -> bool {
-        let nodetm_scale = (2.5 - 2.5 * best_move_nodes_fraction).max(0.5);
-        time >= self.opt_time * nodetm_scale
+    fn should_stop_soft(
+        &self,
+        ctx: &mut TmContext,
+        time: f64,
+        depth: i32,
+        total_nodes: usize,
+        pv_move: &RootMove,
+    ) -> bool {
+        let mut scale = 1.0;
+
+        let mv = pv_move.mv();
+        if ctx.last_best_move == Some(mv) {
+            ctx.stability += 1;
+        } else {
+            ctx.stability = 1;
+            ctx.last_best_move = Some(mv);
+        }
+
+        if depth >= 5 {
+            let stability = ctx.stability as f64;
+            scale *= (0.8 + 8.6 * (stability + 0.9).powf(-2.6)).min(2.3);
+        }
+
+        let best_move_nodes_fraction = pv_move.nodes as f64 / total_nodes as f64;
+        scale *= (2.5 - 2.5 * best_move_nodes_fraction).max(0.5);
+
+        time >= self.opt_time * scale
     }
 
     fn should_stop_hard(&self, _nodes: usize, time: f64) -> bool {
@@ -101,10 +137,10 @@ impl Limits {
         }
     }
 
-    pub fn set_time_manager(&mut self, remaining: f64, increment: f64) -> bool {
+    pub fn set_time_manager(&mut self, remaining: f64, increment: f64, overhead: f64) -> bool {
         match self.time_manager {
             None => {
-                self.time_manager = Some(TimeManager::new(remaining, increment));
+                self.time_manager = Some(TimeManager::new(remaining, increment, overhead));
                 true
             }
             Some(_) => false,
@@ -112,9 +148,9 @@ impl Limits {
     }
 
     #[must_use]
-    pub fn should_stop_soft(&self, nodes: usize, best_move_nodes_fraction: f64) -> bool {
+    pub fn should_stop_soft(&self, ctx: &mut TmContext, depth: i32, total_nodes: usize, pv_move: &RootMove) -> bool {
         if let Some(max_nodes) = self.soft_nodes
-            && nodes >= max_nodes
+            && total_nodes >= max_nodes
         {
             return true;
         }
@@ -128,7 +164,7 @@ impl Limits {
         }
 
         if let Some(time_manager) = self.time_manager
-            && time_manager.should_stop_soft(nodes, time, best_move_nodes_fraction)
+            && time_manager.should_stop_soft(ctx, time, depth, total_nodes, pv_move)
         {
             return true;
         }
