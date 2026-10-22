@@ -33,6 +33,7 @@ use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, set_pv, update_pv};
 use crate::ttable::{ProbedEntry, TtFlag};
 use crate::util::command_channel::{Receiver, Sender, channel};
+use std::io::Write;
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
@@ -650,8 +651,6 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
     thread.key_history.reserve(ctx.key_history.len());
     thread.key_history.extend_from_slice(&ctx.key_history);
 
-    counter.register_thread();
-
     thread.nnue_state.reset(&ctx.root_pos);
 
     if thread.is_main_thread() {
@@ -763,13 +762,15 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
             thread.shared().set_result(thread.pv_move().clone());
         }
 
-        if !thread.shared().options.silent {
-            let time = thread.shared().elapsed();
-            final_report(thread, thread.root_depth, time, ctx.multipv);
-        }
+        let silent = thread.shared().options.silent;
+        let best_move = thread.pv_move().mv();
 
         thread.shared = None;
-        counter.complete_search();
+        counter.complete_search(|| {
+            if !silent {
+                final_report(best_move);
+            }
+        });
     } else {
         thread.shared = None;
         counter.unregister_thread();
@@ -796,52 +797,55 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
     let ms = (time * 1000.0) as usize;
     let nps = ((nodes as f64) / time) as usize;
 
-    print!("info ");
+    let mut out = std::io::stdout().lock();
+    write!(out, "info ").unwrap();
 
     if multipv > 1 {
-        print!("multipv {} ", pv_idx + 1);
+        write!(out, "multipv {} ", pv_idx + 1).unwrap();
     }
 
-    print!(
+    write!(
+        out,
         "depth {} seldepth {} time {} nodes {} nps {} score ",
         root_move.searched_depth, root_move.seldepth, ms, nodes, nps
-    );
+    )
+    .unwrap();
 
     if is_decisive(score) {
         if thread.shared().options.mate_scores {
             if score > 0 {
-                print!("mate {}", (SCORE_MATE - score + 1) / 2);
+                write!(out, "mate {}", (SCORE_MATE - score + 1) / 2).unwrap();
             } else {
-                print!("mate {}", -(SCORE_MATE + score) / 2);
+                write!(out, "mate {}", -(SCORE_MATE + score) / 2).unwrap();
             }
         } else {
             const MATE_DISPLAY_BASE: Score = 30000;
             if score > 0 {
-                print!("cp {}", MATE_DISPLAY_BASE + score - SCORE_MATE);
+                write!(out, "cp {}", MATE_DISPLAY_BASE + score - SCORE_MATE).unwrap();
             } else {
-                print!("cp {}", -MATE_DISPLAY_BASE + score + SCORE_MATE);
+                write!(out, "cp {}", -MATE_DISPLAY_BASE + score + SCORE_MATE).unwrap();
             }
         }
     } else {
         let scaled = (score as f64 * 100.0 / WDL_A).round() as Score;
-        print!("cp {}", scaled);
+        write!(out, "cp {}", scaled).unwrap();
     }
 
     if upper_bound {
         assert!(!lower_bound);
-        print!(" upperbound");
+        write!(out, " upperbound").unwrap();
     }
 
     if lower_bound {
         assert!(!upper_bound);
-        print!(" lowerbound");
+        write!(out, " lowerbound").unwrap();
     }
 
     if is_decisive(score) {
         if score > 0 {
-            print!(" wdl 1000 0 0");
+            write!(out, " wdl 1000 0 0").unwrap();
         } else {
-            print!(" wdl 0 0 1000");
+            write!(out, " wdl 0 0 1000").unwrap();
         }
     } else {
         let p = |cp: Score| {
@@ -853,19 +857,19 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
         let l = p(-score);
         let d = 1000 - w - l;
 
-        print!(" wdl {} {} {}", w, d, l);
+        write!(out, " wdl {} {} {}", w, d, l).unwrap();
     }
 
     let hashfull = thread.shared().tt.estimate_full_permille();
-    print!(" hashfull {}", hashfull);
+    write!(out, " hashfull {}", hashfull).unwrap();
 
-    print!(" pv");
+    write!(out, " pv").unwrap();
 
     for mv in root_move.pv.iter() {
-        print!(" {}", mv);
+        write!(out, " {}", mv).unwrap();
     }
 
-    println!();
+    writeln!(out).unwrap();
 
     true
 }
@@ -879,9 +883,8 @@ fn report(thread: &ThreadData, time: f64, multipv: usize) {
     }
 }
 
-fn final_report(thread: &ThreadData, _depth: i32, _time: f64, _multipv: usize) {
-    let mv = thread.pv_move().mv();
-    println!("bestmove {}", mv);
+fn final_report(best_move: Move) {
+    println!("bestmove {}", best_move);
 }
 
 #[derive(Clone)]
@@ -955,8 +958,9 @@ impl Searcher {
         moves_to_search: &[Move],
         options: &TeiOptions,
     ) {
+        let threads = self.threads.len() as u32;
         self.modify_shared_ctx(|ctx| {
-            ctx.init_search(options, start_time, limits);
+            ctx.init_search(options, start_time, limits, threads);
         });
 
         let root_moves = init_root_moves(pos, moves_to_search);
@@ -1008,7 +1012,9 @@ impl Searcher {
     where
         F: Fn(&mut SharedContext),
     {
-        let ctx = Arc::get_mut(&mut self.shared_ctx).unwrap();
+        debug_assert!(!self.is_searching());
+        let ctx =
+            Arc::get_mut(&mut self.shared_ctx).expect("shared search context still referenced by a search thread");
         func(ctx);
     }
 
