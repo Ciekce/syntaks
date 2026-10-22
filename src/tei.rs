@@ -95,6 +95,7 @@ struct TeiHandler {
     key_history: Vec<u64>,
     searcher: Searcher,
     options: TeiOptions,
+    half_komi: i8,
 }
 
 impl TeiHandler {
@@ -105,6 +106,7 @@ impl TeiHandler {
             key_history: Vec::with_capacity(1024),
             searcher: Searcher::new(DEFAULT_TT_SIZE_MIB),
             options: TeiOptions::default(),
+            half_komi: Position::DEFAULT_HALF_KOMI,
         }
     }
 
@@ -156,7 +158,6 @@ impl TeiHandler {
     }
 
     fn handle_tei(&self) {
-        let half_komi = Position::KOMI * 2;
         let default_options = TeiOptions::default();
 
         println!("id name {} {}", NAME, VERSION);
@@ -164,7 +165,9 @@ impl TeiHandler {
 
         println!(
             "option name HalfKomi type spin default {} min {} max {}",
-            half_komi, half_komi, half_komi
+            Position::DEFAULT_HALF_KOMI,
+            Position::MIN_HALF_KOMI,
+            Position::MAX_HALF_KOMI
         );
         println!(
             "option name Hash type spin default {} min 1 max {}",
@@ -265,15 +268,20 @@ impl TeiHandler {
         };
 
         match name.as_str() {
-            "halfkomi" => {
-                if let Ok(half_komi) = value.parse::<u32>() {
-                    if half_komi != Position::KOMI * 2 {
+            "halfkomi" => match value.parse::<i8>() {
+                Ok(half_komi) => {
+                    if (Position::MIN_HALF_KOMI..=Position::MAX_HALF_KOMI).contains(&half_komi) {
+                        if half_komi != self.half_komi {
+                            self.half_komi = half_komi;
+                            self.pos.set_half_komi(half_komi);
+                            self.searcher.reset();
+                        }
+                    } else {
                         eprintln!("Warning: Unsupported komi value");
                     }
-                } else {
-                    invalid(&value);
                 }
-            }
+                Err(_) => invalid(&value),
+            },
             "hash" => {
                 if let Ok(size) = value.parse::<usize>() {
                     let size = size.clamp(1, MAX_TT_SIZE_MIB);
@@ -381,6 +389,8 @@ impl TeiHandler {
                 return;
             }
         }
+
+        self.pos.set_half_komi(self.half_komi);
 
         if next >= args.len() || args[next] != "moves" {
             return;
