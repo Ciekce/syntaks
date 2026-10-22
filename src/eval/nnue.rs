@@ -61,7 +61,9 @@ pub const L3_SIZE: usize = 32;
 pub const L1_PAIR_COUNT: usize = L1_SIZE / 2;
 pub const L2_PAIR_COUNT: usize = L2_SIZE / 2;
 
-pub const OUTPUT_BUCKET_COUNT: usize = 16;
+pub const RESERVE_BUCKET_COUNT: usize = 8;
+pub const KOMI_BUCKET_COUNT: usize = (Position::MAX_HALF_KOMI - Position::MIN_HALF_KOMI) as usize + 1;
+pub const OUTPUT_BUCKET_COUNT: usize = KOMI_BUCKET_COUNT * RESERVE_BUCKET_COUNT;
 
 pub const Q0: i32 = 255;
 pub const Q: i32 = 64;
@@ -96,7 +98,9 @@ pub(super) fn which_output_bucket(pos: &Position) -> usize {
     let bucket = [
         0, 0, 1, 2, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7,
     ][min_reserves as usize];
-    pos.stm().idx() * 8 + bucket
+    let stm_komi = i32::from(pos.half_komi()) * pos.stm().sign();
+    let komi_bucket = (-stm_komi - i32::from(Position::MIN_HALF_KOMI)) as usize;
+    komi_bucket * RESERVE_BUCKET_COUNT + bucket
 }
 
 #[must_use]
