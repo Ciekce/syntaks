@@ -99,7 +99,7 @@ pub(super) fn which_output_bucket(pos: &Position) -> usize {
         0, 0, 1, 2, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7,
     ][min_reserves as usize];
     let stm_komi = i32::from(pos.half_komi()) * pos.stm().sign();
-    let komi_bucket = -(-stm_komi - i32::from(Position::MIN_HALF_KOMI)) as usize;
+    let komi_bucket = (-stm_komi - i32::from(Position::MIN_HALF_KOMI)) as usize;
     komi_bucket * RESERVE_BUCKET_COUNT + bucket
 }
 

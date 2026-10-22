@@ -216,7 +216,7 @@ fn search<NT: NodeType>(
         if (pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0)
             || pos.occ().popcount() == Square::COUNT as u32 - 1
         {
-            let fcd = pos.fcd(pos.stm());
+            let fcd = pos.hfcd(pos.stm());
 
             if fcd >= -1 {
                 push_to_pv(!pos.occ());
@@ -455,7 +455,7 @@ fn search<NT: NodeType>(
                 r -= thread.history.score(pos, mv, prev_move) / 24;
 
                 if mv.is_spread() {
-                    let gain = (new_pos.fcd(pos.stm()) - pos.fcd(pos.stm())) / 2;
+                    let gain = (new_pos.hfcd(pos.stm()) - pos.hfcd(pos.stm())) / 2;
                     r += (1 - gain).clamp(0, 3) * 1024;
                 }
 

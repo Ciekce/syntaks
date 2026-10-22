@@ -478,7 +478,7 @@ impl Position {
     }
 
     #[must_use]
-    pub fn fcd(&self, color: Color) -> i32 {
+    pub fn hfcd(&self, color: Color) -> i32 {
         let white_advantage = 2 * self.color_piece_bb(Piece::WhiteFlat).popcount() as i32
             - 2 * self.color_piece_bb(Piece::BlackFlat).popcount() as i32
             - i32::from(self.half_komi);
@@ -492,7 +492,7 @@ impl Position {
             return FlatCountOutcome::None;
         }
 
-        match self.fcd(Color::White).cmp(&0) {
+        match self.hfcd(Color::White).cmp(&0) {
             Ordering::Less => FlatCountOutcome::Win(Color::Black),
             Ordering::Equal => FlatCountOutcome::Draw,
             Ordering::Greater => FlatCountOutcome::Win(Color::White),
