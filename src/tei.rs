@@ -96,6 +96,7 @@ struct TeiHandler {
     key_history: Vec<u64>,
     searcher: Searcher,
     options: TeiOptions,
+    half_komi: i8,
 }
 
 impl TeiHandler {
@@ -106,12 +107,21 @@ impl TeiHandler {
             key_history: Vec::with_capacity(1024),
             searcher: Searcher::new(DEFAULT_TT_SIZE_MIB),
             options: TeiOptions::default(),
+            half_komi: Position::DEFAULT_HALF_KOMI,
         }
     }
 
     fn run(&mut self) {
         let mut line = String::with_capacity(256);
-        while let Ok(bytes) = std::io::stdin().read_line(&mut line) {
+        loop {
+            let bytes = match std::io::stdin().read_line(&mut line) {
+                Ok(bytes) => bytes,
+                Err(err) => {
+                    eprintln!("Warning: Failed to read from stdin: {}", err);
+                    return;
+                }
+            };
+
             if bytes == 0 {
                 break;
             }
@@ -142,7 +152,7 @@ impl TeiHandler {
                 "splitperft" => self.handle_splitperft(args),
                 "bench" => self.handle_bench(args.first().copied()),
                 "quit" => break,
-                unknown => eprintln!("Unknown command '{}'", unknown),
+                unknown => eprintln!("Warning: Unknown command '{}'", unknown),
             }
 
             line.clear();
@@ -150,7 +160,6 @@ impl TeiHandler {
     }
 
     fn handle_tei(&self) {
-        let half_komi = Position::KOMI * 2;
         let default_options = TeiOptions::default();
 
         println!("id name {} {}", NAME, VERSION);
@@ -158,7 +167,9 @@ impl TeiHandler {
 
         println!(
             "option name HalfKomi type spin default {} min {} max {}",
-            half_komi, half_komi, half_komi
+            Position::DEFAULT_HALF_KOMI,
+            Position::MIN_HALF_KOMI,
+            Position::MAX_HALF_KOMI
         );
         println!(
             "option name Hash type spin default {} min 1 max {}",
@@ -188,7 +199,7 @@ impl TeiHandler {
 
     fn handle_teinewgame(&mut self, args: &[&str]) {
         if self.searcher.is_searching() {
-            eprintln!("Search running (received 'teinewgame')");
+            eprintln!("Warning: Search running (received 'teinewgame')");
             return;
         }
 
@@ -198,11 +209,14 @@ impl TeiHandler {
             match args[0].parse::<u32>() {
                 Ok(size) => {
                     if size != 6 {
-                        eprintln!("Only 6x6 supported");
+                        eprintln!("Warning: Only 6x6 supported");
                         return;
                     }
                 }
-                Err(_) => eprintln!("Invalid size"),
+                Err(_) => {
+                    eprintln!("Warning: Invalid size '{}'", args[0]);
+                    return;
+                }
             }
         }
 
@@ -211,30 +225,31 @@ impl TeiHandler {
 
     fn handle_setoption(&mut self, args: &[&str]) {
         if self.searcher.is_searching() {
-            eprintln!("Search running (received 'setoption')");
+            eprintln!("Warning: Search running (received 'setoption')");
             return;
         }
 
         if args.len() < 2 || args[0] != "name" {
+            eprintln!("Warning: Malformed setoption");
             return;
         }
 
         let value_idx = args.iter().position(|&s| s == "value");
 
         if value_idx.is_none() {
-            eprintln!("Missing value");
+            eprintln!("Warning: Missing value");
             return;
         }
 
         let value_idx = value_idx.unwrap();
 
         if value_idx == args.len() - 1 {
-            eprintln!("Missing value");
+            eprintln!("Warning: Missing value");
             return;
         }
 
         if value_idx == 1 {
-            eprintln!("Missing option name");
+            eprintln!("Warning: Missing option name");
             return;
         }
 
@@ -250,54 +265,79 @@ impl TeiHandler {
         let name = args[1].to_ascii_lowercase();
         let value = args[(value_idx + 1)..].join(" ");
 
+        let invalid = |value: &str| {
+            eprintln!("Warning: Invalid value '{}'", value);
+        };
+
         match name.as_str() {
-            "halfkomi" => {
-                if let Ok(half_komi) = value.parse::<u32>()
-                    && half_komi != Position::KOMI * 2
-                {
-                    eprintln!("Unsupported komi value");
+            "halfkomi" => match value.parse::<i8>() {
+                Ok(half_komi) => {
+                    if (Position::MIN_HALF_KOMI..=Position::MAX_HALF_KOMI).contains(&half_komi) {
+                        if half_komi != self.half_komi {
+                            self.half_komi = half_komi;
+                            self.pos.set_half_komi(half_komi);
+                            self.searcher.reset();
+                        }
+                    } else {
+                        eprintln!("Warning: Unsupported komi value");
+                    }
                 }
-            }
+                Err(_) => invalid(&value),
+            },
             "hash" => {
                 if let Ok(size) = value.parse::<usize>() {
                     let size = size.clamp(1, MAX_TT_SIZE_MIB);
                     self.searcher.set_tt_size(size);
+                } else {
+                    invalid(&value);
                 }
             }
             "threads" => {
                 if let Ok(threads) = value.parse::<u32>() {
                     let threads = threads.clamp(1, MAX_THREADS);
                     self.searcher.set_threads(threads);
+                } else {
+                    invalid(&value);
                 }
             }
             "multipv" => {
                 if let Ok(multipv) = value.parse::<usize>() {
                     let multipv = multipv.clamp(1, MAX_MULTIPV);
                     self.options.multipv = multipv;
+                } else {
+                    invalid(&value);
                 }
             }
             "minimal" => {
                 if let Ok(minimal) = value.parse::<bool>() {
                     self.options.minimal = minimal;
+                } else {
+                    invalid(&value);
                 }
             }
             "matescores" => {
                 if let Ok(mate_scores) = value.parse::<bool>() {
                     self.options.mate_scores = mate_scores;
+                } else {
+                    invalid(&value);
                 }
             }
             "showcurrmove" => {
                 if let Ok(show_curr_move) = value.parse::<bool>() {
                     self.options.show_curr_move = show_curr_move;
+                } else {
+                    invalid(&value);
                 }
             }
             "moveoverhead" => {
                 if let Ok(overhead) = value.parse::<u64>() {
                     let overhead = overhead.clamp(0, MAX_MOVE_OVERHEAD_MS);
                     self.options.move_overhead_ms = overhead;
+                } else {
+                    invalid(&value);
                 }
             }
-            unknown => eprintln!("Unknown option '{}'", unknown),
+            unknown => eprintln!("Warning: Unknown option '{}'", unknown),
         }
     }
 
@@ -307,11 +347,12 @@ impl TeiHandler {
 
     fn handle_position(&mut self, args: &[&str]) {
         if self.searcher.is_searching() {
-            eprintln!("Search running (received 'position')");
+            eprintln!("Warning: Search running (received 'position')");
             return;
         }
 
         if args.is_empty() {
+            eprintln!("Warning: Missing position type");
             return;
         }
 
@@ -328,7 +369,7 @@ impl TeiHandler {
                 let count = args.iter().position(|&s| s == "moves").unwrap_or(args.len());
 
                 if count == 0 {
-                    eprintln!("Missing TPS");
+                    eprintln!("Warning: Missing TPS");
                     return;
                 }
 
@@ -338,7 +379,7 @@ impl TeiHandler {
                         self.key_history.clear();
                     }
                     Err(err) => {
-                        eprintln!("Failed to parse TPS: {:?}", err);
+                        eprintln!("Warning: Failed to parse TPS: {:?}", err);
                         return;
                     }
                 }
@@ -346,10 +387,12 @@ impl TeiHandler {
                 next += count;
             }
             _ => {
-                eprintln!("Invalid position type {}", pos_type);
+                eprintln!("Warning: Invalid position type {}", pos_type);
                 return;
             }
         }
+
+        self.pos.set_half_komi(self.half_komi);
 
         if next >= args.len() || args[next] != "moves" {
             return;
@@ -359,14 +402,14 @@ impl TeiHandler {
             match move_str.parse() {
                 Ok(mv) => {
                     if !self.pos.is_legal(mv) {
-                        eprintln!("Illegal move '{}'", mv);
+                        eprintln!("Warning: Illegal move '{}'", mv);
                         return;
                     }
                     self.key_history.push(self.pos.key());
                     self.pos = self.pos.apply_move(mv);
                 }
                 Err(err) => {
-                    eprintln!("Invalid move '{}': {:?}", move_str, err);
+                    eprintln!("Warning: Invalid move '{}': {:?}", move_str, err);
                     return;
                 }
             }
@@ -375,7 +418,7 @@ impl TeiHandler {
 
     fn handle_go(&mut self, args: &[&str], start_time: Instant) {
         if self.searcher.is_searching() {
-            eprintln!("Search running (received 'go')");
+            eprintln!("Warning: Search running (received 'go')");
             return;
         }
 
@@ -397,60 +440,60 @@ impl TeiHandler {
                 "depth" => {
                     i += 1;
                     if i >= args.len() {
-                        eprintln!("Missing depth");
+                        eprintln!("Warning: Missing depth");
                         return;
                     }
 
                     if let Ok(depth) = args[i].parse() {
                         if max_depth.is_some() {
-                            eprintln!("Duplicate depth limits");
+                            eprintln!("Warning: Duplicate depth limits");
                             return;
                         }
                         max_depth = Some(depth);
                     } else {
-                        eprintln!("Invalid depth '{}'", args[i]);
+                        eprintln!("Warning: Invalid depth '{}'", args[i]);
                         return;
                     }
                 }
                 "nodes" => {
                     i += 1;
                     if i >= args.len() {
-                        eprintln!("Missing node count");
+                        eprintln!("Warning: Missing node count");
                         return;
                     }
 
                     if let Ok(nodes) = args[i].parse() {
                         if !(limits.set_soft_nodes(nodes) && limits.set_hard_nodes(nodes)) {
-                            eprintln!("Duplicate node limits");
+                            eprintln!("Warning: Duplicate node limits");
                             return;
                         }
                     } else {
-                        eprintln!("Invalid node count '{}'", args[i]);
+                        eprintln!("Warning: Invalid node count '{}'", args[i]);
                         return;
                     }
                 }
                 "movetime" => {
                     i += 1;
                     if i >= args.len() {
-                        eprintln!("Missing time");
+                        eprintln!("Warning: Missing time");
                         return;
                     }
 
                     if let Ok(movetime) = args[i].parse::<u64>() {
                         let secs = (movetime as f64) / 1000.0;
                         if !limits.set_movetime(secs) {
-                            eprintln!("Duplicate movetime limits");
+                            eprintln!("Warning: Duplicate movetime limits");
                             return;
                         }
                     } else {
-                        eprintln!("Invalid time '{}'", args[i]);
+                        eprintln!("Warning: Invalid time '{}'", args[i]);
                         return;
                     }
                 }
                 "wtime" | "btime" | "winc" | "binc" => {
                     i += 1;
                     if i >= args.len() {
-                        eprintln!("Missing time");
+                        eprintln!("Warning: Missing time");
                         return;
                     }
 
@@ -464,14 +507,14 @@ impl TeiHandler {
                         };
 
                         if limit.is_some() {
-                            eprintln!("Duplicate {} limits", limit_str);
+                            eprintln!("Warning: Duplicate {} limits", limit_str);
                             return;
                         }
 
                         let secs = (time as f64) / 1000.0;
                         *limit = Some(secs);
                     } else {
-                        eprintln!("Invalid time '{}'", args[i]);
+                        eprintln!("Warning: Invalid time '{}'", args[i]);
                         return;
                     }
                 }
@@ -480,6 +523,7 @@ impl TeiHandler {
                         let candidate = args[i + 1];
                         if let Ok(mv) = candidate.parse() {
                             if moves_to_search.contains(&mv) {
+                                i += 1;
                                 continue;
                             }
 
@@ -495,7 +539,7 @@ impl TeiHandler {
                         }
                     }
                 }
-                unsupported => eprintln!("Unsupported limit '{}'", unsupported),
+                unsupported => eprintln!("Warning: Unsupported limit '{}'", unsupported),
             }
 
             i += 1;
@@ -535,19 +579,20 @@ impl TeiHandler {
 
     fn handle_move(&mut self, args: &[&str]) {
         if args.is_empty() {
-            eprintln!("Missing move");
+            eprintln!("Warning: Missing move");
+            return;
         }
 
         match args[0].parse() {
             Ok(mv) => {
                 if !self.pos.is_legal(mv) {
-                    eprintln!("Illegal move '{}'", mv);
+                    eprintln!("Warning: Illegal move '{}'", mv);
                     return;
                 }
                 self.key_history.push(self.pos.key());
                 self.pos = self.pos.apply_move(mv);
             }
-            Err(err) => eprintln!("Invalid move '{}': {:?}", args[0], err),
+            Err(err) => eprintln!("Warning: Invalid move '{}': {:?}", args[0], err),
         }
     }
 
@@ -579,7 +624,7 @@ impl TeiHandler {
 
     fn handle_bench(&mut self, depth: Option<&str>) {
         if self.searcher.is_searching() {
-            eprintln!("Search running (received 'bench')");
+            eprintln!("Warning: Search running (received 'bench')");
             return;
         }
 
@@ -587,7 +632,7 @@ impl TeiHandler {
             Some(depth) => match depth.parse::<i32>() {
                 Ok(depth) => depth.clamp(1, search::MAX_DEPTH),
                 Err(_) => {
-                    eprintln!("Invalid depth '{}'", depth);
+                    eprintln!("Warning: Invalid depth '{}'", depth);
                     return;
                 }
             },
@@ -629,14 +674,14 @@ impl TeiHandler {
 
     fn handle_perft(&self, args: &[&str]) {
         if args.is_empty() {
-            eprintln!("Missing depth");
+            eprintln!("Warning: Missing depth");
             return;
         }
 
         let depth = match args[0].parse() {
             Ok(depth) => depth,
             Err(_) => {
-                eprintln!("Invalid depth '{}'", args[0]);
+                eprintln!("Warning: Invalid depth '{}'", args[0]);
                 return;
             }
         };
@@ -646,14 +691,14 @@ impl TeiHandler {
 
     fn handle_splitperft(&self, args: &[&str]) {
         if args.is_empty() {
-            eprintln!("Missing depth");
+            eprintln!("Warning: Missing depth");
             return;
         }
 
         let depth = match args[0].parse() {
             Ok(depth) => depth,
             Err(_) => {
-                eprintln!("Invalid depth '{}'", args[0]);
+                eprintln!("Warning: Invalid depth '{}'", args[0]);
                 return;
             }
         };
