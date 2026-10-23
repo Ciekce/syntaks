@@ -38,11 +38,11 @@ pub fn probabilities(score: Score) -> (i32, i32, i32) {
 }
 
 const HUMAN_A_SCALE: f64 = 20.0;
-const HUMAN_A_BASE: f64 = 4.664196675480554;
-const HUMAN_A_WALLS: f64 = 5.489418921388072;
-const HUMAN_B_BASE: f64 = 5.496131687926765;
-const HUMAN_B_WALLS: f64 = 0.13694544881346082;
-const HUMAN_B_RESERVES_WALLS: f64 = 1.1199382695143412;
+const HUMAN_A_BASE: f64 = 6.259088743898018;
+const HUMAN_A_WALLS: f64 = 6.133913040326807;
+const HUMAN_B_BASE: f64 = 5.29670966581353;
+const HUMAN_B_WALLS: f64 = -0.13213439913177993;
+const HUMAN_B_RESERVES_WALLS: f64 = 0.7553106188996811;
 
 #[must_use]
 pub fn human_probabilities(score: Score, pos: &Position) -> (i32, i32, i32) {
