@@ -700,7 +700,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                 if thread.is_main_thread()
                     && !thread.shared().options.minimal
                     && !thread.shared().options.silent
-                    && ctx.multipv == 1
+                    && thread.shared().options.multipv == 1
                 {
                     let time = thread.shared().elapsed();
                     if time >= WIDEN_REPORT_DELAY {
@@ -798,7 +798,7 @@ fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usi
     let mut out = std::io::stdout().lock();
     write!(out, "info ").unwrap();
 
-    if ctx.multipv > 1 {
+    if thread.shared().options.multipv > 1 {
         write!(out, "multipv {} ", pv_idx + 1).unwrap();
     }
 
