@@ -43,7 +43,6 @@ const HUMAN_A_WALLS: f64 = 5.489418921388072;
 const HUMAN_B_BASE: f64 = 5.496131687926765;
 const HUMAN_B_WALLS: f64 = 0.13694544881346082;
 const HUMAN_B_RESERVES_WALLS: f64 = 1.1199382695143412;
-const HUMAN_C_WALLS: f64 = -44.933403606119325;
 
 #[must_use]
 pub fn human_probabilities(score: Score, pos: &Position) -> (i32, i32, i32) {
@@ -57,9 +56,8 @@ pub fn human_probabilities(score: Score, pos: &Position) -> (i32, i32, i32) {
 
     let a = HUMAN_A_SCALE * (HUMAN_A_BASE + HUMAN_A_WALLS * walls).exp().ln_1p();
     let b = (HUMAN_B_BASE + HUMAN_B_WALLS * walls + HUMAN_B_RESERVES_WALLS * reserves * walls).exp();
-    let c = HUMAN_C_WALLS * walls;
 
-    let x = score as f64 * 100.0 / WDL_A - c;
+    let x = score as f64 * 100.0 / WDL_A;
 
     wdl(x, a, b)
 }
