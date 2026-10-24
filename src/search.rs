@@ -34,6 +34,7 @@ use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, set_pv, update_pv};
 use crate::ttable::{ProbedEntry, TtFlag};
 use crate::util::command_channel::{Receiver, Sender, channel};
+use crate::wdl;
 use std::io::Write;
 use std::sync::Arc;
 use std::thread;
@@ -46,9 +47,6 @@ pub const MAX_DEPTH: i32 = 248;
 const WIDEN_REPORT_DELAY: f64 = 1.0;
 const VERBOSE_MULTIPV_DELAY: f64 = 1.0;
 const CURRMOVE_REPORT_DELAY: f64 = 2.5;
-
-const WDL_A: f64 = 222.13;
-const WDL_B: f64 = 138.82;
 
 #[derive(Clone, Debug)]
 pub struct SearchContext {
@@ -217,14 +215,14 @@ fn search<NT: NodeType>(
         if (pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0)
             || pos.occ().popcount() == Square::COUNT as u32 - 1
         {
-            let fcd = pos.fcd(pos.stm());
+            let hfcd = pos.hfcd(pos.stm());
 
-            if fcd >= 0 {
+            if hfcd >= -1 {
                 push_to_pv(!pos.occ());
                 return SCORE_MATE - ply - 1;
             }
 
-            if fcd == -1 && alpha < 0 {
+            if hfcd == -2 && alpha < 0 {
                 push_to_pv(!pos.occ());
                 alpha = 0;
                 if alpha >= beta {
@@ -456,7 +454,7 @@ fn search<NT: NodeType>(
                 r -= thread.history.score(pos, mv, prev_move) / 24;
 
                 if mv.is_spread() {
-                    let gain = new_pos.fcd(pos.stm()) - pos.fcd(pos.stm());
+                    let gain = (new_pos.hfcd(pos.stm()) - pos.hfcd(pos.stm())) / 2;
                     r += (1 - gain).clamp(0, 3) * 1024;
                 }
 
@@ -703,12 +701,12 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                 if thread.is_main_thread()
                     && !thread.shared().options.minimal
                     && !thread.shared().options.silent
-                    && ctx.multipv == 1
+                    && thread.shared().options.multipv == 1
                 {
                     let time = thread.shared().elapsed();
                     if time >= WIDEN_REPORT_DELAY {
                         let nodes = thread.shared().total_nodes();
-                        report_single(thread, time, nodes, ctx.multipv, thread.pv_idx);
+                        report_single(thread, ctx, time, nodes, thread.pv_idx);
                     }
                 }
 
@@ -737,7 +735,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                         || (!thread.shared().options.minimal
                             && (last_pv || thread.shared().elapsed() >= VERBOSE_MULTIPV_DELAY)))
                 {
-                    report(thread, thread.shared().elapsed(), ctx.multipv);
+                    report(thread, ctx, thread.shared().elapsed());
                 }
             }
 
@@ -785,7 +783,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
     }
 }
 
-fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, pv_idx: usize) -> bool {
+fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usize, pv_idx: usize) -> bool {
     let root_move = &thread.root_moves[pv_idx];
 
     // previous scores are exact, as the depth was completed
@@ -808,7 +806,7 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
     let mut out = std::io::stdout().lock();
     write!(out, "info ").unwrap();
 
-    if multipv > 1 {
+    if thread.shared().options.multipv > 1 {
         write!(out, "multipv {} ", pv_idx + 1).unwrap();
     }
 
@@ -835,8 +833,7 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
             }
         }
     } else {
-        let scaled = (score as f64 * 100.0 / WDL_A).round() as Score;
-        write!(out, "cp {}", scaled).unwrap();
+        write!(out, "cp {}", wdl::normalise_score(score)).unwrap();
     }
 
     if upper_bound {
@@ -856,15 +853,11 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
             write!(out, " wdl 0 0 1000").unwrap();
         }
     } else {
-        let p = |cp: Score| {
-            let x = (WDL_A - cp as f64) / WDL_B;
-            (1000.0 / (1.0 + x.exp())).round() as i32
+        let (w, d, l) = if thread.shared().options.human_wdl {
+            wdl::human_probabilities(score, &ctx.root_pos)
+        } else {
+            wdl::probabilities(score)
         };
-
-        let w = p(score);
-        let l = p(-score);
-        let d = 1000 - w - l;
-
         write!(out, " wdl {} {} {}", w, d, l).unwrap();
     }
 
@@ -882,10 +875,10 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
     true
 }
 
-fn report(thread: &ThreadData, time: f64, multipv: usize) {
+fn report(thread: &ThreadData, ctx: &SearchContext, time: f64) {
     let nodes = thread.shared().total_nodes();
-    for pv_idx in 0..multipv {
-        if !report_single(thread, time, nodes, multipv, pv_idx) {
+    for pv_idx in 0..ctx.multipv {
+        if !report_single(thread, ctx, time, nodes, pv_idx) {
             break;
         }
     }

@@ -202,11 +202,14 @@ pub struct Position {
     stm_key: u64,
     roads: [bool; Color::COUNT],
     influence: [[Bitboard; 4]; Color::COUNT],
+    half_komi: i8,
 }
 
 impl Position {
     pub const CARRY_LIMIT: u32 = 6;
-    pub const KOMI: u32 = 2;
+    pub const DEFAULT_HALF_KOMI: i8 = 4;
+    pub const MIN_HALF_KOMI: i8 = -7;
+    pub const MAX_HALF_KOMI: i8 = 7;
 
     // all flats + cap
     pub const MAX_STACK_HEIGHT: usize = TOTAL_FLATS as usize * 2 + TOTAL_CAPS as usize;
@@ -224,7 +227,16 @@ impl Position {
             stm_key: 0,
             roads: Default::default(),
             influence: Default::default(),
+            half_komi: Self::DEFAULT_HALF_KOMI,
         }
+    }
+
+    pub fn set_half_komi(&mut self, half_komi: i8) {
+        self.half_komi = half_komi;
+    }
+
+    pub fn half_komi(&self) -> i8 {
+        self.half_komi
     }
 
     pub fn from_tps_parts(parts: &[&str]) -> Result<Self, TpsError> {
@@ -466,10 +478,10 @@ impl Position {
     }
 
     #[must_use]
-    pub fn fcd(&self, color: Color) -> i32 {
-        let white_advantage = self.color_piece_bb(Piece::WhiteFlat).popcount() as i32
-            - self.color_piece_bb(Piece::BlackFlat).popcount() as i32
-            - Self::KOMI as i32;
+    pub fn hfcd(&self, color: Color) -> i32 {
+        let white_advantage = 2 * self.color_piece_bb(Piece::WhiteFlat).popcount() as i32
+            - 2 * self.color_piece_bb(Piece::BlackFlat).popcount() as i32
+            - i32::from(self.half_komi);
         white_advantage * color.sign()
     }
 
@@ -480,10 +492,7 @@ impl Position {
             return FlatCountOutcome::None;
         }
 
-        let w_flats = self.color_piece_bb(Piece::WhiteFlat).popcount();
-        let b_flats = self.color_piece_bb(Piece::BlackFlat).popcount() + Self::KOMI;
-
-        match w_flats.cmp(&b_flats) {
+        match self.hfcd(Color::White).cmp(&0) {
             Ordering::Less => FlatCountOutcome::Win(Color::Black),
             Ordering::Equal => FlatCountOutcome::Draw,
             Ordering::Greater => FlatCountOutcome::Win(Color::White),

@@ -29,6 +29,7 @@ use crate::position::*;
 use crate::search;
 use crate::search::{MAX_THREADS, Searcher};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
+use crate::wdl;
 use std::time::Instant;
 
 const NAME: &str = "syntaks";
@@ -72,6 +73,7 @@ pub struct TeiOptions {
     pub multipv: usize,
     pub minimal: bool,
     pub mate_scores: bool,
+    pub human_wdl: bool,
     pub show_curr_move: bool,
     pub silent: bool,
     pub move_overhead_ms: u64,
@@ -84,6 +86,7 @@ impl Default for TeiOptions {
             multipv: 1,
             minimal: false,
             mate_scores: true,
+            human_wdl: false,
             show_curr_move: false,
             silent: false,
             move_overhead_ms: 10,
@@ -97,6 +100,7 @@ struct TeiHandler {
     key_history: Vec<u64>,
     searcher: Searcher,
     options: TeiOptions,
+    half_komi: i8,
 }
 
 impl TeiHandler {
@@ -107,6 +111,7 @@ impl TeiHandler {
             key_history: Vec::with_capacity(1024),
             searcher: Searcher::new(DEFAULT_TT_SIZE_MIB),
             options: TeiOptions::default(),
+            half_komi: Position::DEFAULT_HALF_KOMI,
         }
     }
 
@@ -146,6 +151,7 @@ impl TeiHandler {
                 "move" => self.handle_move(args),
                 "wait" => self.handle_wait(),
                 "d" => self.handle_d(),
+                "eval" => self.handle_eval(),
                 "perft" => self.handle_perft(args),
                 "splitperft" => self.handle_splitperft(args),
                 "bench" => self.handle_bench(args.first().copied()),
@@ -158,7 +164,6 @@ impl TeiHandler {
     }
 
     fn handle_tei(&self) {
-        let half_komi = Position::KOMI * 2;
         let default_options = TeiOptions::default();
 
         println!("id name {} {}", NAME, VERSION);
@@ -166,7 +171,9 @@ impl TeiHandler {
 
         println!(
             "option name HalfKomi type spin default {} min {} max {}",
-            half_komi, half_komi, half_komi
+            Position::DEFAULT_HALF_KOMI,
+            Position::MIN_HALF_KOMI,
+            Position::MAX_HALF_KOMI
         );
         println!(
             "option name Hash type spin default {} min 1 max {}",
@@ -182,6 +189,7 @@ impl TeiHandler {
             "option name MateScores type check default {}",
             default_options.mate_scores
         );
+        println!("option name HumanWDL type check default {}", default_options.human_wdl);
         println!(
             "option name ShowCurrMove type check default {}",
             default_options.show_curr_move
@@ -267,15 +275,20 @@ impl TeiHandler {
         };
 
         match name.as_str() {
-            "halfkomi" => {
-                if let Ok(half_komi) = value.parse::<u32>() {
-                    if half_komi != Position::KOMI * 2 {
+            "halfkomi" => match value.parse::<i8>() {
+                Ok(half_komi) => {
+                    if (Position::MIN_HALF_KOMI..=Position::MAX_HALF_KOMI).contains(&half_komi) {
+                        if half_komi != self.half_komi {
+                            self.half_komi = half_komi;
+                            self.pos.set_half_komi(half_komi);
+                            self.searcher.reset();
+                        }
+                    } else {
                         eprintln!("Warning: Unsupported komi value");
                     }
-                } else {
-                    invalid(&value);
                 }
-            }
+                Err(_) => invalid(&value),
+            },
             "hash" => {
                 if let Ok(size) = value.parse::<usize>() {
                     let size = size.clamp(1, MAX_TT_SIZE_MIB);
@@ -310,6 +323,13 @@ impl TeiHandler {
             "matescores" => {
                 if let Ok(mate_scores) = value.parse::<bool>() {
                     self.options.mate_scores = mate_scores;
+                } else {
+                    invalid(&value);
+                }
+            }
+            "humanwdl" => {
+                if let Ok(human_wdl) = value.parse::<bool>() {
+                    self.options.human_wdl = human_wdl;
                 } else {
                     invalid(&value);
                 }
@@ -383,6 +403,8 @@ impl TeiHandler {
                 return;
             }
         }
+
+        self.pos.set_half_komi(self.half_komi);
 
         if next >= args.len() || args[next] != "moves" {
             return;
@@ -613,6 +635,15 @@ impl TeiHandler {
         };
 
         println!("Static eval (white-relative): {:+.2}", (static_eval as f64) / 100.0);
+    }
+
+    fn handle_eval(&self) {
+        let static_eval = static_eval_once(&self.pos);
+        println!(
+            "Static eval (stm-relative): raw {} cp {}",
+            static_eval,
+            wdl::normalise_score(static_eval)
+        );
     }
 
     fn handle_bench(&mut self, depth: Option<&str>) {
