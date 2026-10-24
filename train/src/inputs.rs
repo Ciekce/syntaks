@@ -4,9 +4,14 @@ use bullet_lib::value::loader::{GameResult as LoaderResult, LoadableDataType};
 use std::ops::Deref;
 use syntaks::core::{Color, PieceType, Square, normalizer};
 use syntaks::format::PackedTakBoard;
+use syntaks::position::Position;
+
+pub const RESERVE_BUCKETS: usize = 8;
+pub const KOMI_BUCKETS: usize = (Position::MAX_HALF_KOMI - Position::MIN_HALF_KOMI) as usize + 1;
+pub const OUTPUT_BUCKETS: usize = KOMI_BUCKETS * RESERVE_BUCKETS;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-pub struct LoadedTakBoard(pub PackedTakBoard);
+pub struct LoadedTakBoard(pub PackedTakBoard, pub i8);
 
 impl Deref for LoadedTakBoard {
     type Target = PackedTakBoard;
@@ -38,10 +43,10 @@ impl OutputBuckets<LoadedTakBoard> for StmBucket {
 }
 
 #[derive(Clone, Copy, Default)]
-pub struct StmReserveBuckets;
+pub struct KomiReserveBuckets;
 
-impl OutputBuckets<LoadedTakBoard> for StmReserveBuckets {
-    const BUCKETS: usize = 16;
+impl OutputBuckets<LoadedTakBoard> for KomiReserveBuckets {
+    const BUCKETS: usize = OUTPUT_BUCKETS;
 
     fn bucket(&self, pos: &LoadedTakBoard) -> u8 {
         let w_reserves = pos.0.reserves(Color::White);
@@ -50,7 +55,9 @@ impl OutputBuckets<LoadedTakBoard> for StmReserveBuckets {
         let bucket = [
             0, 0, 1, 2, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7,
         ][reserves as usize];
-        pos.stm().raw() * 8 + bucket
+        let stm_komi = i32::from(pos.1) * pos.stm().sign();
+        let komi_bucket = (-stm_komi - i32::from(Position::MIN_HALF_KOMI)) as usize;
+        (komi_bucket * RESERVE_BUCKETS + bucket) as u8
     }
 }
 

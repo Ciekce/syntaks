@@ -129,6 +129,48 @@ impl DataReader<LoadedTakBoard> for TakReader {
     }
 }
 
+#[derive(Clone)]
+pub struct MixReader {
+    readers: [TakReader; 2],
+}
+
+impl MixReader {
+    pub fn new(first: TakReader, second: TakReader) -> Self {
+        Self {
+            readers: [first, second],
+        }
+    }
+}
+
+impl DataReader<LoadedTakBoard> for MixReader {
+    fn read_chunks<F: FnMut(&[LoadedTakBoard]) -> bool>(&self, _: usize, mut f: F) {
+        let receivers = self.readers.clone().map(|reader| {
+            let (sender, receiver) = mpsc::sync_channel::<Vec<LoadedTakBoard>>(0);
+            std::thread::spawn(move || reader.read_chunks(0, |chunk| sender.send(chunk.to_vec()).is_err()));
+            receiver
+        });
+
+        'dataloading: loop {
+            let mut shuffle_buffer = Vec::new();
+
+            for receiver in &receivers {
+                let Ok(chunk) = receiver.recv() else {
+                    break 'dataloading;
+                };
+                shuffle_buffer.extend_from_slice(&chunk);
+            }
+
+            shuffle_buffer.shuffle(&mut rand::rng());
+
+            if f(&shuffle_buffer) {
+                break 'dataloading;
+            }
+        }
+    }
+}
+
+const FLAGS_OFFSET: usize = 25;
+
 fn convert_buffer(threads: usize, sender: &SyncSender<Vec<LoadedTakBoard>>, games: &[Vec<u8>], filter: &TakFilter) {
     let chunk_size = games.len().div_ceil(threads);
 
@@ -140,7 +182,7 @@ fn convert_buffer(threads: usize, sender: &SyncSender<Vec<LoadedTakBoard>>, game
 
                 for game_bytes in chunk {
                     let game = parse_game(game_bytes).unwrap();
-                    splat(&game, &mut buffer, filter);
+                    splat(&game, (game_bytes[FLAGS_OFFSET] as i8 >> 4) + 4, &mut buffer, filter);
                 }
 
                 this_sender.send(buffer)
@@ -149,16 +191,15 @@ fn convert_buffer(threads: usize, sender: &SyncSender<Vec<LoadedTakBoard>>, game
     });
 }
 
-fn splat(game: &Game, out: &mut Vec<LoadedTakBoard>, filter: &TakFilter) {
+fn splat(game: &Game, hk: i8, out: &mut Vec<LoadedTakBoard>, filter: &TakFilter) {
     let mut pos = game.root;
 
     for &(mv, eval) in &game.moves {
         if filter(&pos, mv, eval as Score, game.result) {
-            out.push(LoadedTakBoard(PackedTakBoard::encode_position_from_game(
-                &pos,
-                eval as Score,
-                game.result,
-            )));
+            out.push(LoadedTakBoard(
+                PackedTakBoard::encode_position_from_game(&pos, eval as Score, game.result),
+                hk,
+            ));
         }
         pos = pos.apply_move(mv);
     }
