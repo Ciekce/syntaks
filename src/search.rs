@@ -449,6 +449,7 @@ fn search<NT: NodeType>(
                 let mut r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
 
                 r += 1024 * i32::from(!NT::PV_NODE);
+                r += 1024 * i32::from(expected_cutnode);
                 r += 1024 * i32::from(!improving);
                 r -= thread.history.score(pos, mv, prev_move) / 24;
 
