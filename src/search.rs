@@ -414,6 +414,8 @@ fn search<NT: NodeType>(
                 extension += 1 + i32::from(!NT::PV_NODE && score < s_beta - 30);
             } else if !NT::PV_NODE && score >= beta {
                 return score;
+            } else if tt_entry.score >= beta {
+                extension -= 1;
             }
         }
 
