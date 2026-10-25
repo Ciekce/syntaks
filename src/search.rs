@@ -311,7 +311,7 @@ fn search<NT: NodeType>(
 
         // nullmove pruning (nmp)
         if expected_cutnode && depth >= 4 && static_eval >= beta && thread.stack[ply as usize - 1].mv.is_some() {
-            let r = 3 + depth / 5;
+            let r = 4 + depth / 5;
 
             let new_pos = thread.apply_nullmove(ply, pos);
 
