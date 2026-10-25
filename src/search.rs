@@ -277,7 +277,11 @@ fn search<NT: NodeType>(
         tt_entry.mv
     };
 
-    if excluded.is_none() && (NT::PV_NODE || expected_cutnode) && depth >= 3 && tt_move.is_none() {
+    if excluded.is_none()
+        && (NT::PV_NODE || expected_cutnode)
+        && depth >= 3
+        && (tt_move.is_none() || (tt_hit && tt_entry.depth + 2 < depth))
+    {
         depth -= 1;
     }
 
