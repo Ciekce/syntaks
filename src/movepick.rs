@@ -31,6 +31,7 @@ use crate::takmove::Move;
 
 const SPREAD_ROAD_BONUS: i32 = 1 << 18;
 const SPREAD_FLAT_GAIN: i32 = 4096;
+const WALL_SMASH_BONUS: i32 = 4096;
 
 struct SpreadInfo {
     roads: Bitboard,
@@ -190,6 +191,9 @@ impl<'a> Movepicker<'a> {
                     score += SPREAD_ROAD_BONUS;
                 }
                 score += SPREAD_FLAT_GAIN * info.flat_delta;
+                if self.pos.top_pt(mv.spread_dest()) == Some(PieceType::Wall) {
+                    score += WALL_SMASH_BONUS;
+                }
             }
 
             // scores have to be less than 2²⁰ to make the movepicking more efficient
