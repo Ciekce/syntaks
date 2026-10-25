@@ -33,9 +33,13 @@ pub const MAX_TT_SIZE_MIB: usize = 131072;
 
 const ENTRIES_PER_CLUSTER: usize = 3;
 
+const PV_BITS: u32 = 1;
+const PV_MASK: u8 = (1 << PV_BITS) - 1;
+const FLAG_OFFSET: u32 = PV_BITS;
 const FLAG_BITS: u32 = 2;
 const FLAG_MASK: u8 = (1 << FLAG_BITS) - 1;
-const AGE_BITS: u32 = 8 - FLAG_BITS;
+const AGE_OFFSET: u32 = FLAG_OFFSET + FLAG_BITS;
+const AGE_BITS: u32 = 8 - FLAG_BITS - PV_BITS;
 const AGE_CYCLE: u8 = 1 << AGE_BITS;
 const AGE_MASK: u8 = AGE_CYCLE - 1;
 
@@ -59,7 +63,7 @@ struct Entry {
     raw_static_eval: i16,
     mv: Option<Move>,
     offset_depth: u8,
-    age_flag: AgeFlag,
+    age_flag_pv: AgeFlagPv,
 }
 
 impl Entry {
@@ -71,13 +75,14 @@ impl Entry {
         ply: i32,
         age: u8,
         flag: Option<TtFlag>,
+        pv: bool,
     ) -> Self {
         Self {
             score: score_to_tt(score, ply),
             raw_static_eval: static_eval as i16,
             mv,
             offset_depth: (depth + DEPTH_OFFSET) as u8,
-            age_flag: AgeFlag::new(age, flag),
+            age_flag_pv: AgeFlagPv::new(age, flag, pv),
         }
     }
 
@@ -96,33 +101,39 @@ const _: () = assert!(size_of::<Entry>() == 8);
 
 #[derive(Copy, Clone, Debug, Default)]
 #[repr(C)]
-struct AgeFlag {
+struct AgeFlagPv {
     raw: u8,
 }
 
-impl AgeFlag {
+impl AgeFlagPv {
     #[must_use]
-    fn new(age: u8, flag: Option<TtFlag>) -> Self {
+    fn new(age: u8, flag: Option<TtFlag>, pv: bool) -> Self {
         let flag = flag.map(|flag| flag as u8).unwrap_or(0);
+        let pv = u8::from(pv);
         Self {
-            raw: (age << FLAG_BITS) | flag,
+            raw: (age << AGE_OFFSET) | (flag << FLAG_OFFSET) | pv,
         }
     }
 
     #[must_use]
     fn age(self) -> u8 {
-        self.raw >> FLAG_BITS
+        self.raw >> AGE_OFFSET
     }
 
     #[must_use]
     fn flag(self) -> Option<TtFlag> {
-        match self.raw & FLAG_MASK {
+        match (self.raw >> FLAG_OFFSET) & FLAG_MASK {
             0 => None,
             1 => Some(TtFlag::UpperBound),
             2 => Some(TtFlag::LowerBound),
             3 => Some(TtFlag::Exact),
             _ => unreachable!(),
         }
+    }
+
+    #[must_use]
+    fn pv(self) -> bool {
+        self.raw & PV_MASK != 0
     }
 }
 
@@ -195,6 +206,7 @@ pub struct ProbedEntry {
     pub mv: Option<Move>,
     pub depth: i32,
     pub flag: Option<TtFlag>,
+    pub pv: bool,
 }
 
 #[must_use]
@@ -344,7 +356,8 @@ impl TranspositionTable {
         probed.raw_static_eval = entry.raw_static_eval as Score;
         probed.mv = entry.mv;
         probed.depth = entry.depth();
-        probed.flag = entry.age_flag.flag();
+        probed.flag = entry.age_flag_pv.flag();
+        probed.pv = entry.age_flag_pv.pv();
 
         (true, probed)
     }
@@ -359,6 +372,7 @@ impl TranspositionTable {
         depth: i32,
         ply: i32,
         flag: Option<TtFlag>,
+        pv: bool,
     ) {
         let idx = self.calc_index(key);
         let entry_key = pack_entry_key(key);
@@ -373,7 +387,7 @@ impl TranspositionTable {
 
         let replace = flag == Some(TtFlag::Exact)
             || entry_key != existing_key
-            || existing_entry.age_flag.age() != self.age
+            || existing_entry.age_flag_pv.age() != self.age
             || depth + 4 > existing_entry.depth();
 
         if !replace {
@@ -386,7 +400,7 @@ impl TranspositionTable {
             mv
         };
 
-        let new_entry = Entry::new(score, static_eval, mv, depth, ply, self.age, flag);
+        let new_entry = Entry::new(score, static_eval, mv, depth, ply, self.age, flag, pv);
 
         cluster.entries[slot].store(new_entry);
         cluster.keys.set(slot, entry_key);
@@ -402,14 +416,15 @@ impl TranspositionTable {
         depth: i32,
         ply: i32,
         flag: TtFlag,
+        pv: bool,
     ) {
-        self.store_internal(key, score, static_eval, mv, depth, ply, Some(flag));
+        self.store_internal(key, score, static_eval, mv, depth, ply, Some(flag), pv);
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn store_static_eval(&self, key: u64, static_eval: Score) {
+    pub fn store_static_eval(&self, key: u64, static_eval: Score, pv: bool) {
         const STATIC_EVAL_DEPTH: i32 = -DEPTH_OFFSET + 1;
-        self.store_internal(key, SCORE_MATE, static_eval, None, STATIC_EVAL_DEPTH, 0, None);
+        self.store_internal(key, SCORE_MATE, static_eval, None, STATIC_EVAL_DEPTH, 0, None, pv);
     }
 
     #[must_use]
@@ -421,7 +436,7 @@ impl TranspositionTable {
         let value = |storage: &EntryStorage| {
             let entry = storage.load();
             entry.depth()
-                - AGE_PENALTY * self.relative_age(entry.age_flag)
+                - AGE_PENALTY * self.relative_age(entry.age_flag_pv)
                 - EMPTY_PENALTY * i32::from(!entry.is_present())
         };
 
@@ -445,7 +460,7 @@ impl TranspositionTable {
 
         for i in 0..1000 {
             let entry = self.clusters[i / ENTRIES_PER_CLUSTER].entries[i % ENTRIES_PER_CLUSTER].load();
-            if entry.is_present() && entry.age_flag.age() == self.age {
+            if entry.is_present() && entry.age_flag_pv.age() == self.age {
                 filled += 1;
             }
         }
@@ -454,8 +469,8 @@ impl TranspositionTable {
     }
 
     #[must_use]
-    fn relative_age(&self, age_flag: AgeFlag) -> i32 {
-        ((AGE_CYCLE + self.age - age_flag.age()) & AGE_MASK) as i32
+    fn relative_age(&self, age_flag_pv: AgeFlagPv) -> i32 {
+        ((AGE_CYCLE + self.age - age_flag_pv.age()) & AGE_MASK) as i32
     }
 
     #[must_use]

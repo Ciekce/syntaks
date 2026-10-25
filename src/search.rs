@@ -269,7 +269,11 @@ fn search<NT: NodeType>(
         {
             return tt_entry.score;
         }
+
+        thread.stack[ply as usize].ttpv = NT::PV_NODE || tt_entry.pv;
     }
+
+    let ttpv = thread.stack[ply as usize].ttpv;
 
     let tt_move = if NT::ROOT_NODE && thread.root_depth > 1 {
         Some(thread.root_moves[thread.pv_idx].mv())
@@ -288,7 +292,7 @@ fn search<NT: NodeType>(
     };
 
     if !tt_hit {
-        thread.shared().tt.store_static_eval(pos.key(), raw_eval);
+        thread.shared().tt.store_static_eval(pos.key(), raw_eval, ttpv);
     }
 
     let correction = thread.corrhist.correction(pos, &thread.key_history);
@@ -448,7 +452,7 @@ fn search<NT: NodeType>(
             if depth >= 2 && move_count >= 2 + usize::from(NT::ROOT_NODE) {
                 let mut r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
 
-                r += 1024 * i32::from(!NT::PV_NODE);
+                r += 1024 * i32::from(!ttpv);
                 r += 1024 * i32::from(!improving);
                 r -= thread.history.score(pos, mv, prev_move) / 24;
 
@@ -591,7 +595,7 @@ fn search<NT: NodeType>(
             thread
                 .shared()
                 .tt
-                .store(pos.key(), best_score, raw_eval, best_move, depth, ply, tt_flag);
+                .store(pos.key(), best_score, raw_eval, best_move, depth, ply, tt_flag, ttpv);
         }
     }
 
@@ -623,7 +627,7 @@ fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: i32, alpha: 
     };
 
     if !tt_hit {
-        thread.shared().tt.store_static_eval(pos.key(), raw_eval);
+        thread.shared().tt.store_static_eval(pos.key(), raw_eval, NT::PV_NODE);
     }
 
     let correction = thread.corrhist.correction(pos, &thread.key_history);
