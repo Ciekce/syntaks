@@ -301,7 +301,7 @@ fn search<NT: NodeType>(
     if !NT::PV_NODE && excluded.is_none() {
         // reverse futility pruning (rfp)
         let rfp_margin = (100 * depth + 184 - 75 * i32::from(expected_cutnode) - 150 * i32::from(improving)).max(0);
-        if depth <= 6 && static_eval - rfp_margin >= beta {
+        if depth <= 10 && static_eval - rfp_margin >= beta {
             return (static_eval + beta) / 2;
         }
 
