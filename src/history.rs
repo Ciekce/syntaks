@@ -82,18 +82,32 @@ impl IndexMut<Move> for CombinedHist {
     }
 }
 
-#[derive(Copy, Clone)]
-struct ConthistSubTable {
-    entries: [Entry; ConthistTable::ENTRIES],
+// one for each placement type, and 4 spread directions
+const COMPRESSED_MOVE_TYPES: usize = PieceType::COUNT + Direction::COUNT;
+const COMPRESSED_ENTRIES: usize = COMPRESSED_MOVE_TYPES * Square::COUNT;
+
+#[must_use]
+fn compressed_move_idx(mv: Move) -> usize {
+    let type_idx = if mv.is_spread() {
+        mv.dir().idx()
+    } else {
+        mv.pt().idx() + Direction::COUNT
+    };
+    type_idx * Square::COUNT + mv.sq().idx()
 }
 
-impl ConthistSubTable {
+#[derive(Copy, Clone)]
+struct CompressedTable<T> {
+    entries: [T; COMPRESSED_ENTRIES],
+}
+
+impl<T: Default + Copy> CompressedTable<T> {
     fn clear(&mut self) {
         self.entries.fill(Default::default());
     }
 }
 
-impl Default for ConthistSubTable {
+impl<T: Default + Copy> Default for CompressedTable<T> {
     fn default() -> Self {
         Self {
             entries: [Default::default(); _],
@@ -101,48 +115,36 @@ impl Default for ConthistSubTable {
     }
 }
 
-impl Index<Move> for ConthistSubTable {
-    type Output = Entry;
+impl<T> Index<Move> for CompressedTable<T> {
+    type Output = T;
 
     fn index(&self, mv: Move) -> &Self::Output {
-        &self.entries[ConthistTable::move_idx(mv)]
+        &self.entries[compressed_move_idx(mv)]
     }
 }
 
-impl IndexMut<Move> for ConthistSubTable {
+impl<T> IndexMut<Move> for CompressedTable<T> {
     fn index_mut(&mut self, mv: Move) -> &mut Self::Output {
-        &mut self.entries[ConthistTable::move_idx(mv)]
+        &mut self.entries[compressed_move_idx(mv)]
     }
 }
+
+type ConthistTable = CompressedTable<CompressedTable<Entry>>;
 
 #[derive(Copy, Clone)]
-struct ConthistTable {
-    entries: [ConthistSubTable; Self::ENTRIES],
+struct HashedTable {
+    entries: [CompressedTable<Entry>; Self::ENTRIES],
 }
 
-impl ConthistTable {
-    // one for each placement type, and 4 spread directions
-    const MOVE_TYPES: usize = PieceType::COUNT + Direction::COUNT;
-    const ENTRIES: usize = Self::MOVE_TYPES * Square::COUNT;
-
-    #[must_use]
-    fn move_idx(mv: Move) -> usize {
-        let type_idx = if mv.is_spread() {
-            mv.dir().idx()
-        } else {
-            mv.pt().idx() + Direction::COUNT
-        };
-        type_idx * Square::COUNT + mv.sq().idx()
-    }
+impl HashedTable {
+    const ENTRIES: usize = 1 << 10;
 
     fn clear(&mut self) {
-        for subtable in self.entries.iter_mut() {
-            subtable.clear();
-        }
+        self.entries.fill(Default::default());
     }
 }
 
-impl Default for ConthistTable {
+impl Default for HashedTable {
     fn default() -> Self {
         Self {
             entries: [Default::default(); _],
@@ -150,29 +152,31 @@ impl Default for ConthistTable {
     }
 }
 
-impl Index<Move> for ConthistTable {
-    type Output = ConthistSubTable;
+impl Index<u64> for HashedTable {
+    type Output = CompressedTable<Entry>;
 
-    fn index(&self, mv: Move) -> &Self::Output {
-        &self.entries[Self::move_idx(mv)]
+    fn index(&self, key: u64) -> &Self::Output {
+        &self.entries[key as usize % Self::ENTRIES]
     }
 }
 
-impl IndexMut<Move> for ConthistTable {
-    fn index_mut(&mut self, mv: Move) -> &mut Self::Output {
-        &mut self.entries[Self::move_idx(mv)]
+impl IndexMut<u64> for HashedTable {
+    fn index_mut(&mut self, key: u64) -> &mut Self::Output {
+        &mut self.entries[key as usize % Self::ENTRIES]
     }
 }
 
 #[derive(Copy, Clone, Default)]
 struct SidedTables {
     hist: CombinedHist,
+    blocker: HashedTable,
     conthist: ConthistTable,
 }
 
 impl SidedTables {
     fn clear(&mut self) {
         self.hist.clear();
+        self.blocker.clear();
         self.conthist.clear();
     }
 }
@@ -201,6 +205,7 @@ impl History {
         let tables = &mut self.tables[pos.stm()];
         let bonus = bonus.clamp(-Self::MAX_BONUS, Self::MAX_BONUS);
         tables.hist[mv].update(bonus);
+        tables.blocker[pos.blocker_key()][mv].update(bonus);
         if let Some(prev) = prev {
             tables.conthist[prev][mv].update(bonus);
         }
@@ -210,6 +215,7 @@ impl History {
     pub fn score(&self, pos: &Position, mv: Move, prev: Option<Move>) -> i32 {
         let tables = &self.tables[pos.stm()];
         let mut res = tables.hist[mv].get();
+        res += tables.blocker[pos.blocker_key()][mv].get();
         if let Some(prev) = prev {
             res += tables.conthist[prev][mv].get();
         }
