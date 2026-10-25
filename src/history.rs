@@ -21,6 +21,7 @@
  * SOFTWARE.
  */
 
+use crate::bitboard::Bitboard;
 use crate::core::{Color, Direction, Square};
 use crate::takmove::Move;
 use crate::{core::PieceType, position::Position};
@@ -164,16 +165,53 @@ impl IndexMut<Move> for ConthistTable {
     }
 }
 
+#[derive(Copy, Clone)]
+struct InfluenceHist {
+    entries: [[Entry; Square::COUNT]; Self::BUCKETS],
+}
+
+impl InfluenceHist {
+    const BITS: u32 = 10;
+    const BUCKETS: usize = 1 << Self::BITS;
+
+    fn bucket(influence: &[Bitboard; 4]) -> usize {
+        let mut hash = influence
+            .iter()
+            .fold(0u64, |hash, bb| (hash ^ bb.raw()).wrapping_mul(3708513320411795339));
+        // splitmix64
+        hash = (hash ^ (hash >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        hash = (hash ^ (hash >> 27)).wrapping_mul(0x94d049bb133111eb);
+        hash ^= hash >> 31;
+        (hash >> (64 - Self::BITS)) as usize
+    }
+
+    fn clear(&mut self) {
+        for bucket in self.entries.iter_mut() {
+            bucket.fill(Default::default());
+        }
+    }
+}
+
+impl Default for InfluenceHist {
+    fn default() -> Self {
+        Self {
+            entries: [[Default::default(); Square::COUNT]; Self::BUCKETS],
+        }
+    }
+}
+
 #[derive(Copy, Clone, Default)]
 struct SidedTables {
     hist: CombinedHist,
     conthist: ConthistTable,
+    influence: InfluenceHist,
 }
 
 impl SidedTables {
     fn clear(&mut self) {
         self.hist.clear();
         self.conthist.clear();
+        self.influence.clear();
     }
 }
 
@@ -201,6 +239,10 @@ impl History {
         let tables = &mut self.tables[pos.stm()];
         let bonus = bonus.clamp(-Self::MAX_BONUS, Self::MAX_BONUS);
         tables.hist[mv].update(bonus);
+        if !mv.is_spread() {
+            let bucket = InfluenceHist::bucket(pos.influence(pos.stm()));
+            tables.influence.entries[bucket][mv.sq().idx()].update(bonus);
+        }
         if let Some(prev) = prev {
             tables.conthist[prev][mv].update(bonus);
         }
@@ -210,6 +252,10 @@ impl History {
     pub fn score(&self, pos: &Position, mv: Move, prev: Option<Move>) -> i32 {
         let tables = &self.tables[pos.stm()];
         let mut res = tables.hist[mv].get();
+        if !mv.is_spread() {
+            let bucket = InfluenceHist::bucket(pos.influence(pos.stm()));
+            res += tables.influence.entries[bucket][mv.sq().idx()].get();
+        }
         if let Some(prev) = prev {
             res += tables.conthist[prev][mv].get();
         }
