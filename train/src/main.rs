@@ -253,7 +253,7 @@ fn main() {
             start_superbatch: 1,
             end_superbatch: SUPERBATCHES_COMBINED,
         },
-        wdl_scheduler: wdl::ConstantWDL { value: 0.5 },
+        wdl_scheduler: wdl::ConstantWDL { value: 0.75 },
         lr_scheduler: lr::CosineDecayLR {
             initial_lr: 1e-4,
             final_lr: 1e-6,
