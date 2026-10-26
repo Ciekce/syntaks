@@ -499,6 +499,11 @@ fn search<NT: NodeType>(
                         -alpha,
                         !expected_cutnode,
                     );
+
+                    let bonus = (500 * new_depth - 500).clamp(0, 3000);
+                    thread
+                        .history
+                        .update(pos, mv, prev_move, if score > alpha { bonus } else { -bonus });
                 }
             } else if !NT::PV_NODE || move_count > 1 {
                 score = -search::<NonPvNode>(
