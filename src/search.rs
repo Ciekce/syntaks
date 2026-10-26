@@ -303,6 +303,13 @@ fn search<NT: NodeType>(
     let improving = ply < 2 || static_eval > thread.stack[ply as usize - 2].static_eval;
 
     if !NT::PV_NODE && excluded.is_none() {
+        let parent_reduction = thread.stack[ply as usize - 1].reduction;
+        let parent_static_eval = thread.stack[ply as usize - 1].static_eval;
+
+        if depth < MAX_DEPTH && parent_reduction >= 3 && static_eval + parent_static_eval <= 0 {
+            depth += 1;
+        }
+
         // reverse futility pruning (rfp)
         let rfp_margin = (100 * depth + 184 - 75 * i32::from(expected_cutnode) - 150 * i32::from(improving)).max(0);
         if depth <= 10 && static_eval - rfp_margin >= beta {
@@ -473,7 +480,9 @@ fn search<NT: NodeType>(
 
                 let reduced = (new_depth - r).max(1).min(new_depth);
 
+                thread.stack[ply as usize].reduction = new_depth - reduced;
                 score = -search::<NonPvNode>(thread, child_data, &new_pos, reduced, ply + 1, -alpha - 1, -alpha, true);
+                thread.stack[ply as usize].reduction = 0;
 
                 if score > alpha && reduced < new_depth {
                     score = -search::<NonPvNode>(
