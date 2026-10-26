@@ -29,9 +29,13 @@ use crate::road::influence;
 use crate::takmove::Move;
 use std::cmp::Ordering;
 use std::str::FromStr;
+use std::sync::atomic;
+use std::sync::atomic::AtomicBool;
 
 pub const TOTAL_FLATS: u8 = 30;
 pub const TOTAL_CAPS: u8 = 1;
+
+pub static DOUBLE_BLACK_STACK: AtomicBool = AtomicBool::new(false);
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Default)]
 struct Keys {
@@ -703,18 +707,27 @@ impl Position {
             debug_assert!(self.ply() >= 2 || mv.pt() == PieceType::Flat);
 
             let dropped_color = if self.ply() < 2 { self.stm().flip() } else { self.stm() };
+            let dropped = mv.pt().with_color(dropped_color);
 
             new_pos.stacks.push(mv.sq(), mv.pt(), dropped_color);
 
             new_pos.colors[dropped_color].set_sq(mv.sq());
             new_pos.pieces[mv.pt()].set_sq(mv.sq());
 
-            match mv.pt() {
-                PieceType::Capstone => new_pos.caps_in_hand[dropped_color] -= 1,
-                _ => new_pos.flats_in_hand[dropped_color] -= 1,
-            }
+            let (dropped_count, dropped_color_mask) = if self.ply() < 2
+                && dropped_color == Color::Black
+                && DOUBLE_BLACK_STACK.load(atomic::Ordering::Relaxed)
+            {
+                new_pos.stacks.push(mv.sq(), mv.pt(), dropped_color);
+                (2, 0b11)
+            } else {
+                (1, dropped_color.raw() as u64)
+            };
 
-            let dropped = mv.pt().with_color(dropped_color);
+            match mv.pt() {
+                PieceType::Capstone => new_pos.caps_in_hand[dropped_color] -= dropped_count,
+                _ => new_pos.flats_in_hand[dropped_color] -= dropped_count,
+            };
 
             observer.top_added(&new_pos, dropped, mv.sq());
             observer.stack_changed(
@@ -723,9 +736,9 @@ impl Position {
                 None,
                 Some(dropped),
                 0,
-                1,
+                dropped_count,
                 0,
-                dropped_color.raw() as u64,
+                dropped_color_mask,
             );
 
             new_pos.update_influence(dropped_color);
