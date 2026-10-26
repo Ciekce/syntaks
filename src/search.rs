@@ -35,7 +35,7 @@ use crate::ttable::{ProbedEntry, TtFlag};
 use crate::util::command_channel::{Receiver, Sender, channel};
 use crate::wdl;
 use std::io::Write;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -76,15 +76,13 @@ impl SearchContext {
 
 const LMR_TABLE_MOVES: usize = 64;
 
-#[static_init::dynamic]
-static LMR_REDUCTIONS: [[i32; LMR_TABLE_MOVES]; MAX_DEPTH as usize] = {
-    #![allow(clippy::needless_range_loop)]
-
+static LMR_REDUCTIONS: LazyLock<[[i32; LMR_TABLE_MOVES]; MAX_DEPTH as usize]> = LazyLock::new(|| {
     const BASE: f64 = 0.0;
     const DIVISOR: f64 = 3.0;
 
     let mut reductions = [[0; _]; _];
 
+    #[allow(clippy::needless_range_loop)]
     for depth in 1..MAX_DEPTH as usize {
         let ln_depth = (depth as f64).ln();
         for move_number in 1..LMR_TABLE_MOVES {
@@ -95,7 +93,7 @@ static LMR_REDUCTIONS: [[i32; LMR_TABLE_MOVES]; MAX_DEPTH as usize] = {
     }
 
     reductions
-};
+});
 
 #[derive(Clone)]
 struct PlyData {

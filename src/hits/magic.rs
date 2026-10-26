@@ -25,6 +25,7 @@ use crate::bitboard::Bitboard;
 use crate::core::{Direction, Square};
 use crate::hits::common::{generate_mask, pdep};
 use crate::hits::naive::find_hits_naive;
+use std::sync::LazyLock;
 
 #[rustfmt::skip]
 const MAGICS: [u64; Square::COUNT] = [
@@ -82,8 +83,7 @@ const SQUARE_DATA: Data = {
     Data { squares, table_size }
 };
 
-#[static_init::dynamic]
-static HITS: [super::Hits; SQUARE_DATA.table_size] = {
+static HITS: LazyLock<[super::Hits; SQUARE_DATA.table_size]> = LazyLock::new(|| {
     let mut result = [[(0, Square::A1); _]; _];
     let mut filled = [false; SQUARE_DATA.table_size];
 
@@ -111,7 +111,7 @@ static HITS: [super::Hits; SQUARE_DATA.table_size] = {
     }
 
     result
-};
+});
 
 #[must_use]
 fn calc_idx(blockers: Bitboard, inv_mask: u64, magic: u64, shift: u32) -> usize {
