@@ -467,6 +467,12 @@ fn search<NT: NodeType>(
                 r += 1024 * i32::from(!improving);
                 r -= thread.history.score(pos, mv, prev_move) / 24;
 
+                let our_influence = new_pos.influence(pos.stm());
+                let threats = (((our_influence[0] & our_influence[1]) | (our_influence[2] & our_influence[3]))
+                    & !new_pos.occ())
+                .popcount() as i32;
+                r -= 1024 * threats.min(2);
+
                 if mv.is_spread() {
                     let gain = (new_pos.hfcd(pos.stm()) - pos.hfcd(pos.stm())) / 2;
                     r += (1 - gain).clamp(0, 3) * 1024;
