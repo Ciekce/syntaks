@@ -750,6 +750,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                 delta = (delta * 3 / 2).min(SCORE_INF);
                 if score <= alpha {
                     reduction = 0;
+                    beta = (alpha + beta) / 2;
                     alpha = (alpha - delta).max(-SCORE_INF);
                 } else {
                     reduction = (reduction + 1).min(3);
