@@ -39,7 +39,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub const MAX_MULTIPV: usize = 2048;
 
-const DEFAULT_BENCH_DEPTH: i32 = 12;
+const DEFAULT_BENCH_DEPTH: i32 = 13;
 
 const BENCH_POSITIONS: [&str; 25] = [
     "x6/x6/x6/x6/x6/x6 1 1",
