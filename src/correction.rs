@@ -136,6 +136,7 @@ impl CorrectionHistory {
         tables.tops[pos.top_key()].update(bonus);
 
         update_cont(1);
+        update_cont(2);
     }
 
     #[must_use]
@@ -158,6 +159,7 @@ impl CorrectionHistory {
         correction += tables.tops[pos.top_key()].get();
 
         correction += cont(1);
+        correction += cont(2);
 
         correction / 32
     }
