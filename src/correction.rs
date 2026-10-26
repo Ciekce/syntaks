@@ -81,12 +81,14 @@ impl<const ENTRIES: usize> IndexMut<u64> for HashedTable<ENTRIES> {
 
 const ENTRIES: usize = 16384;
 const CONT_ENTRIES: usize = 32768;
+const RESERVE_ENTRIES: usize = 32 * 32 * 4;
 
 #[derive(Copy, Clone, Default)]
 struct SidedTables {
     blocker: HashedTable<ENTRIES>,
     road: HashedTable<ENTRIES>,
     tops: HashedTable<ENTRIES>,
+    reserves: HashedTable<RESERVE_ENTRIES>,
 }
 
 impl SidedTables {
@@ -94,7 +96,16 @@ impl SidedTables {
         self.blocker.clear();
         self.road.clear();
         self.tops.clear();
+        self.reserves.clear();
     }
+}
+
+fn reserves_key(pos: &Position) -> u64 {
+    let us = pos.stm();
+    let them = us.flip();
+    let flats = pos.flats_in_hand(us) as u64 * 32 + pos.flats_in_hand(them) as u64;
+    let caps = pos.caps_in_hand(us) as u64 * 2 + pos.caps_in_hand(them) as u64;
+    flats * 4 + caps
 }
 
 pub struct CorrectionHistory {
@@ -134,6 +145,7 @@ impl CorrectionHistory {
         tables.blocker[pos.blocker_key()].update(bonus);
         tables.road[pos.road_key()].update(bonus);
         tables.tops[pos.top_key()].update(bonus);
+        tables.reserves[reserves_key(pos)].update(bonus);
 
         update_cont(1);
         update_cont(2);
@@ -157,6 +169,7 @@ impl CorrectionHistory {
         correction += tables.blocker[pos.blocker_key()].get();
         correction += tables.road[pos.road_key()].get();
         correction += tables.tops[pos.top_key()].get();
+        correction += tables.reserves[reserves_key(pos)].get();
 
         correction += cont(1);
         correction += cont(2);
