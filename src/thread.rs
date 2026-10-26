@@ -329,8 +329,8 @@ impl ThreadData {
         self.seldepth = 0;
     }
 
-    pub fn update_seldepth(&mut self, ply: i32) {
-        self.seldepth = self.seldepth.max(ply + 1);
+    pub fn update_seldepth(&mut self, ply: usize) {
+        self.seldepth = self.seldepth.max(ply as i32 + 1);
     }
 
     #[must_use]
@@ -348,16 +348,16 @@ impl ThreadData {
         self.root_moves[self.pv_idx..].sort_by_key(|mv| std::cmp::Reverse(mv.score));
     }
 
-    pub fn apply_move(&mut self, ply: i32, pos: &Position, mv: Move) -> Position {
+    pub fn apply_move(&mut self, ply: usize, pos: &Position, mv: Move) -> Position {
         self.key_history.push(pos.key());
-        self.stack[ply as usize].mv = Some(mv);
+        self.stack[ply].mv = Some(mv);
         let mut observer = self.nnue_state.push();
         pos.apply_move_with_observer(mv, &mut observer)
     }
 
-    pub fn apply_nullmove(&mut self, ply: i32, pos: &Position) -> Position {
+    pub fn apply_nullmove(&mut self, ply: usize, pos: &Position) -> Position {
         self.key_history.push(pos.key());
-        self.stack[ply as usize].mv = None;
+        self.stack[ply].mv = None;
         pos.apply_nullmove()
     }
 
@@ -370,8 +370,8 @@ impl ThreadData {
         self.key_history.pop();
     }
 
-    fn is_drawn_by_repetition(&self, curr: u64, ply: i32) -> bool {
-        let mut ply = ply - 1;
+    fn is_drawn_by_repetition(&self, curr: u64, ply: usize) -> bool {
+        let mut ply = ply as i32 - 1;
         let mut repetitions = 0;
 
         //TODO skip properly
@@ -392,7 +392,7 @@ impl ThreadData {
     }
 
     // note: `pos` is the position *after* `prev_move`
-    pub fn check_terminal_state(&self, ply: i32, pos: &Position, prev_move: Move) -> Option<TerminalState> {
+    pub fn check_terminal_state(&self, ply: usize, pos: &Position, prev_move: Move) -> Option<TerminalState> {
         // player we care about: the one that made the move
         let stm = pos.stm().flip();
 

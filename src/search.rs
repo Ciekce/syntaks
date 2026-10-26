@@ -143,7 +143,7 @@ fn search<NT: NodeType>(
     data_stack: &mut [PlyData],
     pos: &Position,
     depth: i32,
-    ply: i32,
+    ply: usize,
     mut alpha: Score,
     mut beta: Score,
     expected_cutnode: bool,
@@ -157,8 +157,8 @@ fn search<NT: NodeType>(
     }
 
     if !NT::ROOT_NODE {
-        alpha = alpha.max(-SCORE_MATE + ply);
-        beta = beta.min(SCORE_MATE - ply);
+        alpha = alpha.max(loss_in(ply));
+        beta = beta.min(win_in(ply));
         if alpha >= beta {
             return alpha;
         }
@@ -193,7 +193,7 @@ fn search<NT: NodeType>(
 
         if !open_criticals.is_empty() {
             push_to_pv(open_criticals);
-            return SCORE_MATE - ply - 1;
+            return win_in(ply + 1);
         }
 
         for (criticals, edges) in [
@@ -206,7 +206,7 @@ fn search<NT: NodeType>(
                 let edge_bonus = sq.bb() & edges;
                 if (attackers | edge_bonus).popcount() >= 3 {
                     // todo push_to_pv
-                    return SCORE_MATE - ply - 1;
+                    return win_in(ply + 1);
                 }
             }
         }
@@ -218,7 +218,7 @@ fn search<NT: NodeType>(
 
             if hfcd >= -1 {
                 push_to_pv(!pos.occ());
-                return SCORE_MATE - ply - 1;
+                return win_in(ply + 1);
             }
 
             if hfcd == -2 && alpha < 0 {
@@ -239,7 +239,7 @@ fn search<NT: NodeType>(
         thread.update_seldepth(ply);
     }
 
-    if ply > MAX_DEPTH {
+    if ply > MAX_DEPTH as usize {
         let static_eval = static_eval(&mut thread.nnue_state, pos);
         let correction = thread.corrhist.correction(pos, &thread.key_history);
         return static_eval + correction;
@@ -247,7 +247,7 @@ fn search<NT: NodeType>(
 
     let mut depth = depth.min(MAX_DEPTH);
 
-    let excluded = thread.stack[ply as usize].excluded;
+    let excluded = thread.stack[ply].excluded;
 
     let tt_hit;
     let tt_entry;
@@ -298,13 +298,13 @@ fn search<NT: NodeType>(
     let correction = thread.corrhist.correction(pos, &thread.key_history);
     let static_eval = raw_eval + correction;
 
-    thread.stack[ply as usize].static_eval = static_eval;
+    thread.stack[ply].static_eval = static_eval;
 
-    let improving = ply < 2 || static_eval > thread.stack[ply as usize - 2].static_eval;
+    let improving = ply < 2 || static_eval > thread.stack[ply - 2].static_eval;
 
     if !NT::PV_NODE && excluded.is_none() {
-        let parent_reduction = thread.stack[ply as usize - 1].reduction;
-        let parent_static_eval = thread.stack[ply as usize - 1].static_eval;
+        let parent_reduction = thread.stack[ply - 1].reduction;
+        let parent_static_eval = thread.stack[ply - 1].static_eval;
 
         if depth < MAX_DEPTH && parent_reduction >= 3 && static_eval + parent_static_eval <= 0 {
             depth += 1;
@@ -317,7 +317,7 @@ fn search<NT: NodeType>(
         }
 
         // nullmove pruning (nmp)
-        if expected_cutnode && depth >= 4 && static_eval >= beta && thread.stack[ply as usize - 1].mv.is_some() {
+        if expected_cutnode && depth >= 4 && static_eval >= beta && thread.stack[ply - 1].mv.is_some() {
             let r = 4 + depth / 5;
 
             let new_pos = thread.apply_nullmove(ply, pos);
@@ -348,18 +348,14 @@ fn search<NT: NodeType>(
 
     let mut tt_flag = TtFlag::UpperBound;
 
-    let prev_move = if ply > 0 {
-        thread.stack[(ply - 1) as usize].mv
-    } else {
-        None
-    };
+    let prev_move = if ply > 0 { thread.stack[ply - 1].mv } else { None };
 
     let mut movepicker = Movepicker::new(
         pos,
         &mut data.movelist,
         &mut data.scores,
         tt_move,
-        thread.killers[ply as usize],
+        thread.killers[ply],
         prev_move,
     );
 
@@ -404,7 +400,7 @@ fn search<NT: NodeType>(
             let s_beta = tt_entry.score - 3 * depth / 2;
             let s_depth = (depth - 1) / 2;
 
-            thread.stack[ply as usize].excluded = Some(mv);
+            thread.stack[ply].excluded = Some(mv);
             let score = search::<NonPvNode>(
                 thread,
                 child_data,
@@ -415,7 +411,7 @@ fn search<NT: NodeType>(
                 s_beta,
                 expected_cutnode,
             );
-            thread.stack[ply as usize].excluded = None;
+            thread.stack[ply].excluded = None;
 
             if score < s_beta {
                 extension += 1 + i32::from(!NT::PV_NODE && score < s_beta - 30);
@@ -454,9 +450,9 @@ fn search<NT: NodeType>(
 
         let score = if let Some(state) = thread.check_terminal_state(ply, &new_pos, mv) {
             match state {
-                TerminalState::Win => SCORE_MATE - ply - 1,
+                TerminalState::Win => win_in(ply + 1),
                 TerminalState::Draw => 0,
-                TerminalState::Loss => -SCORE_MATE + ply + 1,
+                TerminalState::Loss => loss_in(ply + 1),
             }
         } else {
             let mut score = 0;
@@ -480,9 +476,9 @@ fn search<NT: NodeType>(
 
                 let reduced = (new_depth - r).max(1).min(new_depth);
 
-                thread.stack[ply as usize].reduction = new_depth - reduced;
+                thread.stack[ply].reduction = new_depth - reduced;
                 score = -search::<NonPvNode>(thread, child_data, &new_pos, reduced, ply + 1, -alpha - 1, -alpha, true);
-                thread.stack[ply as usize].reduction = 0;
+                thread.stack[ply].reduction = 0;
 
                 if score > alpha && reduced < new_depth {
                     score = -search::<NonPvNode>(
@@ -594,7 +590,7 @@ fn search<NT: NodeType>(
         }
 
         if best_score >= beta {
-            thread.killers[ply as usize].push(best_move);
+            thread.killers[ply].push(best_move);
         }
     }
 
@@ -619,7 +615,7 @@ fn search<NT: NodeType>(
     best_score
 }
 
-fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: i32, alpha: Score, beta: Score) -> Score {
+fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: usize, alpha: Score, beta: Score) -> Score {
     if NT::PV_NODE {
         thread.update_seldepth(ply);
     }
