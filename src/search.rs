@@ -487,6 +487,8 @@ fn search<NT: NodeType>(
                 thread.stack[ply].reduction = 0;
 
                 if score > alpha && reduced < new_depth {
+                    let do_deeper = score > best_score + 50 + 2 * new_depth;
+                    let new_depth = new_depth + i32::from(do_deeper);
                     score = -search::<NonPvNode>(
                         thread,
                         child_data,
