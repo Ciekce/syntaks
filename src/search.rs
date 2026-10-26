@@ -466,6 +466,7 @@ fn search<NT: NodeType>(
                 r += 1024 * i32::from(expected_cutnode);
                 r += 1024 * i32::from(!improving);
                 r -= thread.history.score(pos, mv, prev_move) / 24;
+                r -= (correction.abs() * 8).min(1024);
 
                 let our_influence = new_pos.influence(pos.stm());
                 let threats = (((our_influence[0] & our_influence[1]) | (our_influence[2] & our_influence[3]))
