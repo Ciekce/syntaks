@@ -696,12 +696,15 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                 beta = (last_score + delta).min(SCORE_INF);
             }
 
+            let mut reduction = 0;
+
             while !thread.shared().has_stopped() {
+                let root_depth = (thread.root_depth - reduction).max(1);
                 let score = search::<RootNode>(
                     thread,
                     &mut data_stack,
                     &ctx.root_pos,
-                    thread.root_depth,
+                    root_depth,
                     0,
                     alpha,
                     beta,
@@ -728,8 +731,10 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
 
                 delta = (delta * 3 / 2).min(SCORE_INF);
                 if score <= alpha {
+                    reduction = 0;
                     alpha = (alpha - delta).max(-SCORE_INF);
                 } else {
+                    reduction = (reduction + 1).min(3);
                     beta = (beta + delta).min(SCORE_INF);
                 }
             }
