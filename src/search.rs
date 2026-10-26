@@ -33,6 +33,8 @@ use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, set_pv, update_pv};
 use crate::ttable::{ProbedEntry, TtFlag};
 use crate::util::command_channel::{Receiver, Sender, channel};
+use crate::wdl;
+use std::io::Write;
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
@@ -44,9 +46,6 @@ pub const MAX_DEPTH: i32 = 248;
 const WIDEN_REPORT_DELAY: f64 = 1.0;
 const VERBOSE_MULTIPV_DELAY: f64 = 1.0;
 const CURRMOVE_REPORT_DELAY: f64 = 2.5;
-
-const WDL_A: f64 = 222.13;
-const WDL_B: f64 = 138.82;
 
 #[derive(Clone, Debug)]
 pub struct SearchContext {
@@ -215,14 +214,14 @@ fn search<NT: NodeType>(
         if (pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0)
             || pos.occ().popcount() == Square::COUNT as u32 - 1
         {
-            let fcd = pos.fcd(pos.stm());
+            let hfcd = pos.hfcd(pos.stm());
 
-            if fcd >= 0 {
+            if hfcd >= -1 {
                 push_to_pv(!pos.occ());
                 return SCORE_MATE - ply - 1;
             }
 
-            if fcd == -1 && alpha < 0 {
+            if hfcd == -2 && alpha < 0 {
                 push_to_pv(!pos.occ());
                 alpha = 0;
                 if alpha >= beta {
@@ -278,7 +277,11 @@ fn search<NT: NodeType>(
         tt_entry.mv
     };
 
-    if excluded.is_none() && (NT::PV_NODE || expected_cutnode) && depth >= 3 && tt_move.is_none() {
+    if excluded.is_none()
+        && (NT::PV_NODE || expected_cutnode)
+        && depth >= 3
+        && (tt_move.is_none() || (tt_hit && tt_entry.depth + 2 < depth))
+    {
         depth -= 1;
     }
 
@@ -300,15 +303,22 @@ fn search<NT: NodeType>(
     let improving = ply < 2 || static_eval > thread.stack[ply as usize - 2].static_eval;
 
     if !NT::PV_NODE && excluded.is_none() {
+        let parent_reduction = thread.stack[ply as usize - 1].reduction;
+        let parent_static_eval = thread.stack[ply as usize - 1].static_eval;
+
+        if depth < MAX_DEPTH && parent_reduction >= 3 && static_eval + parent_static_eval <= 0 {
+            depth += 1;
+        }
+
         // reverse futility pruning (rfp)
         let rfp_margin = (100 * depth + 184 - 75 * i32::from(expected_cutnode) - 150 * i32::from(improving)).max(0);
-        if depth <= 6 && static_eval - rfp_margin >= beta {
-            return static_eval;
+        if depth <= 10 && static_eval - rfp_margin >= beta {
+            return (static_eval + beta) / 2;
         }
 
         // nullmove pruning (nmp)
         if expected_cutnode && depth >= 4 && static_eval >= beta && thread.stack[ply as usize - 1].mv.is_some() {
-            let r = 3 + depth / 5;
+            let r = 4 + depth / 5;
 
             let new_pos = thread.apply_nullmove(ply, pos);
 
@@ -369,7 +379,12 @@ fn search<NT: NodeType>(
 
         #[allow(clippy::collapsible_if)]
         if !NT::ROOT_NODE && !is_loss(best_score) && (!NT::PV_NODE || !cfg!(feature = "datagen")) {
-            if depth <= 6 && move_count as i32 >= (5 + 2 * depth * depth) / (2 - i32::from(improving)) {
+            if depth <= 8
+                && move_count as i32
+                    >= (5 + 2 * depth * depth)
+                        / (2 - i32::from(improving))
+                        / (1 + i32::from(static_eval + 250 <= alpha))
+            {
                 break;
             }
         }
@@ -406,6 +421,8 @@ fn search<NT: NodeType>(
                 extension += 1 + i32::from(!NT::PV_NODE && score < s_beta - 30);
             } else if !NT::PV_NODE && score >= beta {
                 return score;
+            } else if tt_entry.score >= beta {
+                extension -= 1;
             }
         }
 
@@ -450,11 +467,12 @@ fn search<NT: NodeType>(
                 let mut r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
 
                 r += 1024 * i32::from(!NT::PV_NODE);
+                r += 1024 * i32::from(expected_cutnode);
                 r += 1024 * i32::from(!improving);
                 r -= thread.history.score(pos, mv, prev_move) / 24;
 
                 if mv.is_spread() {
-                    let gain = new_pos.fcd(pos.stm()) - pos.fcd(pos.stm());
+                    let gain = (new_pos.hfcd(pos.stm()) - pos.hfcd(pos.stm())) / 2;
                     r += (1 - gain).clamp(0, 3) * 1024;
                 }
 
@@ -462,7 +480,9 @@ fn search<NT: NodeType>(
 
                 let reduced = (new_depth - r).max(1).min(new_depth);
 
+                thread.stack[ply as usize].reduction = new_depth - reduced;
                 score = -search::<NonPvNode>(thread, child_data, &new_pos, reduced, ply + 1, -alpha - 1, -alpha, true);
+                thread.stack[ply as usize].reduction = 0;
 
                 if score > alpha && reduced < new_depth {
                     score = -search::<NonPvNode>(
@@ -650,8 +670,6 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
     thread.key_history.reserve(ctx.key_history.len());
     thread.key_history.extend_from_slice(&ctx.key_history);
 
-    counter.register_thread();
-
     thread.nnue_state.reset(&ctx.root_pos);
 
     if thread.is_main_thread() {
@@ -703,12 +721,12 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                 if thread.is_main_thread()
                     && !thread.shared().options.minimal
                     && !thread.shared().options.silent
-                    && ctx.multipv == 1
+                    && thread.shared().options.multipv == 1
                 {
                     let time = thread.shared().elapsed();
                     if time >= WIDEN_REPORT_DELAY {
                         let nodes = thread.shared().total_nodes();
-                        report_single(thread, time, nodes, ctx.multipv, thread.pv_idx);
+                        report_single(thread, ctx, time, nodes, thread.pv_idx);
                     }
                 }
 
@@ -737,7 +755,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                         || (!thread.shared().options.minimal
                             && (last_pv || thread.shared().elapsed() >= VERBOSE_MULTIPV_DELAY)))
                 {
-                    report(thread, thread.shared().elapsed(), ctx.multipv);
+                    report(thread, ctx, thread.shared().elapsed());
                 }
             }
 
@@ -763,20 +781,22 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
             thread.shared().set_result(thread.pv_move().clone());
         }
 
-        if !thread.shared().options.silent {
-            let time = thread.shared().elapsed();
-            final_report(thread, thread.root_depth, time, ctx.multipv);
-        }
+        let silent = thread.shared().options.silent;
+        let best_move = thread.pv_move().mv();
 
         thread.shared = None;
-        counter.complete_search();
+        counter.complete_search(|| {
+            if !silent {
+                final_report(best_move);
+            }
+        });
     } else {
         thread.shared = None;
         counter.unregister_thread();
     }
 }
 
-fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, pv_idx: usize) -> bool {
+fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usize, pv_idx: usize) -> bool {
     let root_move = &thread.root_moves[pv_idx];
 
     // previous scores are exact, as the depth was completed
@@ -796,92 +816,89 @@ fn report_single(thread: &ThreadData, time: f64, nodes: usize, multipv: usize, p
     let ms = (time * 1000.0) as usize;
     let nps = ((nodes as f64) / time) as usize;
 
-    print!("info ");
+    let mut out = std::io::stdout().lock();
+    write!(out, "info ").unwrap();
 
-    if multipv > 1 {
-        print!("multipv {} ", pv_idx + 1);
+    if thread.shared().options.multipv > 1 {
+        write!(out, "multipv {} ", pv_idx + 1).unwrap();
     }
 
-    print!(
+    write!(
+        out,
         "depth {} seldepth {} time {} nodes {} nps {} score ",
         root_move.searched_depth, root_move.seldepth, ms, nodes, nps
-    );
+    )
+    .unwrap();
 
     if is_decisive(score) {
         if thread.shared().options.mate_scores {
             if score > 0 {
-                print!("mate {}", (SCORE_MATE - score + 1) / 2);
+                write!(out, "mate {}", (SCORE_MATE - score + 1) / 2).unwrap();
             } else {
-                print!("mate {}", -(SCORE_MATE + score) / 2);
+                write!(out, "mate {}", -(SCORE_MATE + score) / 2).unwrap();
             }
         } else {
             const MATE_DISPLAY_BASE: Score = 30000;
             if score > 0 {
-                print!("cp {}", MATE_DISPLAY_BASE + score - SCORE_MATE);
+                write!(out, "cp {}", MATE_DISPLAY_BASE + score - SCORE_MATE).unwrap();
             } else {
-                print!("cp {}", -MATE_DISPLAY_BASE + score + SCORE_MATE);
+                write!(out, "cp {}", -MATE_DISPLAY_BASE + score + SCORE_MATE).unwrap();
             }
         }
     } else {
-        let scaled = (score as f64 * 100.0 / WDL_A).round() as Score;
-        print!("cp {}", scaled);
+        write!(out, "cp {}", wdl::normalise_score(score)).unwrap();
     }
 
     if upper_bound {
         assert!(!lower_bound);
-        print!(" upperbound");
+        write!(out, " upperbound").unwrap();
     }
 
     if lower_bound {
         assert!(!upper_bound);
-        print!(" lowerbound");
+        write!(out, " lowerbound").unwrap();
     }
 
     if is_decisive(score) {
         if score > 0 {
-            print!(" wdl 1000 0 0");
+            write!(out, " wdl 1000 0 0").unwrap();
         } else {
-            print!(" wdl 0 0 1000");
+            write!(out, " wdl 0 0 1000").unwrap();
         }
     } else {
-        let p = |cp: Score| {
-            let x = (WDL_A - cp as f64) / WDL_B;
-            (1000.0 / (1.0 + x.exp())).round() as i32
+        let (w, d, l) = if thread.shared().options.human_wdl {
+            wdl::human_probabilities(score, &ctx.root_pos)
+        } else {
+            wdl::probabilities(score)
         };
-
-        let w = p(score);
-        let l = p(-score);
-        let d = 1000 - w - l;
-
-        print!(" wdl {} {} {}", w, d, l);
+        write!(out, " wdl {} {} {}", w, d, l).unwrap();
     }
 
     let hashfull = thread.shared().tt.estimate_full_permille();
-    print!(" hashfull {}", hashfull);
+    write!(out, " hashfull {}", hashfull).unwrap();
 
-    print!(" pv");
+    write!(out, " pv").unwrap();
 
     for mv in root_move.pv.iter() {
-        print!(" {}", mv);
+        write!(out, " {}", mv).unwrap();
     }
 
-    println!();
+    writeln!(out).unwrap();
 
     true
 }
 
-fn report(thread: &ThreadData, time: f64, multipv: usize) {
+fn report(thread: &ThreadData, ctx: &SearchContext, time: f64) {
     let nodes = thread.shared().total_nodes();
-    for pv_idx in 0..multipv {
-        if !report_single(thread, time, nodes, multipv, pv_idx) {
+    for pv_idx in 0..ctx.multipv {
+        if !report_single(thread, ctx, time, nodes, pv_idx) {
             break;
         }
     }
 }
 
-fn final_report(thread: &ThreadData, _depth: i32, _time: f64, _multipv: usize) {
-    let mv = thread.pv_move().mv();
-    println!("bestmove {}", mv);
+fn final_report(best_move: Move) {
+    println!("bestmove {}", best_move);
 }
 
 #[derive(Clone)]
@@ -955,8 +972,9 @@ impl Searcher {
         moves_to_search: &[Move],
         options: &TeiOptions,
     ) {
+        let threads = self.threads.len() as u32;
         self.modify_shared_ctx(|ctx| {
-            ctx.init_search(options, start_time, limits);
+            ctx.init_search(options, start_time, limits, threads);
         });
 
         let root_moves = init_root_moves(pos, moves_to_search);
@@ -1008,7 +1026,9 @@ impl Searcher {
     where
         F: Fn(&mut SharedContext),
     {
-        let ctx = Arc::get_mut(&mut self.shared_ctx).unwrap();
+        debug_assert!(!self.is_searching());
+        let ctx =
+            Arc::get_mut(&mut self.shared_ctx).expect("shared search context still referenced by a search thread");
         func(ctx);
     }
 

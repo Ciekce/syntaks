@@ -2,10 +2,7 @@ mod inputs;
 mod loader;
 
 use bullet_lib::{
-    nn::{
-        Affine,
-        optimiser::{AdamW, AdamWParams},
-    },
+    nn::optimiser::{AdamW, AdamWParams},
     trainer::{
         save::SavedFormat,
         schedule::{TrainingSchedule, TrainingSteps, lr, wdl},
@@ -14,7 +11,7 @@ use bullet_lib::{
     value::ValueTrainerBuilder,
 };
 use inputs::*;
-use loader::TakReader;
+use loader::{MixReader, TakReader};
 use rand::{Rng, rng};
 use syntaks::core::{Score, is_decisive};
 use syntaks::format::GameResult;
@@ -24,7 +21,6 @@ use syntaks::takmove::Move;
 const L1: usize = 1024;
 const L2: usize = 32;
 const L3: usize = 32;
-const OUTPUT_BUCKETS: usize = 16;
 const SCALE: i32 = 400;
 const Q0: i16 = 255;
 const Q1: i16 = 128;
@@ -38,7 +34,12 @@ const L1_RANGE: f32 = I8_RANGE * FT_SHIFT_SCALE * FT_SHIFT_SCALE;
 const PACKUS_LANE: usize = 8;
 const PACKUS_WIDTH: usize = 32;
 
-const SUPERBATCHES: usize = 200;
+const SUPERBATCHES_2KOMI: usize = 200;
+const SUPERBATCHES_COMBINED: usize = 100;
+
+const MAP_THREADS: usize = 16;
+const LOAD_THREADS: usize = 16;
+const SHUFFLE_BUFFER: usize = 1024;
 
 fn filter(_pos: &Position, _mv: Move, score: Score, _result: GameResult) -> bool {
     let mut rng = rng();
@@ -126,14 +127,36 @@ fn l2w_layout(weights: Vec<f32>) -> Vec<f32> {
 }
 
 fn main() {
-    let data_paths: Vec<String> = std::env::args().skip(1).collect();
-    assert!(!data_paths.is_empty());
+    let mut id = "net".to_owned();
+    let mut two_komi = vec![];
+    let mut other = vec![];
+
+    let mut iter = std::env::args().skip(1).peekable();
+    while let Some(flag) = iter.next() {
+        let mut files = || {
+            let mut files = vec![];
+            while let Some(file) = iter.next_if(|arg| !arg.starts_with("--")) {
+                files.push(file);
+            }
+            files
+        };
+
+        match flag.as_str() {
+            "--id" => id = iter.next().unwrap(),
+            "--2komi" => two_komi.extend(files()),
+            "--other" => other.extend(files()),
+            _ => panic!("unknown {flag}"),
+        }
+    }
+
+    assert!(!two_komi.is_empty());
+    assert!(!other.is_empty());
 
     let mut trainer = ValueTrainerBuilder::default()
         .dual_perspective()
         .optimiser(AdamW)
         .inputs(TakTopRelativeStacks)
-        .output_buckets(StmReserveBuckets)
+        .output_buckets(KomiReserveBuckets)
         .save_format(&[
             SavedFormat::id("l0w")
                 .transform(|_, values| packus_layout(values))
@@ -203,30 +226,61 @@ fn main() {
     };
     trainer.optimiser.set_params_for_weight("l1w", l1_clip);
 
-    let schedule = TrainingSchedule {
-        net_id: "net026".to_owned(),
+    let schedule_2komi = TrainingSchedule {
+        net_id: format!("{}_stage1", id),
         eval_scale: SCALE as f32,
         steps: TrainingSteps {
             batch_size: 16_384,
             batches_per_superbatch: 6104,
             start_superbatch: 1,
-            end_superbatch: SUPERBATCHES,
+            end_superbatch: SUPERBATCHES_2KOMI,
         },
         wdl_scheduler: wdl::LinearWDL { start: 0.25, end: 0.5 },
         lr_scheduler: lr::CosineDecayLR {
             initial_lr: 1e-3,
             final_lr: 1e-5,
-            final_superbatch: SUPERBATCHES,
+            final_superbatch: SUPERBATCHES_2KOMI,
         },
-        save_rate: SUPERBATCHES,
+        save_rate: SUPERBATCHES_2KOMI,
+    };
+
+    let schedule_combined = TrainingSchedule {
+        net_id: format!("{}_stage2", id),
+        eval_scale: SCALE as f32,
+        steps: TrainingSteps {
+            batch_size: 16_384,
+            batches_per_superbatch: 6104,
+            start_superbatch: 1,
+            end_superbatch: SUPERBATCHES_COMBINED,
+        },
+        wdl_scheduler: wdl::ConstantWDL { value: 0.75 },
+        lr_scheduler: lr::CosineDecayLR {
+            initial_lr: 1e-4,
+            final_lr: 1e-6,
+            final_superbatch: SUPERBATCHES_COMBINED,
+        },
+        save_rate: SUPERBATCHES_COMBINED,
     };
 
     let settings = LocalSettings {
-        threads: 12,
+        threads: MAP_THREADS,
         test_set: None,
         output_directory: "checkpoints",
         batch_queue_size: 64,
     };
 
-    trainer.run(&schedule, &settings, &TakReader::new(data_paths, 1024, 6, filter));
+    trainer.run(
+        &schedule_2komi,
+        &settings,
+        &TakReader::new(two_komi.clone(), SHUFFLE_BUFFER, LOAD_THREADS, filter),
+    );
+
+    trainer.run(
+        &schedule_combined,
+        &settings,
+        &MixReader::new(
+            TakReader::new(two_komi, SHUFFLE_BUFFER, LOAD_THREADS, filter),
+            TakReader::new(other, SHUFFLE_BUFFER, LOAD_THREADS, filter),
+        ),
+    );
 }

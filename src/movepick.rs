@@ -22,7 +22,7 @@
  */
 
 use crate::bitboard::Bitboard;
-use crate::core::Score;
+use crate::core::{PieceType, Score};
 use crate::history::History;
 use crate::movegen::generate_moves;
 use crate::position::Position;
@@ -30,18 +30,31 @@ use crate::road::influence;
 use crate::takmove::Move;
 
 const SPREAD_ROAD_BONUS: i32 = 1 << 18;
+const SPREAD_FLAT_GAIN: i32 = 4096;
+const WALL_SMASH_BONUS: i32 = 4096;
 
-fn spread_road_occ(pos: &Position, mv: Move) -> Bitboard {
+struct SpreadInfo {
+    roads: Bitboard,
+    flat_delta: i32,
+}
+
+fn spread_ordering_info(pos: &Position, mv: Move) -> SpreadInfo {
     let src = mv.sq();
     let dir = mv.dir();
-    let roads = pos.roads(pos.stm());
+    let us = pos.stm();
+    let roads = pos.roads(us);
+    let flats = pos.piece_bb(PieceType::Flat);
     let dropped = mv.pattern().trailing_zeros();
     let taken = Position::CARRY_LIMIT - dropped;
-    let own_colors = pos.colors_for(src, pos.stm());
+    let own_colors = pos.colors_for(src, us);
 
     let mut new_roads_bb = Bitboard::empty();
+    let mut flats_after = 0;
     if (own_colors >> taken) & 1 != 0 {
         new_roads_bb.set_sq(src);
+        flats_after += 1;
+    } else if u32::from(pos.height(src)) > taken {
+        flats_after -= 1;
     }
 
     let mut dirty_bb = src.bb();
@@ -54,6 +67,9 @@ fn spread_road_occ(pos: &Position, mv: Move) -> Bitboard {
             dirty_bb.set_sq(sq);
             if (own_colors >> color_idx) & 1 != 0 {
                 new_roads_bb.set_sq(sq);
+                flats_after += 1;
+            } else {
+                flats_after -= 1;
             }
             sq = sq.shift(dir).unwrap();
         }
@@ -63,18 +79,26 @@ fn spread_road_occ(pos: &Position, mv: Move) -> Bitboard {
     if roads.has_sq(src) {
         new_roads_bb.set_sq(sq);
     }
+    if flats.has_sq(src) {
+        flats_after += 1;
+    }
 
-    (roads & !dirty_bb) | new_roads_bb
+    let flats_before = (dirty_bb & flats & pos.color_bb(us)).popcount() as i32
+        - (dirty_bb & flats & pos.color_bb(us.flip())).popcount() as i32;
+
+    SpreadInfo {
+        roads: (roads & !dirty_bb) | new_roads_bb,
+        flat_delta: flats_after - flats_before,
+    }
 }
 
-fn spread_wins_road(pos: &Position, mv: Move) -> bool {
-    let new_roads = spread_road_occ(pos, mv);
-    let gained = new_roads & !pos.roads(pos.stm());
+fn spread_wins_road(pos: &Position, info: &SpreadInfo) -> bool {
+    let gained = info.roads & !pos.roads(pos.stm());
 
     let [touches_up, touches_down, touches_left, touches_right] =
         pos.influence(pos.stm()).map(|bb| !(bb & gained).is_empty());
 
-    ((touches_up && touches_down) || (touches_left && touches_right)) && influence(new_roads).0
+    ((touches_up && touches_down) || (touches_left && touches_right)) && influence(info.roads).0
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -161,8 +185,15 @@ impl<'a> Movepicker<'a> {
 
             if !mv.is_spread() {
                 score += 75;
-            } else if spread_wins_road(self.pos, *mv) {
-                score += SPREAD_ROAD_BONUS;
+            } else {
+                let info = spread_ordering_info(self.pos, *mv);
+                if spread_wins_road(self.pos, &info) {
+                    score += SPREAD_ROAD_BONUS;
+                }
+                score += SPREAD_FLAT_GAIN * info.flat_delta;
+                if self.pos.top_pt(mv.spread_dest()) == Some(PieceType::Wall) {
+                    score += WALL_SMASH_BONUS;
+                }
             }
 
             // scores have to be less than 2²⁰ to make the movepicking more efficient
