@@ -457,7 +457,7 @@ fn search<NT: NodeType>(
         } else {
             let mut score = 0;
 
-            let new_depth = depth + extension - 1;
+            let mut new_depth = depth + extension - 1;
 
             if depth >= 2 && move_count >= 2 + usize::from(NT::ROOT_NODE) {
                 let mut r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
@@ -487,19 +487,22 @@ fn search<NT: NodeType>(
                 score = -search::<NonPvNode>(thread, child_data, &new_pos, reduced, ply + 1, -alpha - 1, -alpha, true);
                 thread.stack[ply].reduction = 0;
 
-                if score > alpha && reduced < new_depth {
+                if score > alpha {
                     let do_deeper = score > best_score + 50 + 2 * new_depth;
-                    let new_depth = new_depth + i32::from(do_deeper);
-                    score = -search::<NonPvNode>(
-                        thread,
-                        child_data,
-                        &new_pos,
-                        new_depth,
-                        ply + 1,
-                        -alpha - 1,
-                        -alpha,
-                        !expected_cutnode,
-                    );
+                    new_depth += i32::from(do_deeper);
+
+                    if reduced < new_depth {
+                        score = -search::<NonPvNode>(
+                            thread,
+                            child_data,
+                            &new_pos,
+                            new_depth,
+                            ply + 1,
+                            -alpha - 1,
+                            -alpha,
+                            !expected_cutnode,
+                        );
+                    }
 
                     let bonus = (500 * new_depth - 500).clamp(0, 3000);
                     thread
