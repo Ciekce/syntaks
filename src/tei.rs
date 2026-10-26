@@ -20,6 +20,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
 use crate::core::Color;
 use crate::eval::static_eval_once;
 use crate::limit::{Limits, MAX_MOVE_OVERHEAD_MS};
