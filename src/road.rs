@@ -22,6 +22,10 @@
  */
 
 cfg_select! {
+    target_feature = "avx512f" => {
+        mod avx512;
+        use avx512::influence as influence_impl;
+    }
     target_feature = "avx2" => {
         mod avx2;
         use avx2::influence as influence_impl;
