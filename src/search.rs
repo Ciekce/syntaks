@@ -260,6 +260,7 @@ fn search<NT: NodeType>(
 
         if !NT::PV_NODE
             && tt_entry.depth >= depth
+            && (tt_entry.score <= alpha || expected_cutnode)
             && match tt_entry.flag {
                 None => false,
                 Some(TtFlag::UpperBound) => tt_entry.score <= alpha,
