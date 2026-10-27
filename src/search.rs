@@ -664,6 +664,25 @@ fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: usize, alpha
     let correction = thread.corrhist.correction(pos, &thread.key_history);
     let static_eval = raw_eval + correction;
 
+    if ply >= MAX_DEPTH as usize {
+        return static_eval;
+    }
+
+    if !NT::PV_NODE
+        && tt_hit
+        && let Some((mv, flag)) = Option::zip(tt_entry.mv, tt_entry.flag)
+        && pos.is_legal(mv)
+    {
+        let new_pos = thread.apply_move(ply, pos, mv);
+        let score = -leaf::<NT>(thread, &new_pos, ply + 1, -alpha - 1, -alpha);
+        thread.pop_move();
+        let score = match flag {
+            TtFlag::UpperBound => i32::min(static_eval, score),
+            TtFlag::LowerBound => i32::max(static_eval, score),
+            TtFlag::Exact => unreachable!(),
+        };
+        return score;
+    }
     static_eval
 }
 
