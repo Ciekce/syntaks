@@ -267,6 +267,15 @@ fn search<NT: NodeType>(
                 Some(TtFlag::Exact) => true,
             }
         {
+            if tt_entry.score >= beta
+                && let Some(tt_move) = tt_entry.mv
+                && pos.is_legal(tt_move)
+            {
+                let prev_move = thread.stack[ply - 1].mv;
+                let bonus = (500 * depth - 500).clamp(0, 3000);
+                thread.history.update(pos, tt_move, prev_move, bonus);
+            }
+
             return tt_entry.score;
         }
     }
