@@ -305,13 +305,16 @@ fn search<NT: NodeType>(
     if !NT::PV_NODE && excluded.is_none() {
         let parent_reduction = thread.stack[ply - 1].reduction;
         let parent_static_eval = thread.stack[ply - 1].static_eval;
+        let parent_history = thread.stack[ply - 1].history;
 
         if depth < MAX_DEPTH && parent_reduction >= 3 && static_eval + parent_static_eval <= 0 {
             depth += 1;
         }
 
         // reverse futility pruning (rfp)
-        let rfp_margin = (100 * depth + 184 - 75 * i32::from(expected_cutnode) - 150 * i32::from(improving)).max(0);
+        let rfp_margin = (100 * depth + 184 - 75 * i32::from(expected_cutnode) - 150 * i32::from(improving)
+            + parent_history / 128)
+            .max(0);
         if depth <= 10 && static_eval - rfp_margin >= beta {
             return (static_eval + beta) / 2;
         }
@@ -440,6 +443,9 @@ fn search<NT: NodeType>(
         let new_pos = thread.apply_move(ply, pos, mv);
         thread.shared().tt.prefetch(new_pos.key());
 
+        let history = thread.history.score(pos, mv, prev_move);
+        thread.stack[ply].history = history;
+
         let is_crush = mv.is_spread() && pos.top_pt(mv.spread_dest()) == Some(PieceType::Wall);
 
         if extension == 0 && is_crush {
@@ -465,7 +471,7 @@ fn search<NT: NodeType>(
                 r += 1024 * i32::from(!NT::PV_NODE);
                 r += 1024 * i32::from(expected_cutnode);
                 r += 1024 * i32::from(!improving);
-                r -= thread.history.score(pos, mv, prev_move) / 24;
+                r -= history / 24;
                 r -= (correction.abs() * 8).min(1024);
 
                 let our_influence = new_pos.influence(pos.stm());

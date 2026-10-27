@@ -251,6 +251,7 @@ pub struct StackEntry {
     pub mv: Option<Move>,
     pub static_eval: Score,
     pub excluded: Option<Move>,
+    pub history: i32,
     pub reduction: i32,
 }
 
@@ -358,6 +359,7 @@ impl ThreadData {
     pub fn apply_nullmove(&mut self, ply: usize, pos: &Position) -> Position {
         self.key_history.push(pos.key());
         self.stack[ply].mv = None;
+        self.stack[ply].history = 0;
         pos.apply_nullmove()
     }
 
