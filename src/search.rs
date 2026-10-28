@@ -675,8 +675,13 @@ fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: usize, alpha
         return static_eval;
     }
 
+    let do_leaf_search = thread
+        .key_history
+        .get(ply - 3)
+        .is_none_or(|key| thread.key_history[ply - 1] != *key);
     if !NT::PV_NODE
         && tt_hit
+        && do_leaf_search
         && let Some((mv, flag)) = Option::zip(tt_entry.mv, tt_entry.flag)
         && pos.is_legal(mv)
     {
