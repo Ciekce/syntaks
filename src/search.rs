@@ -164,8 +164,6 @@ fn search<NT: NodeType>(
 
     let beta = beta;
 
-    thread.inc_nodes();
-
     if !NT::ROOT_NODE {
         let mut push_to_pv = |bb: Bitboard| {
             if NT::PV_NODE {
@@ -190,6 +188,7 @@ fn search<NT: NodeType>(
         let open_criticals = criticals & !pos.occ();
 
         if !open_criticals.is_empty() {
+            thread.inc_nodes();
             push_to_pv(open_criticals);
             return win_in(ply + 1);
         }
@@ -203,6 +202,7 @@ fn search<NT: NodeType>(
                 let attackers = neighbors & pos.roads(pos.stm());
                 let edge_bonus = sq.bb() & edges;
                 if (attackers | edge_bonus).popcount() >= 3 {
+                    thread.inc_nodes();
                     // todo push_to_pv
                     return win_in(ply + 1);
                 }
@@ -215,6 +215,7 @@ fn search<NT: NodeType>(
             let hfcd = pos.hfcd(pos.stm());
 
             if hfcd >= -1 {
+                thread.inc_nodes();
                 push_to_pv(!pos.occ());
                 return win_in(ply + 1);
             }
@@ -223,6 +224,7 @@ fn search<NT: NodeType>(
                 push_to_pv(!pos.occ());
                 alpha = 0;
                 if alpha >= beta {
+                    thread.inc_nodes();
                     return alpha;
                 }
             }
@@ -232,6 +234,8 @@ fn search<NT: NodeType>(
     if depth <= 0 {
         return leaf::<NT>(thread, pos, ply, alpha, beta);
     }
+
+    thread.inc_nodes();
 
     if NT::PV_NODE {
         thread.update_seldepth(ply);
@@ -258,6 +262,7 @@ fn search<NT: NodeType>(
 
         if !NT::PV_NODE
             && tt_entry.depth >= depth
+            && (tt_entry.score <= alpha || expected_cutnode)
             && match tt_entry.flag {
                 None => false,
                 Some(TtFlag::UpperBound) => tt_entry.score <= alpha,
@@ -632,6 +637,8 @@ fn search<NT: NodeType>(
 }
 
 fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: usize, alpha: Score, beta: Score) -> Score {
+    thread.inc_nodes();
+
     if NT::PV_NODE {
         thread.update_seldepth(ply);
     }
@@ -662,6 +669,25 @@ fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: usize, alpha
     let correction = thread.corrhist.correction(pos, &thread.key_history);
     let static_eval = raw_eval + correction;
 
+    if ply >= MAX_DEPTH as usize {
+        return static_eval;
+    }
+
+    if !NT::PV_NODE
+        && tt_hit
+        && let Some((mv, flag)) = Option::zip(tt_entry.mv, tt_entry.flag)
+        && pos.is_legal(mv)
+    {
+        let new_pos = thread.apply_move(ply, pos, mv);
+        let score = -leaf::<NT>(thread, &new_pos, ply + 1, -alpha - 1, -alpha);
+        thread.pop_move();
+        let score = match flag {
+            TtFlag::UpperBound => i32::min(static_eval, score),
+            TtFlag::LowerBound => i32::max(static_eval, score),
+            TtFlag::Exact => unreachable!(),
+        };
+        return score;
+    }
     static_eval
 }
 
@@ -712,12 +738,15 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                 beta = (last_score + delta).min(SCORE_INF);
             }
 
+            let mut reduction = 0;
+
             while !thread.shared().has_stopped() {
+                let root_depth = (thread.root_depth - reduction).max(1);
                 let score = search::<RootNode>(
                     thread,
                     &mut data_stack,
                     &ctx.root_pos,
-                    thread.root_depth,
+                    root_depth,
                     0,
                     alpha,
                     beta,
@@ -744,8 +773,11 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
 
                 delta = (delta * 3 / 2).min(SCORE_INF);
                 if score <= alpha {
+                    reduction = 0;
+                    beta = (alpha + beta) / 2;
                     alpha = (alpha - delta).max(-SCORE_INF);
                 } else {
+                    reduction = (reduction + 1).min(3);
                     beta = (beta + delta).min(SCORE_INF);
                 }
             }
