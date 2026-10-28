@@ -44,6 +44,10 @@ cfg_select! {
         #[path = "simd/neon.rs"]
         pub(super) mod simd;
     }
+    all(target_arch = "wasm32", target_feature = "relaxed-simd") => {
+        #[path = "simd/wasm.rs"]
+        pub(super) mod simd;
+    }
     _ => {
         #[path = "simd/scalar.rs"]
         pub(super) mod simd;
