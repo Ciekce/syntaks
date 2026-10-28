@@ -202,38 +202,36 @@ impl Default for InfluenceHist {
 
 #[derive(Copy, Clone)]
 struct CapstoneHist {
-    entries: [[Entry; Self::ENTRIES]; Square::COUNT],
+    entries: [CombinedHist; Square::COUNT],
 }
 
 impl CapstoneHist {
-    const ENTRIES: usize = 1 << Move::TOTAL_BITS;
-
     fn clear(&mut self) {
-        self.entries
-            .iter_mut()
-            .for_each(|entries| entries.fill(Default::default()));
+        for subtable in self.entries.iter_mut() {
+            subtable.clear();
+        }
     }
 }
 
 impl Default for CapstoneHist {
     fn default() -> Self {
         Self {
-            entries: [[Default::default(); Self::ENTRIES]; Square::COUNT],
+            entries: [Default::default(); Square::COUNT],
         }
     }
 }
 
-impl Index<(Square, Move)> for CapstoneHist {
-    type Output = Entry;
+impl Index<Square> for CapstoneHist {
+    type Output = CombinedHist;
 
-    fn index(&self, (square, mv): (Square, Move)) -> &Self::Output {
-        &self.entries[square][mv.raw() as usize]
+    fn index(&self, square: Square) -> &Self::Output {
+        &self.entries[square]
     }
 }
 
-impl IndexMut<(Square, Move)> for CapstoneHist {
-    fn index_mut(&mut self, (square, mv): (Square, Move)) -> &mut Self::Output {
-        &mut self.entries[square][mv.raw() as usize]
+impl IndexMut<Square> for CapstoneHist {
+    fn index_mut(&mut self, square: Square) -> &mut Self::Output {
+        &mut self.entries[square]
     }
 }
 
@@ -279,7 +277,7 @@ impl History {
         let bonus = bonus.clamp(-Self::MAX_BONUS, Self::MAX_BONUS);
         tables.hist[mv].update(bonus);
         if let Some(cap_sq) = pos.cap_sq(pos.stm()) {
-            tables.capstone_hist[(cap_sq, mv)].update(bonus);
+            tables.capstone_hist[cap_sq][mv].update(bonus);
         }
         if !mv.is_spread() {
             let bucket = InfluenceHist::bucket(pos.influence(pos.stm()));
@@ -295,7 +293,7 @@ impl History {
         let tables = &self.tables[pos.stm()];
         let mut res = tables.hist[mv].get();
         if let Some(cap_sq) = pos.cap_sq(pos.stm()) {
-            res = (res + tables.capstone_hist[(cap_sq, mv)].get()) / 2
+            res = (res + tables.capstone_hist[cap_sq][mv].get()) / 2
         }
         if !mv.is_spread() {
             let bucket = InfluenceHist::bucket(pos.influence(pos.stm()));
