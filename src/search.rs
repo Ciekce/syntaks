@@ -322,7 +322,7 @@ fn search<NT: NodeType>(
         }
 
         // nullmove pruning (nmp)
-        if expected_cutnode && depth >= 4 && static_eval >= beta && thread.stack[ply - 1].mv.is_some() {
+        if expected_cutnode && depth >= 4 && static_eval >= beta && thread.moves[ply - 1].is_some() {
             let r = 4 + depth / 5;
 
             let new_pos = thread.apply_nullmove(ply, pos);
@@ -353,21 +353,19 @@ fn search<NT: NodeType>(
 
     let mut tt_flag = TtFlag::UpperBound;
 
-    let prev_move = if ply > 0 { thread.stack[ply - 1].mv } else { None };
-
     let mut movepicker = Movepicker::new(
         pos,
         &mut data.movelist,
         &mut data.scores,
         tt_move,
         thread.killers[ply],
-        prev_move,
+        ply,
     );
 
     let mut move_count = 0;
     let mut faillow_moves = arrayvec::ArrayVec::<Move, 32>::new();
 
-    while let Some(mv) = movepicker.next(&thread.history) {
+    while let Some(mv) = movepicker.next(&thread.history, &thread.moves) {
         debug_assert!(pos.is_legal(mv));
 
         if NT::ROOT_NODE && !thread.is_legal_root_move(mv) {
@@ -470,7 +468,7 @@ fn search<NT: NodeType>(
                 r += 1024 * i32::from(!NT::PV_NODE);
                 r += 1024 * i32::from(expected_cutnode);
                 r += 1024 * i32::from(!improving);
-                r -= thread.history.score(pos, mv, prev_move) / 24;
+                r -= thread.history.score(pos, mv, &thread.moves, ply) / 24;
                 r -= (correction.abs() * 8).min(1024);
 
                 let our_influence = new_pos.influence(pos.stm());
@@ -509,7 +507,7 @@ fn search<NT: NodeType>(
                     let bonus = (500 * new_depth - 500).clamp(0, 3000);
                     thread
                         .history
-                        .update(pos, mv, prev_move, if score > alpha { bonus } else { -bonus });
+                        .update(pos, mv, &thread.moves, ply, if score > alpha { bonus } else { -bonus });
                 }
             } else if !NT::PV_NODE || move_count > 1 {
                 score = -search::<NonPvNode>(
@@ -602,10 +600,10 @@ fn search<NT: NodeType>(
     if let Some(best_move) = best_move {
         let bonus = (500 * depth - 500).clamp(0, 3000);
 
-        thread.history.update(pos, best_move, prev_move, bonus);
+        thread.history.update(pos, best_move, &thread.moves, ply, bonus);
 
         for &mv in faillow_moves.iter() {
-            thread.history.update(pos, mv, prev_move, -bonus);
+            thread.history.update(pos, mv, &thread.moves, ply, -bonus);
         }
 
         if best_score >= beta {

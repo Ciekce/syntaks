@@ -248,7 +248,6 @@ impl RootMove {
 
 #[derive(Copy, Clone, Debug, Default)]
 pub struct StackEntry {
-    pub mv: Option<Move>,
     pub static_eval: Score,
     pub excluded: Option<Move>,
     pub reduction: i32,
@@ -269,6 +268,7 @@ pub struct ThreadData {
     pub pv_idx: usize,
     pub root_moves: Vec<RootMove>,
     pub stack: Vec<StackEntry>,
+    pub moves: Vec<Option<Move>>,
     pub corrhist: Box<CorrectionHistory>,
     pub history: Box<History>,
     pub killers: [KillerTable; MAX_DEPTH as usize],
@@ -287,6 +287,7 @@ impl ThreadData {
             pv_idx: 0,
             root_moves: Vec::with_capacity(1024),
             stack: vec![StackEntry::default(); MAX_DEPTH as usize + 1],
+            moves: vec![None; MAX_DEPTH as usize + 1],
             corrhist: CorrectionHistory::boxed(),
             history: History::boxed(),
             killers: [Default::default(); _],
@@ -350,14 +351,14 @@ impl ThreadData {
 
     pub fn apply_move(&mut self, ply: usize, pos: &Position, mv: Move) -> Position {
         self.key_history.push(pos.key());
-        self.stack[ply].mv = Some(mv);
+        self.moves[ply] = Some(mv);
         let mut observer = self.nnue_state.push();
         pos.apply_move_with_observer(mv, &mut observer)
     }
 
     pub fn apply_nullmove(&mut self, ply: usize, pos: &Position) -> Position {
         self.key_history.push(pos.key());
-        self.stack[ply].mv = None;
+        self.moves[ply] = None;
         pos.apply_nullmove()
     }
 

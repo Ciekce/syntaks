@@ -153,7 +153,7 @@ pub struct Movepicker<'a> {
     idx: usize,
     tt_move: Option<Move>,
     killers: KillerTable,
-    prev_move: Option<Move>,
+    ply: usize,
     stage: Stage,
 }
 
@@ -164,7 +164,7 @@ impl<'a> Movepicker<'a> {
         scores: &'a mut Vec<Score>,
         tt_move: Option<Move>,
         killers: KillerTable,
-        prev_move: Option<Move>,
+        ply: usize,
     ) -> Self {
         Self {
             pos,
@@ -173,15 +173,15 @@ impl<'a> Movepicker<'a> {
             idx: 0,
             tt_move,
             killers,
-            prev_move,
+            ply,
             stage: Stage::TtMove,
         }
     }
 
-    fn score_moves(&mut self, history: &History) {
+    fn score_moves(&mut self, history: &History, move_stack: &[Option<Move>]) {
         self.scores.clear();
         for mv in self.moves.iter() {
-            let mut score = history.score(self.pos, *mv, self.prev_move);
+            let mut score = history.score(self.pos, *mv, move_stack, self.ply);
 
             if !mv.is_spread() {
                 score += 75;
@@ -221,7 +221,7 @@ impl<'a> Movepicker<'a> {
         self.moves[self.idx]
     }
 
-    pub fn next(&mut self, history: &History) -> Option<Move> {
+    pub fn next(&mut self, history: &History, move_stack: &[Option<Move>]) -> Option<Move> {
         while self.stage != Stage::End {
             match self.stage {
                 Stage::TtMove => {
@@ -252,7 +252,7 @@ impl<'a> Movepicker<'a> {
                 }
                 Stage::GenMoves => {
                     generate_moves(self.moves, self.pos);
-                    self.score_moves(history);
+                    self.score_moves(history, move_stack);
                 }
                 Stage::Moves => {
                     while self.idx < self.moves.len() {
