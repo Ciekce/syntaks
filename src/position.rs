@@ -230,7 +230,7 @@ impl Position {
             ply: 0,
             stm_key: 0,
             roads: Default::default(),
-            influence: Default::default(),
+            influence: [Bitboard::EDGES; _],
             half_komi: Self::DEFAULT_HALF_KOMI,
         }
     }
