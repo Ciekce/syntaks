@@ -234,7 +234,7 @@ fn search<NT: NodeType>(
     }
 
     if depth <= 0 {
-        return leaf::<NT>(thread, pos, ply, 0, alpha, beta);
+        return leaf::<NT>(thread, pos, 0, ply, alpha, beta);
     }
 
     thread.inc_nodes();
@@ -641,8 +641,8 @@ fn search<NT: NodeType>(
 fn leaf<NT: NodeType>(
     thread: &mut ThreadData,
     pos: &Position,
-    ply: usize,
     depth: i32,
+    ply: usize,
     alpha: Score,
     beta: Score,
 ) -> Score {
@@ -690,7 +690,7 @@ fn leaf<NT: NodeType>(
         && pos.is_legal(mv)
     {
         let new_pos = thread.apply_move(ply, pos, mv);
-        let score = -leaf::<NT>(thread, &new_pos, ply + 1, depth - 1, -alpha - 1, -alpha);
+        let score = -leaf::<NT>(thread, &new_pos, depth - 1, ply + 1, -alpha - 1, -alpha);
         thread.pop_move();
         let score = match flag {
             TtFlag::UpperBound => i32::min(static_eval, score),
