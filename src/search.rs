@@ -166,8 +166,6 @@ fn search<NT: NodeType>(
 
     let beta = beta;
 
-    thread.inc_nodes();
-
     if !NT::ROOT_NODE {
         let mut push_to_pv = |bb: Bitboard| {
             if NT::PV_NODE {
@@ -192,6 +190,7 @@ fn search<NT: NodeType>(
         let open_criticals = criticals & !pos.occ();
 
         if !open_criticals.is_empty() {
+            thread.inc_nodes();
             push_to_pv(open_criticals);
             return win_in(ply + 1);
         }
@@ -205,6 +204,7 @@ fn search<NT: NodeType>(
                 let attackers = neighbors & pos.roads(pos.stm());
                 let edge_bonus = sq.bb() & edges;
                 if (attackers | edge_bonus).popcount() >= 3 {
+                    thread.inc_nodes();
                     // todo push_to_pv
                     return win_in(ply + 1);
                 }
@@ -217,6 +217,7 @@ fn search<NT: NodeType>(
             let hfcd = pos.hfcd(pos.stm());
 
             if hfcd >= -1 {
+                thread.inc_nodes();
                 push_to_pv(!pos.occ());
                 return win_in(ply + 1);
             }
@@ -225,6 +226,7 @@ fn search<NT: NodeType>(
                 push_to_pv(!pos.occ());
                 alpha = 0;
                 if alpha >= beta {
+                    thread.inc_nodes();
                     return alpha;
                 }
             }
@@ -234,6 +236,8 @@ fn search<NT: NodeType>(
     if depth <= 0 {
         return leaf::<NT>(thread, pos, ply, alpha, beta);
     }
+
+    thread.inc_nodes();
 
     if NT::PV_NODE {
         thread.update_seldepth(ply);
@@ -635,6 +639,8 @@ fn search<NT: NodeType>(
 }
 
 fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: usize, alpha: Score, beta: Score) -> Score {
+    thread.inc_nodes();
+
     if NT::PV_NODE {
         thread.update_seldepth(ply);
     }
