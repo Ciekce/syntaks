@@ -234,7 +234,7 @@ fn search<NT: NodeType>(
     }
 
     if depth <= 0 {
-        return leaf::<NT>(thread, pos, ply, alpha, beta);
+        return leaf::<NT>(thread, pos, ply, 0, alpha, beta);
     }
 
     thread.inc_nodes();
@@ -638,7 +638,14 @@ fn search<NT: NodeType>(
     best_score
 }
 
-fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: usize, alpha: Score, beta: Score) -> Score {
+fn leaf<NT: NodeType>(
+    thread: &mut ThreadData,
+    pos: &Position,
+    ply: usize,
+    depth: i32,
+    alpha: Score,
+    beta: Score,
+) -> Score {
     thread.inc_nodes();
 
     if NT::PV_NODE {
@@ -675,18 +682,15 @@ fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: usize, alpha
         return static_eval;
     }
 
-    let do_leaf_search = thread
-        .key_history
-        .get(ply - 3)
-        .is_none_or(|key| thread.key_history[ply - 1] != *key);
+    let repeated = depth <= -2 && thread.key_history[thread.key_history.len() - 2] == pos.key();
     if !NT::PV_NODE
         && tt_hit
-        && do_leaf_search
+        && !repeated
         && let Some((mv, flag)) = Option::zip(tt_entry.mv, tt_entry.flag)
         && pos.is_legal(mv)
     {
         let new_pos = thread.apply_move(ply, pos, mv);
-        let score = -leaf::<NT>(thread, &new_pos, ply + 1, -alpha - 1, -alpha);
+        let score = -leaf::<NT>(thread, &new_pos, ply + 1, depth - 1, -alpha - 1, -alpha);
         thread.pop_move();
         let score = match flag {
             TtFlag::UpperBound => i32::min(static_eval, score),
