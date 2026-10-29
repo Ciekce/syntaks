@@ -689,7 +689,7 @@ fn leaf<NT: NodeType>(
         return static_eval;
     }
 
-    let repeated = depth <= -2 && thread.key_history[thread.key_history.len() - 2] == pos.key();
+    let repeated = depth <= -4 && thread.key_history[thread.key_history.len() - 4] == pos.key();
     if !NT::PV_NODE
         && tt_hit
         && !repeated
