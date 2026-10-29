@@ -105,7 +105,6 @@ fn spread_wins_road(pos: &Position, info: &SpreadInfo) -> bool {
 enum Stage {
     TtMove,
     Killer1,
-    Killer2,
     GenMoves,
     Moves,
     End,
@@ -116,8 +115,7 @@ impl Stage {
         assert_ne!(*self, Self::End);
         match *self {
             Self::TtMove => Self::Killer1,
-            Self::Killer1 => Self::Killer2,
-            Self::Killer2 => Self::GenMoves,
+            Self::Killer1 => Self::GenMoves,
             Self::GenMoves => Self::Moves,
             Self::Moves => Self::End,
             Self::End => unreachable!(),
@@ -131,13 +129,10 @@ pub struct KillerTable {
 }
 
 impl KillerTable {
-    const COUNT: usize = 2;
+    const COUNT: usize = 1;
 
     pub fn push(&mut self, mv: Move) {
-        if self.killers[0] != Some(mv) {
-            self.killers[1] = self.killers[0];
-            self.killers[0] = Some(mv);
-        }
+        self.killers[0] = Some(mv);
     }
 
     #[must_use]
@@ -234,15 +229,6 @@ impl<'a> Movepicker<'a> {
                 }
                 Stage::Killer1 => {
                     if let Some(killer) = self.killers.killers[0]
-                        && self.tt_move.is_none_or(|tt_move| killer != tt_move)
-                        && self.pos.is_legal(killer)
-                    {
-                        self.stage = self.stage.next();
-                        return Some(killer);
-                    }
-                }
-                Stage::Killer2 => {
-                    if let Some(killer) = self.killers.killers[1]
                         && self.tt_move.is_none_or(|tt_move| killer != tt_move)
                         && self.pos.is_legal(killer)
                     {
