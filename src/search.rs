@@ -453,6 +453,13 @@ fn search<NT: NodeType>(
             extension += 1;
         }
 
+        let threatens_placement_win = new_pos.hfcd(pos.stm()) >= -1
+            && ((!mv.is_spread() && new_pos.total_reserves(pos.stm()) == 1)
+                || ((!pos.occ()).popcount() > 1 && (!new_pos.occ()).popcount() == 1));
+        if extension == 0 && threatens_placement_win {
+            extension += 1;
+        }
+
         let nodes_before = thread.nodes();
 
         let score = if let Some(state) = thread.check_terminal_state(ply, &new_pos, mv) {
