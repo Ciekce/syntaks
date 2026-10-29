@@ -493,7 +493,7 @@ fn search<NT: NodeType>(
 
                 r /= 1024;
 
-                let reduced = (new_depth - r).max(1).min(new_depth);
+                let reduced = (new_depth - r).max(1).min(new_depth) + i32::from(NT::PV_NODE);
 
                 thread.stack[ply].reduction = new_depth - reduced;
                 score = -search::<NonPvNode>(thread, child_data, &new_pos, reduced, ply + 1, -alpha - 1, -alpha, true);
