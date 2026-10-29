@@ -431,6 +431,8 @@ fn search<NT: NodeType>(
                 return score;
             } else if tt_entry.score >= beta {
                 extension -= 1;
+            } else if expected_cutnode {
+                extension -= 1;
             }
         }
 
