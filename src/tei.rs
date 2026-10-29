@@ -102,6 +102,9 @@ struct TeiHandler {
     searcher: Searcher,
     options: TeiOptions,
     half_komi: i8,
+
+    #[cfg(feature = "tune")]
+    param_handler: crate::tune::ParamHandler,
 }
 
 impl TeiHandler {
@@ -113,6 +116,9 @@ impl TeiHandler {
             searcher: Searcher::new(DEFAULT_TT_SIZE_MIB),
             options: TeiOptions::default(),
             half_komi: Position::DEFAULT_HALF_KOMI,
+
+            #[cfg(feature = "tune")]
+            param_handler: crate::tune::ParamHandler::new(),
         }
     }
 
@@ -200,6 +206,18 @@ impl TeiHandler {
             default_options.move_overhead_ms, MAX_MOVE_OVERHEAD_MS
         );
         println!("option name DoubleBlackStack type check default false");
+
+        #[cfg(feature = "tune")]
+        for tunable in self.param_handler.tunables() {
+            let (min, max) = tunable.range();
+            println!(
+                "option name {} type spin default {} min {} max {}",
+                tunable.name(),
+                unsafe { tunable.get() },
+                min,
+                max
+            );
+        }
 
         println!("teiok");
     }
@@ -356,7 +374,15 @@ impl TeiHandler {
                     DOUBLE_BLACK_STACK.store(double_black_stack, Ordering::Relaxed);
                 }
             }
-            unknown => eprintln!("Warning: Unknown option '{}'", unknown),
+            #[cfg(feature = "tune")]
+            param if let Some(param) = self.param_handler.get(param) => {
+                if let Err(err) = unsafe { param.set(&value) } {
+                    eprintln!("{err}");
+                }
+            }
+            unknown => {
+                eprintln!("Warning: Unknown option '{}'", unknown)
+            }
         }
     }
 
