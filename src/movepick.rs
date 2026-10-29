@@ -129,10 +129,13 @@ pub struct KillerTable {
 }
 
 impl KillerTable {
-    const COUNT: usize = 1;
+    const COUNT: usize = 2;
 
     pub fn push(&mut self, mv: Move) {
-        self.killers[0] = Some(mv);
+        if self.killers[0] != Some(mv) {
+            self.killers[1] = self.killers[0];
+            self.killers[0] = Some(mv);
+        }
     }
 
     #[must_use]
@@ -175,13 +178,16 @@ impl<'a> Movepicker<'a> {
 
     fn score_moves(&mut self, history: &History) {
         self.scores.clear();
-        for mv in self.moves.iter() {
-            let mut score = history.score(self.pos, *mv, self.prev_move);
+        for &mv in self.moves.iter() {
+            let mut score = history.score(self.pos, mv, self.prev_move);
 
+            if self.killers.killers[1] == Some(mv) {
+                score += 16384;
+            }
             if !mv.is_spread() {
                 score += 75;
             } else {
-                let info = spread_ordering_info(self.pos, *mv);
+                let info = spread_ordering_info(self.pos, mv);
                 if spread_wins_road(self.pos, &info) {
                     score += SPREAD_ROAD_BONUS;
                 }
@@ -244,7 +250,7 @@ impl<'a> Movepicker<'a> {
                     while self.idx < self.moves.len() {
                         let mv = self.pick_best();
                         self.idx += 1;
-                        if self.tt_move.is_none_or(|tt_move| mv != tt_move) && !self.killers.contains(mv) {
+                        if self.tt_move.is_none_or(|tt_move| mv != tt_move) && self.killers.killers[0] != Some(mv) {
                             return Some(mv);
                         }
                     }
