@@ -317,7 +317,7 @@ fn search<NT: NodeType>(
         }
 
         // reverse futility pruning (rfp)
-        let rfp_margin = (100 * depth + 184
+        let rfp_margin = (70 * depth + 70
             - 75 * i32::from(expected_cutnode)
             - 150 * i32::from(improving)
             - 25 * i32::from(opp_worsening))
