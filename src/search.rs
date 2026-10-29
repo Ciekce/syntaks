@@ -305,6 +305,17 @@ fn search<NT: NodeType>(
 
     thread.stack[ply].static_eval = static_eval;
 
+    let tt_complexity = if match tt_entry.flag {
+        None => false,
+        Some(TtFlag::UpperBound) => tt_entry.score <= static_eval,
+        Some(TtFlag::LowerBound) => tt_entry.score >= static_eval,
+        Some(TtFlag::Exact) => true,
+    } {
+        (static_eval - tt_entry.score).abs()
+    } else {
+        0
+    };
+
     let improving = ply < 2 || static_eval > thread.stack[ply - 2].static_eval;
     let opp_worsening = ply > 0 && static_eval > -thread.stack[ply - 1].static_eval;
 
@@ -320,8 +331,9 @@ fn search<NT: NodeType>(
         let rfp_margin = (100 * depth + 184
             - 75 * i32::from(expected_cutnode)
             - 150 * i32::from(improving)
-            - 25 * i32::from(opp_worsening))
-        .max(0);
+            - 25 * i32::from(opp_worsening)
+            + 4 * tt_complexity)
+            .max(0);
         if depth <= 10 && static_eval - rfp_margin >= beta {
             return (static_eval + beta) / 2;
         }
