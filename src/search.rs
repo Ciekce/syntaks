@@ -306,6 +306,7 @@ fn search<NT: NodeType>(
     thread.stack[ply].static_eval = static_eval;
 
     let improving = ply < 2 || static_eval > thread.stack[ply - 2].static_eval;
+    let opp_worsening = ply > 0 && static_eval > -thread.stack[ply - 1].static_eval;
 
     if !NT::PV_NODE && excluded.is_none() {
         let parent_reduction = thread.stack[ply - 1].reduction;
@@ -316,14 +317,18 @@ fn search<NT: NodeType>(
         }
 
         // reverse futility pruning (rfp)
-        let rfp_margin = (100 * depth + 184 - 75 * i32::from(expected_cutnode) - 150 * i32::from(improving)).max(0);
+        let rfp_margin = (100 * depth + 184
+            - 75 * i32::from(expected_cutnode)
+            - 150 * i32::from(improving)
+            - 25 * i32::from(opp_worsening))
+        .max(0);
         if depth <= 10 && static_eval - rfp_margin >= beta {
             return (static_eval + beta) / 2;
         }
 
         // nullmove pruning (nmp)
         if expected_cutnode && depth >= 4 && static_eval >= beta && thread.stack[ply - 1].mv.is_some() {
-            let r = 4 + depth / 5;
+            let r = 4 + depth / 3;
 
             let new_pos = thread.apply_nullmove(ply, pos);
 
@@ -380,13 +385,16 @@ fn search<NT: NodeType>(
 
         #[allow(clippy::collapsible_if)]
         if !NT::ROOT_NODE && !is_loss(best_score) && (!NT::PV_NODE || !cfg!(feature = "datagen")) {
-            if depth <= 8
-                && move_count as i32
-                    >= (5 + 2 * depth * depth)
-                        / (2 - i32::from(improving))
-                        / (1 + i32::from(static_eval + 250 <= alpha))
-            {
-                break;
+            if depth <= 8 {
+                let losing = static_eval + 250 <= alpha;
+                let limit = (5 + 2 * depth * depth)
+                    * (1 + i32::from(improving))
+                    * (1 + i32::from(!losing))
+                    * (1 + i32::from(NT::PV_NODE))
+                    / 4;
+                if move_count as i32 >= limit {
+                    break;
+                }
             }
         }
 
@@ -425,6 +433,8 @@ fn search<NT: NodeType>(
             } else if !NT::PV_NODE && score >= beta {
                 return score;
             } else if tt_entry.score >= beta {
+                extension -= 1;
+            } else if expected_cutnode {
                 extension -= 1;
             }
         }
@@ -691,7 +701,7 @@ fn leaf<NT: NodeType>(
         return static_eval;
     }
 
-    let repeated = depth <= -2 && thread.key_history[thread.key_history.len() - 2] == pos.key();
+    let repeated = depth <= -4 && thread.key_history[thread.key_history.len() - 4] == pos.key();
     if !NT::PV_NODE
         && tt_hit
         && !repeated
