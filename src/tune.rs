@@ -99,6 +99,34 @@ pub mod inner {
         };
     }
 
+    macro_rules! impl_ord {
+        ($ty: ty) => {
+            impl PartialEq<$ty> for TunableValue<$ty> {
+                fn eq(&self, other: &$ty) -> bool {
+                    **self == *other
+                }
+            }
+
+            impl PartialEq<TunableValue<$ty>> for $ty {
+                fn eq(&self, other: &TunableValue<$ty>) -> bool {
+                    *self == **other
+                }
+            }
+
+            impl PartialOrd<$ty> for TunableValue<$ty> {
+                fn partial_cmp(&self, other: &$ty) -> Option<std::cmp::Ordering> {
+                    (**self).partial_cmp(other)
+                }
+            }
+
+            impl PartialOrd<TunableValue<$ty>> for $ty {
+                fn partial_cmp(&self, other: &TunableValue<$ty>) -> Option<std::cmp::Ordering> {
+                    self.partial_cmp(&**other)
+                }
+            }
+        };
+    }
+
     macro_rules! impl_primitive_types {
         ($($type: ty);*) => {
             $(
@@ -110,6 +138,7 @@ pub mod inner {
                 impl_assign_binop!(AddAssign, add_assign, $type);
                 impl_binop!(Sub, sub, $type);
                 impl_assign_binop!(SubAssign, sub_assign, $type);
+                impl_ord!($type);
                 inventory::collect!(Value<$type>);
             )*
         };
