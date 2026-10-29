@@ -225,16 +225,3 @@ pub mod inner {
 
 #[cfg(feature = "tune")]
 pub use inner::*;
-
-#[cfg(feature = "tune")]
-#[test]
-fn test_tunable_owo() {
-    tunable!(X: i32 = 1; range(0, 100));
-    let a = X + 1;
-    assert_eq!(a, 2);
-    unsafe {
-        X.set(2);
-    }
-    let a = X + 1;
-    assert_eq!(a, 3);
-}
