@@ -385,13 +385,16 @@ fn search<NT: NodeType>(
 
         #[allow(clippy::collapsible_if)]
         if !NT::ROOT_NODE && !is_loss(best_score) && (!NT::PV_NODE || !cfg!(feature = "datagen")) {
-            if depth <= 8
-                && move_count as i32
-                    >= (5 + 2 * depth * depth)
-                        / (2 - i32::from(improving))
-                        / (1 + i32::from(static_eval + 250 <= alpha))
-            {
-                break;
+            if depth <= 8 {
+                let losing = static_eval + 250 <= alpha;
+                let limit = (5 + 2 * depth * depth)
+                    * (1 + i32::from(improving))
+                    * (1 + i32::from(!losing))
+                    * (1 + i32::from(NT::PV_NODE))
+                    / 4;
+                if move_count as i32 >= limit {
+                    break;
+                }
             }
         }
 
@@ -430,6 +433,8 @@ fn search<NT: NodeType>(
             } else if !NT::PV_NODE && score >= beta {
                 return score;
             } else if tt_entry.score >= beta {
+                extension -= 1;
+            } else if expected_cutnode {
                 extension -= 1;
             }
         }
@@ -689,7 +694,7 @@ fn leaf<NT: NodeType>(
         return static_eval;
     }
 
-    let repeated = depth <= -2 && thread.key_history[thread.key_history.len() - 2] == pos.key();
+    let repeated = depth <= -4 && thread.key_history[thread.key_history.len() - 4] == pos.key();
     if !NT::PV_NODE
         && tt_hit
         && !repeated
