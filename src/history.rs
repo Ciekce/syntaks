@@ -235,11 +235,49 @@ impl IndexMut<Square> for CapstoneHist {
     }
 }
 
+#[derive(Copy, Clone)]
+struct HashedHist {
+    entries: [CombinedHist; Self::ENTRIES],
+}
+
+impl HashedHist {
+    const ENTRIES: usize = 1 << 10;
+
+    fn clear(&mut self) {
+        for subtable in self.entries.iter_mut() {
+            subtable.clear();
+        }
+    }
+}
+
+impl Default for HashedHist {
+    fn default() -> Self {
+        Self {
+            entries: [Default::default(); _],
+        }
+    }
+}
+
+impl Index<u64> for HashedHist {
+    type Output = CombinedHist;
+
+    fn index(&self, key: u64) -> &Self::Output {
+        &self.entries[key as usize % Self::ENTRIES]
+    }
+}
+
+impl IndexMut<u64> for HashedHist {
+    fn index_mut(&mut self, key: u64) -> &mut Self::Output {
+        &mut self.entries[key as usize % Self::ENTRIES]
+    }
+}
+
 #[derive(Copy, Clone, Default)]
 struct SidedTables {
     hist: CombinedHist,
     capstone_hist: CapstoneHist,
     conthist: ConthistTable,
+    key_diff_conthist: HashedHist,
     influence: InfluenceHist,
 }
 
@@ -248,6 +286,7 @@ impl SidedTables {
         self.hist.clear();
         self.capstone_hist.clear();
         self.conthist.clear();
+        self.key_diff_conthist.clear();
         self.influence.clear();
     }
 }
@@ -272,7 +311,7 @@ impl History {
         }
     }
 
-    pub fn update(&mut self, pos: &Position, mv: Move, prev: Option<Move>, bonus: i32) {
+    pub fn update(&mut self, pos: &Position, key_history: &[u64], mv: Move, prev: Option<Move>, bonus: i32) {
         let tables = &mut self.tables[pos.stm()];
         let bonus = bonus.clamp(-Self::MAX_BONUS, Self::MAX_BONUS);
         tables.hist[mv].update(bonus);
@@ -286,10 +325,19 @@ impl History {
         if let Some(prev) = prev {
             tables.conthist[prev][mv].update(bonus);
         }
+
+        let mut update_cont = |offset: usize| {
+            if key_history.len() >= offset {
+                let diff = pos.key() ^ key_history[key_history.len() - offset];
+                tables.key_diff_conthist[diff][mv].update(bonus)
+            }
+        };
+
+        update_cont(1);
     }
 
     #[must_use]
-    pub fn score(&self, pos: &Position, mv: Move, prev: Option<Move>) -> i32 {
+    pub fn score(&self, pos: &Position, key_history: &[u64], mv: Move, prev: Option<Move>) -> i32 {
         let tables = &self.tables[pos.stm()];
         let mut res = tables.hist[mv].get();
         if let Some(cap_sq) = pos.cap_sq(pos.stm()) {
@@ -302,6 +350,18 @@ impl History {
         if let Some(prev) = prev {
             res += tables.conthist[prev][mv].get();
         }
+
+        let cont = |offset: usize| {
+            if key_history.len() >= offset {
+                let diff = pos.key() ^ key_history[key_history.len() - offset];
+                tables.key_diff_conthist[diff][mv].get()
+            } else {
+                0
+            }
+        };
+
+        res += cont(1);
+
         res
     }
 }

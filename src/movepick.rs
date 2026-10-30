@@ -179,10 +179,10 @@ impl<'a> Movepicker<'a> {
         }
     }
 
-    fn score_moves(&mut self, history: &History) {
+    fn score_moves(&mut self, history: &History, key_history: &[u64]) {
         self.scores.clear();
         for &mv in self.moves.iter() {
-            let mut score = history.score(self.pos, mv, self.prev_move);
+            let mut score = history.score(self.pos, key_history, mv, self.prev_move);
 
             if self.killers.killers[1] == Some(mv) {
                 score += 16384;
@@ -225,7 +225,7 @@ impl<'a> Movepicker<'a> {
         self.moves[self.idx]
     }
 
-    pub fn next(&mut self, history: &History) -> Option<Move> {
+    pub fn next(&mut self, history: &History, key_history: &[u64]) -> Option<Move> {
         while self.stage != Stage::End {
             match self.stage {
                 Stage::TtMove => {
@@ -247,7 +247,7 @@ impl<'a> Movepicker<'a> {
                 }
                 Stage::GenMoves => {
                     generate_moves(self.moves, self.pos);
-                    self.score_moves(history);
+                    self.score_moves(history, key_history);
                 }
                 Stage::Moves => {
                     while self.idx < self.moves.len() {

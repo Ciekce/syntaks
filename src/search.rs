@@ -375,7 +375,7 @@ fn search<NT: NodeType>(
     let mut move_count = 0;
     let mut faillow_moves = arrayvec::ArrayVec::<Move, 32>::new();
 
-    while let Some(mv) = movepicker.next(&thread.history) {
+    while let Some(mv) = movepicker.next(&thread.history, &thread.key_history) {
         debug_assert!(pos.is_legal(mv));
 
         if NT::ROOT_NODE && !thread.is_legal_root_move(mv) {
@@ -457,6 +457,8 @@ fn search<NT: NodeType>(
             child_data[0].pv.clear();
         }
 
+        let history = thread.history.score(pos, &thread.key_history, mv, prev_move);
+
         let new_pos = thread.apply_move(ply, pos, mv);
         thread.shared().tt.prefetch(new_pos.key());
 
@@ -485,7 +487,7 @@ fn search<NT: NodeType>(
                 r += 1024 * i32::from(!NT::PV_NODE);
                 r += 1024 * i32::from(expected_cutnode);
                 r += 1024 * i32::from(!improving);
-                r -= thread.history.score(pos, mv, prev_move) / 24;
+                r -= history / 24;
                 r -= (correction.abs() * 8).min(1024);
 
                 let our_influence = new_pos.influence(pos.stm());
@@ -522,9 +524,13 @@ fn search<NT: NodeType>(
                     );
 
                     let bonus = (500 * new_depth - 500).clamp(0, 3000);
-                    thread
-                        .history
-                        .update(pos, mv, prev_move, if score > alpha { bonus } else { -bonus });
+                    thread.history.update(
+                        pos,
+                        &thread.key_history[..thread.key_history.len() - 1],
+                        mv,
+                        prev_move,
+                        if score > alpha { bonus } else { -bonus },
+                    );
                 }
             } else if !NT::PV_NODE || move_count > 1 {
                 score = -search::<NonPvNode>(
@@ -617,10 +623,12 @@ fn search<NT: NodeType>(
     if let Some(best_move) = best_move {
         let bonus = (500 * depth - 500).clamp(0, 3000);
 
-        thread.history.update(pos, best_move, prev_move, bonus);
+        thread
+            .history
+            .update(pos, &thread.key_history, best_move, prev_move, bonus);
 
         for &mv in faillow_moves.iter() {
-            thread.history.update(pos, mv, prev_move, -bonus);
+            thread.history.update(pos, &thread.key_history, mv, prev_move, -bonus);
         }
 
         if best_score >= beta {
