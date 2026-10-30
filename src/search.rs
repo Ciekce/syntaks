@@ -326,7 +326,11 @@ fn search<NT: NodeType>(
             - 25 * i32::from(opp_worsening))
         .max(0);
         if depth <= 10 && static_eval - rfp_margin >= beta {
-            return (static_eval + beta) / 2;
+            return if !is_decisive(static_eval) && !is_decisive(beta) {
+                (static_eval + beta) / 2
+            } else {
+                static_eval
+            };
         }
 
         // nullmove pruning (nmp)
