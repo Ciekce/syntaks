@@ -26,6 +26,9 @@ use crate::takmove::Move;
 use crate::thread::RootMove;
 use std::time::Instant;
 
+#[allow(unused)]
+use crate::stats;
+
 pub const MAX_MOVE_OVERHEAD_MS: u64 = 10000;
 
 const TIME_CHECK_INTERVAL: usize = 4096;

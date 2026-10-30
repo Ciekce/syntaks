@@ -40,6 +40,9 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
+#[allow(unused)]
+use crate::stats;
+
 pub const MAX_THREADS: u32 = 2048;
 pub const MAX_DEPTH: i32 = 248;
 
@@ -856,6 +859,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
             if !silent {
                 final_report(best_move);
             }
+            stats::print();
         });
     } else {
         thread.shared = None;

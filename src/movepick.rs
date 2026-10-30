@@ -29,6 +29,9 @@ use crate::position::Position;
 use crate::road::influence;
 use crate::takmove::Move;
 
+#[allow(unused)]
+use crate::stats;
+
 const SPREAD_ROAD_BONUS: i32 = 1 << 18;
 const SPREAD_FLAT_GAIN: i32 = 4096;
 const WALL_SMASH_BONUS: i32 = 4096;

@@ -17,6 +17,7 @@ pub mod position;
 mod prng;
 mod road;
 mod search;
+mod stats;
 pub mod takmove;
 pub mod tei;
 mod thread;

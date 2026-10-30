@@ -26,10 +26,10 @@ use crate::eval::static_eval_once;
 use crate::limit::{Limits, MAX_MOVE_OVERHEAD_MS};
 use crate::perft::{perft, split_perft};
 use crate::position::*;
-use crate::search;
 use crate::search::{MAX_THREADS, Searcher};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
 use crate::wdl;
+use crate::{search, stats};
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
@@ -689,6 +689,8 @@ impl TeiHandler {
 
         println!("{:.3} seconds", total_time);
         println!("{} nodes {} nps", total_nodes, nps);
+
+        stats::print();
     }
 
     fn handle_perft(&self, args: &[&str]) {
