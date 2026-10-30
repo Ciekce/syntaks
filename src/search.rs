@@ -487,13 +487,13 @@ fn search<NT: NodeType>(
             if depth >= 2 && move_count >= 2 + usize::from(NT::ROOT_NODE) {
                 let mut r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
 
-                tunable!(PV_NODE_LMR: i32 = 1024; range(0, 4096));
-                tunable!(CUTNODE_LMR: i32 = 1024; range(0, 4096));
-                tunable!(IMPROVING_LMR: i32 = 1024; range(0, 4096));
-                tunable!(HIST_LMR: i32 = 1024; range(0, 4096));
-                tunable!(CORR_LMR: i32 = 512; range(0, 2048));
-                tunable!(THREAT_LMR: i32 = 1024; range(0, 4096));
-                tunable!(SPREAD_GAIN_LMR: i32 = 1024; range(0, 4096));
+                tunable!(PV_NODE_LMR: i32 = 1315; range(0, 4096));
+                tunable!(CUTNODE_LMR: i32 = 1696; range(0, 4096));
+                tunable!(IMPROVING_LMR: i32 = 799; range(0, 4096));
+                tunable!(HIST_LMR: i32 = 694; range(0, 4096));
+                tunable!(CORR_LMR: i32 = 565; range(0, 2048));
+                tunable!(THREAT_LMR: i32 = 1034; range(0, 4096));
+                tunable!(SPREAD_GAIN_LMR: i32 = 0; range(0, 4096));
 
                 r += PV_NODE_LMR * i32::from(!NT::PV_NODE);
                 r += CUTNODE_LMR * i32::from(expected_cutnode);

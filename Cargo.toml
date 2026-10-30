@@ -7,7 +7,6 @@ edition = "2024"
 pext = []
 datagen = ["dep:ctrlc"]
 tune = ["dep:inventory"]
-default = ["tune"]
 
 [dependencies]
 arrayvec = "0.7.6"
