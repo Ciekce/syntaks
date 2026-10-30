@@ -320,11 +320,17 @@ fn search<NT: NodeType>(
             depth += 1;
         }
 
+        tunable!(RFP_DEPTH_SCALE: i32 = 100; range(0, 256));
+        tunable!(RFP_BASE: i32 = 184; range(0, 512));
+        tunable!(RFP_CUTNODE: i32 = 75; range(0, 256));
+        tunable!(RFP_IMPROVING: i32 = 150; range(0, 512));
+        tunable!(RFP_OPP_WORSENING: i32 = 25; range(0, 128));
+
         // reverse futility pruning (rfp)
-        let rfp_margin = (100 * depth + 184
-            - 75 * i32::from(expected_cutnode)
-            - 150 * i32::from(improving)
-            - 25 * i32::from(opp_worsening))
+        let rfp_margin = (RFP_DEPTH_SCALE * depth + RFP_BASE
+            - RFP_CUTNODE * i32::from(expected_cutnode)
+            - RFP_IMPROVING * i32::from(improving)
+            - RFP_OPP_WORSENING * i32::from(opp_worsening))
         .max(0);
         if depth <= 10 && static_eval - rfp_margin >= beta {
             return if !is_decisive(static_eval) && !is_decisive(beta) {
@@ -334,9 +340,12 @@ fn search<NT: NodeType>(
             };
         }
 
+        tunable!(NMP_BASE_R: i32 = 4096; range(0, 8192));
+        tunable!(NMP_DEPTH_SCALE: i32 = 342; range(0, 1024));
+
         // nullmove pruning (nmp)
         if expected_cutnode && depth >= 4 && static_eval >= beta && thread.stack[ply - 1].mv.is_some() {
-            let r = 4 + depth / 3;
+            let r = (NMP_BASE_R + NMP_DEPTH_SCALE * depth) / 1024;
 
             let new_pos = thread.apply_nullmove(ply, pos);
 
@@ -393,13 +402,17 @@ fn search<NT: NodeType>(
 
         #[allow(clippy::collapsible_if)]
         if !NT::ROOT_NODE && !is_loss(best_score) && (!NT::PV_NODE || !cfg!(feature = "datagen")) {
+            tunable!(LMP_LOSING_MARGIN: i32 = 250; range(0, 512));
+            tunable!(LMP_BASE: i32 = 1280; range(0, 2048));
+            tunable!(LMP_DEPTH_SCALE: i32 = 512; range(0, 1024));
+
             if depth <= 8 {
-                let losing = static_eval + 250 <= alpha;
-                let limit = (5 + 2 * depth * depth)
+                let losing = static_eval + LMP_LOSING_MARGIN <= alpha;
+                let limit = (LMP_BASE + LMP_DEPTH_SCALE * depth * depth)
                     * (1 + i32::from(improving))
                     * (1 + i32::from(!losing))
                     * (1 + i32::from(NT::PV_NODE))
-                    / 4;
+                    / 1024;
                 if move_count as i32 >= limit {
                     break;
                 }
@@ -410,6 +423,10 @@ fn search<NT: NodeType>(
 
         let mut extension = 0;
 
+        tunable!(SE_BETA_SCALE: i32 = 1536; range(0, 4096));
+        tunable!(SE_DEXT_MARGIN: i32 = 30; range(0, 128));
+        tunable!(SE_TEXT_MARGIN: i32 = 100; range(0, 256));
+
         if !NT::ROOT_NODE
             && Some(mv) == tt_move
             && excluded.is_none()
@@ -418,7 +435,7 @@ fn search<NT: NodeType>(
             && tt_entry.flag != Some(TtFlag::UpperBound)
             && !is_decisive(tt_entry.score)
         {
-            let s_beta = tt_entry.score - 3 * depth / 2;
+            let s_beta = tt_entry.score - SE_BETA_SCALE * depth / 1024;
             let s_depth = (depth - 1) / 2;
 
             thread.stack[ply].excluded = Some(mv);
@@ -436,8 +453,8 @@ fn search<NT: NodeType>(
 
             if score < s_beta {
                 extension += 1
-                    + i32::from(!NT::PV_NODE && score < s_beta - 30)
-                    + i32::from(!NT::PV_NODE && score < s_beta - 100);
+                    + i32::from(!NT::PV_NODE && score < s_beta - SE_DEXT_MARGIN)
+                    + i32::from(!NT::PV_NODE && score < s_beta - SE_TEXT_MARGIN);
             } else if !NT::PV_NODE && score >= beta {
                 return score;
             } else if tt_entry.score >= beta {
@@ -521,7 +538,10 @@ fn search<NT: NodeType>(
                 thread.stack[ply].reduction = 0;
 
                 if score > alpha && reduced < new_depth {
-                    let do_deeper = score > best_score + 50 + 2 * new_depth;
+                    tunable!(DODEEPER_BASE: i32 = 51200; range(0, 131072));
+                    tunable!(DODEEPER_SCALE: i32 = 2048; range(0, 8192));
+
+                    let do_deeper = score > best_score + (DODEEPER_BASE + DODEEPER_SCALE * new_depth) / 1024;
                     let new_depth = new_depth + i32::from(do_deeper);
                     score = -search::<NonPvNode>(
                         thread,
@@ -534,7 +554,12 @@ fn search<NT: NodeType>(
                         !expected_cutnode,
                     );
 
-                    let bonus = (500 * new_depth - 500).clamp(0, 3000);
+                    tunable!(LMR_HIST_BONUS_SCALE: i32 = 500; range(0, 1024));
+                    tunable!(LMR_HIST_BONUS_OFFSET: i32 = 500; range(0, 1024));
+                    tunable!(LMR_HIST_BONUS_MAX: i32 = 3000; range(0, 4096));
+
+                    let bonus =
+                        (LMR_HIST_BONUS_SCALE * new_depth - LMR_HIST_BONUS_OFFSET).clamp(0, LMR_HIST_BONUS_MAX * 1);
                     thread
                         .history
                         .update(pos, mv, prev_move, if score > alpha { bonus } else { -bonus });
@@ -628,12 +653,20 @@ fn search<NT: NodeType>(
     debug_assert!(move_count > 0);
 
     if let Some(best_move) = best_move {
-        let bonus = (500 * depth - 500).clamp(0, 3000);
+        tunable!(HIST_BONUS_SCALE: i32 = 500; range(0, 1024));
+        tunable!(HIST_BONUS_OFFSET: i32 = 500; range(0, 1024));
+        tunable!(HIST_BONUS_MAX: i32 = 3000; range(0, 4096));
+        tunable!(HIST_MALUS_SCALE: i32 = 500; range(0, 1024));
+        tunable!(HIST_MALUS_OFFSET: i32 = 500; range(0, 1024));
+        tunable!(HIST_MALUS_MAX: i32 = 3000; range(0, 4096));
+
+        let bonus = (HIST_BONUS_SCALE * depth - HIST_BONUS_OFFSET).clamp(0, HIST_BONUS_MAX * 1);
+        let malus = (HIST_MALUS_SCALE * depth - HIST_MALUS_OFFSET).clamp(0, HIST_MALUS_MAX * 1);
 
         thread.history.update(pos, best_move, prev_move, bonus);
 
         for &mv in faillow_moves.iter() {
-            thread.history.update(pos, mv, prev_move, -bonus);
+            thread.history.update(pos, mv, prev_move, -malus);
         }
 
         if best_score >= beta {
@@ -766,7 +799,10 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
         while thread.pv_idx < ctx.multipv {
             thread.reset_seldepth();
 
-            let mut delta = 25;
+            tunable!(ASP_DELTA: i32 = 25; range(1, 64));
+            tunable!(ASP_WIDEN: i32 = 1536; range(1280, 4096));
+
+            let mut delta = ASP_DELTA * 1;
 
             let mut alpha = -SCORE_INF;
             let mut beta = SCORE_INF;
@@ -810,7 +846,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                     }
                 }
 
-                delta = (delta * 3 / 2).min(SCORE_INF);
+                delta = (delta * ASP_WIDEN / 1024).min(SCORE_INF);
                 if score <= alpha {
                     reduction = 0;
                     beta = (alpha + beta) / 2;
