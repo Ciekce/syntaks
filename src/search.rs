@@ -510,7 +510,7 @@ fn search<NT: NodeType>(
                 tunable!(HIST_LMR: i32 = 694; range(0, 4096));
                 tunable!(CORR_LMR: i32 = 565; range(0, 2048));
                 tunable!(THREAT_LMR: i32 = 1034; range(0, 4096));
-                tunable!(SPREAD_GAIN_LMR: i32 = 0; range(0, 4096));
+                tunable!(SPREAD_GAIN_LMR: i32 = 0; range(-2048, 2048));
 
                 r += PV_NODE_LMR * i32::from(!NT::PV_NODE);
                 r += CUTNODE_LMR * i32::from(expected_cutnode);
