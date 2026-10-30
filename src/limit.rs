@@ -96,10 +96,10 @@ impl TimeManager {
             if score_change < 0 {
                 scale *= (1.0 - score_change as f64 / 84.0).min(1.7);
             }
-        }
 
-        let best_move_nodes_fraction = pv_move.nodes as f64 / total_nodes as f64;
-        scale *= (2.5 - 2.5 * best_move_nodes_fraction).max(0.5);
+            let best_move_nodes_fraction = pv_move.nodes as f64 / total_nodes as f64;
+            scale *= (2.5 - 2.5 * best_move_nodes_fraction).max(0.5);
+        }
 
         time >= self.opt_time * scale
     }
