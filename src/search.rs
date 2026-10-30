@@ -22,7 +22,6 @@
  */
 
 use crate::bitboard::Bitboard;
-use crate::core::*;
 use crate::eval::static_eval;
 use crate::limit::Limits;
 use crate::movegen::generate_moves;
@@ -34,6 +33,7 @@ use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, 
 use crate::ttable::{ProbedEntry, TtFlag};
 use crate::util::command_channel::{Receiver, Sender, channel};
 use crate::wdl;
+use crate::{core::*, tunable};
 use std::io::Write;
 use std::sync::Arc;
 use std::thread;
@@ -487,21 +487,29 @@ fn search<NT: NodeType>(
             if depth >= 2 && move_count >= 2 + usize::from(NT::ROOT_NODE) {
                 let mut r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
 
-                r += 1024 * i32::from(!NT::PV_NODE);
-                r += 1024 * i32::from(expected_cutnode);
-                r += 1024 * i32::from(!improving);
-                r -= thread.history.score(pos, mv, prev_move) / 24;
-                r -= (correction.abs() * 8).min(1024);
+                tunable!(PV_NODE_LMR: i32 = 1024; range(0, 4096));
+                tunable!(CUTNODE_LMR: i32 = 1024; range(0, 4096));
+                tunable!(IMPROVING_LMR: i32 = 1024; range(0, 4096));
+                tunable!(HIST_LMR: i32 = 1024; range(0, 4096));
+                tunable!(CORR_LMR: i32 = 512; range(0, 2048));
+                tunable!(THREAT_LMR: i32 = 1024; range(0, 4096));
+                tunable!(SPREAD_GAIN_LMR: i32 = 1024; range(0, 4096));
+
+                r += PV_NODE_LMR * i32::from(!NT::PV_NODE);
+                r += CUTNODE_LMR * i32::from(expected_cutnode);
+                r += IMPROVING_LMR * i32::from(!improving);
+                r -= thread.history.score(pos, mv, prev_move) * HIST_LMR / 24576;
+                r -= (correction.abs() * CORR_LMR / 64).min(1024);
 
                 let our_influence = new_pos.influence(pos.stm());
                 let threats = (((our_influence[0] & our_influence[1]) | (our_influence[2] & our_influence[3]))
                     & !new_pos.occ())
                 .popcount() as i32;
-                r -= 1024 * threats.min(2);
+                r -= THREAT_LMR * threats.min(2);
 
                 if mv.is_spread() {
                     let gain = (new_pos.hfcd(pos.stm()) - pos.hfcd(pos.stm())) / 2;
-                    r += (1 - gain).clamp(0, 3) * 1024;
+                    r += (1 - gain).clamp(0, 3) * SPREAD_GAIN_LMR;
                 }
 
                 r /= 1024;
