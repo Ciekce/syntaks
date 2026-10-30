@@ -27,6 +27,42 @@ pub mod inner {
         str::FromStr,
     };
 
+    trait TunableType {
+        const OB_SPSA_TYPE: &'static str;
+
+        fn ob_spsa_c_end(min: &Self, max: &Self) -> f64;
+    }
+
+    macro_rules! impl_tunable_type_int {
+        ($($type: ty);*) => {
+            $(
+                impl TunableType for $type {
+                    const OB_SPSA_TYPE: &'static str = "int";
+
+                    fn ob_spsa_c_end(min: &Self, max: &Self) -> f64 {
+                        (*max as f64 - *min as f64) / 20.0
+                    }
+                }
+            )*
+        };
+    }
+    macro_rules! impl_tunable_type_float {
+        ($($type: ty);*) => {
+            $(
+                impl TunableType for $type {
+                    const OB_SPSA_TYPE: &'static str = "float";
+                    
+                    fn ob_spsa_c_end(min: &Self, max: &Self) -> f64 {
+                        (*max as f64 - *min as f64) / 20.0
+                    }
+                }
+            )*
+        };
+    }
+
+    impl_tunable_type_int!(i8; i16; i32; i64; i128; isize; u8; u16; u32; u64; u128; usize);
+    impl_tunable_type_float!(f32; f64);
+
     pub struct Value<T: 'static> {
         name: &'static str,
         value: &'static TunableValue<T>,
@@ -184,9 +220,13 @@ pub mod inner {
         unsafe fn set(&self, value: &str) -> Result<(), Box<dyn Error>>;
 
         fn range(&self) -> (String, String);
+
+        fn ob_spsa_type(&self) -> &'static str;
+
+        fn ob_spsa_c_end(&self) -> f64;
     }
 
-    impl<T: PartialOrd + Display> ErasedTunable for Value<T>
+    impl<T: PartialOrd + Display + TunableType> ErasedTunable for Value<T>
     where
         T: ToString + FromStr,
         <T as FromStr>::Err: Error,
@@ -219,6 +259,14 @@ pub mod inner {
 
         fn range(&self) -> (String, String) {
             (self.min.to_string(), self.max.to_string())
+        }
+
+        fn ob_spsa_type(&self) -> &'static str {
+            T::OB_SPSA_TYPE
+        }
+
+        fn ob_spsa_c_end(&self) -> f64 {
+            T::ob_spsa_c_end(&self.min, &self.max)
         }
     }
 }

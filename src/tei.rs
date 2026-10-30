@@ -162,6 +162,8 @@ impl TeiHandler {
                 "perft" => self.handle_perft(args),
                 "splitperft" => self.handle_splitperft(args),
                 "bench" => self.handle_bench(args.first().copied()),
+                #[cfg(feature = "tune")]
+                "obspsa" => self.ob_spsa(),
                 "quit" => break,
                 unknown => eprintln!("Warning: Unknown command '{}'", unknown),
             }
@@ -751,6 +753,23 @@ impl TeiHandler {
         };
 
         split_perft(&self.pos, depth);
+    }
+
+    #[cfg(feature = "tune")]
+    fn ob_spsa(&self) {
+        for tunable in self.param_handler.tunables() {
+            let (min, max) = tunable.range();
+            println!(
+                "{}, {}, {}, {}, {}, {}, {}",
+                tunable.name(),
+                tunable.ob_spsa_type(),
+                unsafe { tunable.get() },
+                min,
+                max,
+                tunable.ob_spsa_c_end(),
+                0.002,
+            );
+        }
     }
 }
 
