@@ -214,8 +214,9 @@ fn search<NT: NodeType>(
             }
         }
 
-        if (pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0)
-            || pos.occ().popcount() == Square::COUNT as u32 - 1
+        if pos.flats_in_hand(pos.stm()) > 0
+            && ((pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0)
+                || pos.occ().popcount() == Square::COUNT as u32 - 1)
         {
             let hfcd = pos.hfcd(pos.stm());
 
@@ -246,7 +247,7 @@ fn search<NT: NodeType>(
         thread.update_seldepth(ply);
     }
 
-    if ply > MAX_DEPTH as usize {
+    if ply >= MAX_DEPTH as usize {
         let static_eval = static_eval(&mut thread.nnue_state, pos);
         let correction = thread.corrhist.correction(pos, &thread.key_history);
         return static_eval + correction;
