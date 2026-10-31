@@ -902,7 +902,7 @@ fn select_thread(thread_results: &[RootMove]) -> usize {
     let mut curr_best_score = thread_results[0].score;
     let mut curr_best_votes = votes(0);
 
-    for (idx, thread) in thread_results[1..].iter().enumerate() {
+    for (idx, thread) in thread_results.iter().enumerate().skip(1) {
         let best_idx = curr_best_idx;
 
         let best_score = curr_best_score;
