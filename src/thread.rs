@@ -100,6 +100,8 @@ pub struct SharedContext {
     limits: Limits,
     stopped: AtomicBool,
     counter: Arc<SearcherCount>,
+    thread_count: u32,
+    soft_stopped_count: AtomicU32,
     nodes: NodeCounter,
     #[cfg(feature = "datagen")]
     result: Mutex<Option<RootMove>>,
@@ -117,6 +119,8 @@ impl SharedContext {
             limits: Limits::new(time),
             stopped: AtomicBool::new(false),
             counter: Arc::new(SearcherCount::new()),
+            thread_count: 1,
+            soft_stopped_count: AtomicU32::new(0),
             nodes: NodeCounter::new(1),
             #[cfg(feature = "datagen")]
             result: Mutex::new(None),
@@ -126,8 +130,8 @@ impl SharedContext {
     }
 
     pub fn set_threads(&mut self, threads: u32) {
+        self.thread_count = threads;
         self.nodes.resize(threads as usize);
-
         let mut results = self.results.lock().unwrap();
         *results = Vec::with_capacity(threads as usize);
     }
@@ -140,6 +144,7 @@ impl SharedContext {
         self.stopped.store(false, Ordering::Relaxed);
         self.counter.start(threads);
         self.nodes.reset();
+        self.soft_stopped_count.store(0, Ordering::SeqCst);
         #[cfg(feature = "datagen")]
         {
             *self.result.get_mut().unwrap() = None;
@@ -170,13 +175,14 @@ impl SharedContext {
         self.counter.count.load(Ordering::Acquire) > 0
     }
 
-    fn check_stop_soft(&self, ctx: &mut TmContext, depth: i32, total_nodes: usize, pv_move: &RootMove) -> bool {
+    fn check_stop_soft(&self, ctx: &mut TmContext, depth: i32, total_nodes: usize, pv_move: &RootMove) {
         if self.limits.should_stop_soft(ctx, depth, total_nodes, pv_move) {
-            self.stopped.store(true, Ordering::Relaxed);
-            return true;
+            let stopped_count = self.soft_stopped_count.fetch_add(1, Ordering::SeqCst) + 1;
+            let threshold = self.thread_count.div_ceil(2);
+            if stopped_count >= threshold {
+                self.stopped.store(true, Ordering::Relaxed);
+            }
         }
-
-        false
     }
 
     fn check_stop_hard(&self, nodes: usize) -> bool {
@@ -294,6 +300,7 @@ pub struct ThreadData {
     pub nnue_state: NnueState,
     pub shared: Option<Arc<SharedContext>>,
     pub tm_ctx: TmContext,
+    pub stopped_soft: bool,
 }
 
 impl ThreadData {
@@ -312,6 +319,7 @@ impl ThreadData {
             nnue_state: NnueState::new(),
             shared: None,
             tm_ctx: Default::default(),
+            stopped_soft: false,
         }
     }
 
@@ -323,12 +331,14 @@ impl ThreadData {
         self.shared.as_deref().unwrap()
     }
 
-    #[must_use]
-    pub fn check_stop_soft(&mut self) -> bool {
+    pub fn check_stop_soft(&mut self) {
+        if self.stopped_soft || self.shared().has_stopped() {
+            return;
+        }
         let nodes = self.nodes();
         let pv_move = &self.root_moves[0];
         let shared = self.shared.as_deref().unwrap();
-        shared.check_stop_soft(&mut self.tm_ctx, self.root_depth, nodes, pv_move)
+        shared.check_stop_soft(&mut self.tm_ctx, self.root_depth, nodes, pv_move);
     }
 
     #[must_use]

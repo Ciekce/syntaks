@@ -51,7 +51,7 @@ pub mod inner {
             $(
                 impl TunableType for $type {
                     const OB_SPSA_TYPE: &'static str = "float";
-                    
+
                     fn ob_spsa_c_end(min: &Self, max: &Self) -> f64 {
                         (*max as f64 - *min as f64) / 20.0
                     }

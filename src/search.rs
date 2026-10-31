@@ -783,9 +783,8 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
 
     thread.nnue_state.reset(&ctx.root_pos);
 
-    if thread.is_main_thread() {
-        thread.tm_ctx = Default::default();
-    }
+    thread.tm_ctx = Default::default();
+    thread.stopped_soft = false;
 
     let mut data_stack = vec![PlyData::new(); MAX_DEPTH as usize * 2];
 
@@ -859,14 +858,12 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
             }
 
             thread.sort_searched_root_moves();
+            thread.check_stop_soft();
 
             if thread.is_main_thread() {
                 let last_pv = thread.pv_idx + 1 == ctx.multipv;
 
-                if last_pv
-                    && !thread.shared().has_stopped()
-                    && (thread.root_depth >= ctx.max_depth || thread.check_stop_soft())
-                {
+                if last_pv && !thread.shared().has_stopped() && thread.root_depth >= ctx.max_depth {
                     thread.shared().stop();
                 }
 
