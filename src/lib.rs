@@ -22,5 +22,6 @@ pub mod takmove;
 pub mod tei;
 mod thread;
 mod ttable;
+mod tune;
 mod util;
 mod wdl;
