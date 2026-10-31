@@ -926,6 +926,7 @@ fn select_thread(thread_results: &[RootMove]) -> usize {
             continue;
         }
 
+        // if the best thread has a proven win, only take a faster win
         if is_win(best_score) {
             if score > best_score {
                 accept_thread();
@@ -933,6 +934,9 @@ fn select_thread(thread_results: &[RootMove]) -> usize {
             continue;
         }
 
+        // if the best thread has a proven loss, only take a faster one.
+        // this may seem unintuitive but we assume that we can't propagate false mates to root,
+        //   so any slower loss means that that thread missed something
         if is_loss(best_score) {
             if score < best_score {
                 accept_thread();
@@ -940,6 +944,7 @@ fn select_thread(thread_results: &[RootMove]) -> usize {
             continue;
         }
 
+        // if we don't have a decisive score yet, take any
         if is_decisive(score) {
             accept_thread();
             continue;
@@ -947,11 +952,14 @@ fn select_thread(thread_results: &[RootMove]) -> usize {
 
         let votes = votes(idx);
 
+        // always pick the move with the most votes
         if votes > best_votes {
             accept_thread();
             continue;
         }
 
+        // if we have a move with the same number of votes (not necessarily the same move),
+        //   then take the highest-weighted thread, avoiding truncated PVs from fails at root
         if votes == best_votes
             && thread_weight(idx) * i32::from(thread.pv.len() > 2)
                 > thread_weight(best_idx) * i32::from(thread_results[best_idx].pv.len() > 2)
