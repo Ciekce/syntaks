@@ -961,7 +961,7 @@ fn select_thread(thread_results: &[RootMove]) -> usize {
         }
     }
 
-    println!("Selected thread {}", curr_best_idx);
+    println!("info string Selected thread {}", curr_best_idx);
 
     curr_best_idx
 }
