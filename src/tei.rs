@@ -26,10 +26,10 @@ use crate::eval::static_eval_once;
 use crate::limit::{Limits, MAX_MOVE_OVERHEAD_MS};
 use crate::perft::{perft, split_perft};
 use crate::position::*;
-use crate::search;
 use crate::search::{MAX_THREADS, Searcher};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
 use crate::wdl;
+use crate::{search, stats};
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
@@ -102,6 +102,9 @@ struct TeiHandler {
     searcher: Searcher,
     options: TeiOptions,
     half_komi: i8,
+
+    #[cfg(feature = "tune")]
+    param_handler: crate::tune::ParamHandler,
 }
 
 impl TeiHandler {
@@ -113,6 +116,9 @@ impl TeiHandler {
             searcher: Searcher::new(DEFAULT_TT_SIZE_MIB),
             options: TeiOptions::default(),
             half_komi: Position::DEFAULT_HALF_KOMI,
+
+            #[cfg(feature = "tune")]
+            param_handler: crate::tune::ParamHandler::new(),
         }
     }
 
@@ -161,6 +167,8 @@ impl TeiHandler {
                 "perft" => self.handle_perft(args),
                 "splitperft" => self.handle_splitperft(args),
                 "bench" => self.handle_bench(args.first().copied()),
+                #[cfg(feature = "tune")]
+                "obspsa" => self.ob_spsa(),
                 "quit" => break,
                 unknown => eprintln!("Warning: Unknown command '{}'", unknown),
             }
@@ -205,6 +213,18 @@ impl TeiHandler {
             default_options.move_overhead_ms, MAX_MOVE_OVERHEAD_MS
         );
         println!("option name DoubleBlackStack type check default false");
+
+        #[cfg(feature = "tune")]
+        for tunable in self.param_handler.tunables() {
+            let (min, max) = tunable.range();
+            println!(
+                "option name {} type spin default {} min {} max {}",
+                tunable.name(),
+                unsafe { tunable.get() },
+                min,
+                max
+            );
+        }
 
         println!("teiok");
     }
@@ -361,7 +381,15 @@ impl TeiHandler {
                     DOUBLE_BLACK_STACK.store(double_black_stack, Ordering::Relaxed);
                 }
             }
-            unknown => eprintln!("Warning: Unknown option '{}'", unknown),
+            #[cfg(feature = "tune")]
+            param if let Some(param) = self.param_handler.get(param) => {
+                if let Err(err) = unsafe { param.set(&value) } {
+                    eprintln!("{err}");
+                }
+            }
+            unknown => {
+                eprintln!("Warning: Unknown option '{}'", unknown)
+            }
         }
     }
 
@@ -694,6 +722,8 @@ impl TeiHandler {
 
         println!("{:.3} seconds", total_time);
         println!("{} nodes {} nps", total_nodes, nps);
+
+        stats::print();
     }
 
     fn handle_perft(&self, args: &[&str]) {
@@ -728,6 +758,23 @@ impl TeiHandler {
         };
 
         split_perft(&self.pos, depth);
+    }
+
+    #[cfg(feature = "tune")]
+    fn ob_spsa(&self) {
+        for tunable in self.param_handler.tunables() {
+            let (min, max) = tunable.range();
+            println!(
+                "{}, {}, {}, {}, {}, {}, {}",
+                tunable.name(),
+                tunable.ob_spsa_type(),
+                unsafe { tunable.get() },
+                min,
+                max,
+                tunable.ob_spsa_c_end(),
+                0.002,
+            );
+        }
     }
 }
 

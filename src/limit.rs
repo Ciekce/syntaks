@@ -21,9 +21,13 @@
  * SOFTWARE.
  */
 
+use crate::core::Score;
 use crate::takmove::Move;
 use crate::thread::RootMove;
 use std::time::Instant;
+
+#[allow(unused)]
+use crate::stats;
 
 pub const MAX_MOVE_OVERHEAD_MS: u64 = 10000;
 
@@ -33,6 +37,7 @@ const TIME_CHECK_INTERVAL: usize = 4096;
 pub struct TmContext {
     last_best_move: Option<Move>,
     stability: u32,
+    avg_score: Option<Score>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -63,6 +68,18 @@ impl TimeManager {
     ) -> bool {
         let mut scale = 1.0;
 
+        let score = pv_move.score;
+        let avg_score = match ctx.avg_score {
+            Some(avg_score) => {
+                ctx.avg_score = Some(avg_score.midpoint(score));
+                avg_score
+            }
+            None => {
+                ctx.avg_score = Some(score);
+                score
+            }
+        };
+
         let mv = pv_move.mv();
         if ctx.last_best_move == Some(mv) {
             ctx.stability += 1;
@@ -74,10 +91,15 @@ impl TimeManager {
         if depth >= 5 {
             let stability = ctx.stability as f64;
             scale *= (0.8 + 8.6 * (stability + 0.9).powf(-2.6)).min(2.3);
-        }
 
-        let best_move_nodes_fraction = pv_move.nodes as f64 / total_nodes as f64;
-        scale *= (2.5 - 2.5 * best_move_nodes_fraction).max(0.5);
+            let score_change = score - avg_score;
+            if score_change < 0 {
+                scale *= (1.0 - score_change as f64 / 84.0).min(1.7);
+            }
+
+            let best_move_nodes_fraction = pv_move.nodes as f64 / total_nodes as f64;
+            scale *= (2.5 - 2.5 * best_move_nodes_fraction).max(0.5);
+        }
 
         time >= self.opt_time * scale
     }

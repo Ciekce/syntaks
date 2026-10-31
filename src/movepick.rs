@@ -29,6 +29,9 @@ use crate::position::Position;
 use crate::road::influence;
 use crate::takmove::Move;
 
+#[allow(unused)]
+use crate::stats;
+
 const SPREAD_ROAD_BONUS: i32 = 1 << 18;
 const SPREAD_FLAT_GAIN: i32 = 4096;
 const WALL_SMASH_BONUS: i32 = 4096;
@@ -105,7 +108,6 @@ fn spread_wins_road(pos: &Position, info: &SpreadInfo) -> bool {
 enum Stage {
     TtMove,
     Killer1,
-    Killer2,
     GenMoves,
     Moves,
     End,
@@ -116,8 +118,7 @@ impl Stage {
         assert_ne!(*self, Self::End);
         match *self {
             Self::TtMove => Self::Killer1,
-            Self::Killer1 => Self::Killer2,
-            Self::Killer2 => Self::GenMoves,
+            Self::Killer1 => Self::GenMoves,
             Self::GenMoves => Self::Moves,
             Self::Moves => Self::End,
             Self::End => unreachable!(),
@@ -180,13 +181,16 @@ impl<'a> Movepicker<'a> {
 
     fn score_moves(&mut self, history: &History) {
         self.scores.clear();
-        for mv in self.moves.iter() {
-            let mut score = history.score(self.pos, *mv, self.prev_move);
+        for &mv in self.moves.iter() {
+            let mut score = history.score(self.pos, mv, self.prev_move);
 
+            if self.killers.killers[1] == Some(mv) {
+                score += 16384;
+            }
             if !mv.is_spread() {
                 score += 75;
             } else {
-                let info = spread_ordering_info(self.pos, *mv);
+                let info = spread_ordering_info(self.pos, mv);
                 if spread_wins_road(self.pos, &info) {
                     score += SPREAD_ROAD_BONUS;
                 }
@@ -241,15 +245,6 @@ impl<'a> Movepicker<'a> {
                         return Some(killer);
                     }
                 }
-                Stage::Killer2 => {
-                    if let Some(killer) = self.killers.killers[1]
-                        && self.tt_move.is_none_or(|tt_move| killer != tt_move)
-                        && self.pos.is_legal(killer)
-                    {
-                        self.stage = self.stage.next();
-                        return Some(killer);
-                    }
-                }
                 Stage::GenMoves => {
                     generate_moves(self.moves, self.pos);
                     self.score_moves(history);
@@ -258,7 +253,7 @@ impl<'a> Movepicker<'a> {
                     while self.idx < self.moves.len() {
                         let mv = self.pick_best();
                         self.idx += 1;
-                        if self.tt_move.is_none_or(|tt_move| mv != tt_move) && !self.killers.contains(mv) {
+                        if self.tt_move.is_none_or(|tt_move| mv != tt_move) && self.killers.killers[0] != Some(mv) {
                             return Some(mv);
                         }
                     }
