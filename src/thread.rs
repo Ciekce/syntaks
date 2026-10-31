@@ -21,6 +21,7 @@
  * SOFTWARE.
  */
 
+use crate::core::{PieceType, Square};
 use crate::eval::nnue_state::NnueState;
 use crate::limit::{Limits, TmContext};
 use crate::node_counter::NodeCounter;
@@ -102,6 +103,8 @@ pub struct SharedContext {
     nodes: NodeCounter,
     #[cfg(feature = "datagen")]
     result: Mutex<Option<RootMove>>,
+    #[cfg(not(feature = "datagen"))]
+    pub results: Mutex<Vec<RootMove>>,
 }
 
 impl SharedContext {
@@ -117,11 +120,16 @@ impl SharedContext {
             nodes: NodeCounter::new(1),
             #[cfg(feature = "datagen")]
             result: Mutex::new(None),
+            #[cfg(not(feature = "datagen"))]
+            results: Mutex::new(Vec::new()),
         }
     }
 
     pub fn set_threads(&mut self, threads: u32) {
         self.nodes.resize(threads as usize);
+
+        let mut results = self.results.lock().unwrap();
+        *results = Vec::with_capacity(threads as usize);
     }
 
     pub fn init_search(&mut self, options: &TeiOptions, start_time: Instant, limits: Limits, threads: u32) {
@@ -135,6 +143,11 @@ impl SharedContext {
         #[cfg(feature = "datagen")]
         {
             *self.result.get_mut().unwrap() = None;
+        }
+        #[cfg(not(feature = "datagen"))]
+        {
+            let mut results = self.results.lock().unwrap();
+            *results = vec![RootMove::new(Move::placement(PieceType::Flat, Square::A1)); threads as usize];
         }
     }
 
@@ -224,7 +237,20 @@ pub struct RootMove {
 impl RootMove {
     #[must_use]
     pub fn new(mv: Move) -> Self {
-        let mut result = Self {
+        let mut result = Self::default();
+        result.pv.push(mv);
+        result
+    }
+
+    #[must_use]
+    pub fn mv(&self) -> Move {
+        self.pv[0]
+    }
+}
+
+impl Default for RootMove {
+    fn default() -> Self {
+        Self {
             score: -SCORE_INF,
             window_score: -SCORE_INF,
             display_score: -SCORE_INF,
@@ -235,14 +261,7 @@ impl RootMove {
             seldepth: 0,
             pv: PvList::new(),
             nodes: 0,
-        };
-        result.pv.push(mv);
-        result
-    }
-
-    #[must_use]
-    pub fn mv(&self) -> Move {
-        self.pv[0]
+        }
     }
 }
 
@@ -449,5 +468,20 @@ impl ThreadData {
     #[must_use]
     pub fn pv_move(&self) -> &RootMove {
         &self.root_moves[0]
+    }
+
+    pub fn publish_result(&mut self) {
+        #[cfg(feature = "datagen")]
+        {
+            if self.is_main_thread() {
+                self.shared().set_result(self.pv_move().clone());
+            }
+        }
+
+        #[cfg(not(feature = "datagen"))]
+        {
+            let mut results = self.shared().results.lock().unwrap();
+            results[self.id as usize] = self.pv_move().clone();
+        }
     }
 }
