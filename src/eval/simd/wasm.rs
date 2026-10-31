@@ -193,7 +193,16 @@ pub fn shift_right_i32<const SHIFT: i32>(a: VecI32) -> VecI32 {
 #[must_use]
 #[inline(always)]
 pub fn dpbusd_i32(sum: VecI32, a: VecU8, b: VecI8) -> VecI32 {
-    i32x4_relaxed_dot_i8x16_i7x16_add(b, a, sum)
+    cfg_select! {
+        target_feature = "relaxed-simd" => i32x4_relaxed_dot_i8x16_i7x16_add(b, a, sum),
+        _ => {
+            let low = i32x4_dot_i16x8(i16x8_extend_low_u8x16(a), i16x8_extend_low_i8x16(b));
+            let high = i32x4_dot_i16x8(i16x8_extend_high_u8x16(a), i16x8_extend_high_i8x16(b));
+            let even = i32x4_shuffle::<0, 2, 4, 6>(low, high);
+            let odd = i32x4_shuffle::<1, 3, 5, 7>(low, high);
+            i32x4_add(sum, i32x4_add(even, odd))
+        }
+    }
 }
 
 #[must_use]
