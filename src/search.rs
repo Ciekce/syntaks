@@ -34,6 +34,7 @@ use crate::ttable::{ProbedEntry, TtFlag};
 use crate::util::command_channel::{Receiver, Sender, channel};
 use crate::wdl;
 use crate::{core::*, tunable};
+use std::collections::HashMap;
 use std::io::Write;
 use std::sync::Arc;
 use std::thread;
@@ -842,7 +843,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                     let time = thread.shared().elapsed();
                     if time >= WIDEN_REPORT_DELAY {
                         let nodes = thread.shared().total_nodes();
-                        report_single(thread, ctx, time, nodes, thread.pv_idx);
+                        report_single(thread.pv_move(), thread.shared(), ctx, time, nodes, thread.pv_idx);
                     }
                 }
 
@@ -892,22 +893,15 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
         thread.root_depth += 1;
     }
 
+    thread.publish_result();
+
     if thread.is_main_thread() {
         counter.unregister_and_wait();
-
-        #[cfg(feature = "datagen")]
-        {
-            thread.shared().set_result(thread.pv_move().clone());
-        }
-
-        let silent = thread.shared().options.silent;
-        let best_move = thread.pv_move().mv();
-
-        thread.shared = None;
         counter.complete_search(|| {
-            if !silent {
-                final_report(best_move);
+            if !thread.shared().options.silent {
+                final_report(thread.shared(), ctx);
             }
+            thread.shared = None;
             stats::print();
         });
     } else {
@@ -916,9 +910,122 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
     }
 }
 
-fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usize, pv_idx: usize) -> bool {
-    let root_move = &thread.root_moves[pv_idx];
+fn select_thread(thread_results: &[RootMove]) -> usize {
+    if thread_results.len() == 1 {
+        return 0;
+    }
 
+    let lowest_root_score = thread_results
+        .iter()
+        .map(|root_move| root_move.score)
+        .filter(|&score| score != -SCORE_INF)
+        .min()
+        .unwrap();
+
+    let thread_weight = |thread_idx: usize| {
+        let thread = &thread_results[thread_idx];
+        (thread.score - lowest_root_score + 10) * thread.searched_depth
+    };
+
+    let mut votes = HashMap::<u16, i32>::new();
+
+    for (idx, thread) in thread_results
+        .iter()
+        .filter(|&root_move| root_move.score != -SCORE_INF)
+        .enumerate()
+    {
+        *votes.entry(thread.mv().raw()).or_insert(0) += thread_weight(idx);
+    }
+
+    let votes = |thread_idx: usize| {
+        let thread = &thread_results[thread_idx];
+        *votes.get(&thread.mv().raw()).unwrap()
+    };
+
+    let mut curr_best_idx = 0;
+
+    let mut curr_best_score = thread_results[0].score;
+    let mut curr_best_votes = votes(0);
+
+    for (idx, thread) in thread_results.iter().enumerate().skip(1) {
+        let best_idx = curr_best_idx;
+
+        let best_score = curr_best_score;
+        let best_votes = curr_best_votes;
+
+        let mut accept_thread = || {
+            curr_best_idx = idx;
+            curr_best_score = thread.score;
+            curr_best_votes = votes(idx);
+        };
+
+        let score = thread.score;
+
+        if score == -SCORE_INF {
+            continue;
+        }
+
+        if best_score == -SCORE_INF {
+            accept_thread();
+            continue;
+        }
+
+        // if the best thread has a proven win, only take a faster win
+        if is_win(best_score) {
+            if score > best_score {
+                accept_thread();
+            }
+            continue;
+        }
+
+        // if the best thread has a proven loss, only take a faster one.
+        // this may seem unintuitive but we assume that we can't propagate false mates to root,
+        //   so any slower loss means that that thread missed something
+        if is_loss(best_score) {
+            if score < best_score {
+                accept_thread();
+            }
+            continue;
+        }
+
+        // if we don't have a decisive score yet, take any
+        if is_decisive(score) {
+            accept_thread();
+            continue;
+        }
+
+        let votes = votes(idx);
+
+        // always pick the move with the most votes
+        if votes > best_votes {
+            accept_thread();
+            continue;
+        }
+
+        // if we have a move with the same number of votes (not necessarily the same move),
+        //   then take the highest-weighted thread, avoiding truncated PVs from fails at root
+        if votes == best_votes
+            && thread_weight(idx) * i32::from(thread.pv.len() > 2)
+                > thread_weight(best_idx) * i32::from(thread_results[best_idx].pv.len() > 2)
+        {
+            accept_thread();
+            continue;
+        }
+    }
+
+    println!("info string Selected thread {}", curr_best_idx);
+
+    curr_best_idx
+}
+
+fn report_single(
+    root_move: &RootMove,
+    shared: &SharedContext,
+    ctx: &SearchContext,
+    time: f64,
+    nodes: usize,
+    pv_idx: usize,
+) -> bool {
     // previous scores are exact, as the depth was completed
     let (score, upper_bound, lower_bound) = if root_move.score == -SCORE_INF {
         (root_move.previous_score, false, false)
@@ -939,7 +1046,7 @@ fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usi
     let mut out = std::io::stdout().lock();
     write!(out, "info ").unwrap();
 
-    if thread.shared().options.multipv > 1 {
+    if shared.options.multipv > 1 {
         write!(out, "multipv {} ", pv_idx + 1).unwrap();
     }
 
@@ -951,7 +1058,7 @@ fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usi
     .unwrap();
 
     if is_decisive(score) {
-        if thread.shared().options.mate_scores {
+        if shared.options.mate_scores {
             if score > 0 {
                 write!(out, "mate {}", (SCORE_MATE - score + 1) / 2).unwrap();
             } else {
@@ -986,7 +1093,7 @@ fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usi
             write!(out, " wdl 0 0 1000").unwrap();
         }
     } else {
-        let (w, d, l) = if thread.shared().options.human_wdl {
+        let (w, d, l) = if shared.options.human_wdl {
             wdl::human_probabilities(score, &ctx.root_pos)
         } else {
             wdl::probabilities(score)
@@ -994,7 +1101,7 @@ fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usi
         write!(out, " wdl {} {} {}", w, d, l).unwrap();
     }
 
-    let hashfull = thread.shared().tt.estimate_full_permille();
+    let hashfull = shared.tt.estimate_full_permille();
     write!(out, " hashfull {}", hashfull).unwrap();
 
     write!(out, " pv").unwrap();
@@ -1011,13 +1118,42 @@ fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usi
 fn report(thread: &ThreadData, ctx: &SearchContext, time: f64) {
     let nodes = thread.shared().total_nodes();
     for pv_idx in 0..ctx.multipv {
-        if !report_single(thread, ctx, time, nodes, pv_idx) {
+        let root_move = &thread.root_moves[pv_idx];
+        if !report_single(root_move, thread.shared(), ctx, time, nodes, pv_idx) {
             break;
         }
     }
 }
 
-fn final_report(best_move: Move) {
+fn final_report(shared: &SharedContext, ctx: &SearchContext) {
+    let best_move;
+
+    #[cfg(feature = "datagen")]
+    {
+        best_move = shared.result().unwrap().mv();
+    }
+
+    #[cfg(not(feature = "datagen"))]
+    {
+        let results = shared.results.lock().unwrap();
+
+        // we currently don't support thread voting with multipv enabled
+        if shared.options.multipv > 1 {
+            best_move = results[0].mv();
+        } else {
+            let thread_idx = select_thread(&results);
+
+            // the main thread already printed its info before stopping
+            if thread_idx != 0 {
+                let time = shared.elapsed();
+                let nodes = shared.total_nodes();
+                report_single(&results[thread_idx], shared, ctx, time, nodes, 0);
+            }
+
+            best_move = results[thread_idx].mv();
+        }
+    }
+
     println!("bestmove {}", best_move);
 }
 
