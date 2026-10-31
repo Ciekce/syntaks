@@ -1097,7 +1097,7 @@ fn final_report(shared: &SharedContext, ctx: &SearchContext) {
                 report_single(&results[thread_idx], shared, ctx, time, nodes, 0);
             }
 
-            best_move = results[0].mv();
+            best_move = results[thread_idx].mv();
         }
     }
 
