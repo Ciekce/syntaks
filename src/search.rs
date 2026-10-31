@@ -20,6 +20,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
 use crate::bitboard::Bitboard;
 use crate::core::*;
 use crate::eval::static_eval;
