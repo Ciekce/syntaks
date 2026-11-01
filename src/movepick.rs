@@ -31,10 +31,13 @@ use crate::takmove::Move;
 
 #[allow(unused)]
 use crate::stats;
+use crate::tunable;
 
 const SPREAD_ROAD_BONUS: i32 = 1 << 18;
-const SPREAD_FLAT_GAIN: i32 = 4096;
-const WALL_SMASH_BONUS: i32 = 4096;
+tunable!(SPREAD_FLAT_GAIN: i32 = 5627; range(0, 8192));
+tunable!(PLACEMENT_PENALTY: i32 = 78; range(-2048, 2048));
+tunable!(WALL_SMASH_BONUS: i32 = 4215; range(0, 8192));
+tunable!(KILLER_MOVE_BONUS: i32 = 16442; range(-32768, 32768));
 
 struct SpreadInfo {
     roads: Bitboard,
@@ -185,10 +188,10 @@ impl<'a> Movepicker<'a> {
             let mut score = history.score(self.pos, mv, self.prev_move);
 
             if self.killers.killers[1] == Some(mv) {
-                score += 16384;
+                score += KILLER_MOVE_BONUS;
             }
             if !mv.is_spread() {
-                score += 75;
+                score -= PLACEMENT_PENALTY;
             } else {
                 let info = spread_ordering_info(self.pos, mv);
                 if spread_wins_road(self.pos, &info) {
