@@ -429,6 +429,7 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "atomic-wait",
+ "static_init",
 ]
 
 [[package]]
