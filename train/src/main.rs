@@ -34,6 +34,7 @@ const L1_RANGE: f32 = I8_RANGE * FT_SHIFT_SCALE * FT_SHIFT_SCALE;
 const PACKUS_LANE: usize = 8;
 const PACKUS_WIDTH: usize = 32;
 
+const SUPERBATCHES_PRETRAIN: usize = 5;
 const SUPERBATCHES_2KOMI: usize = 200;
 const SUPERBATCHES_COMBINED: usize = 100;
 
@@ -226,6 +227,20 @@ fn main() {
     };
     trainer.optimiser.set_params_for_weight("l1w", l1_clip);
 
+    let schedule_pretrain = TrainingSchedule {
+        net_id: format!("{}_stage0", id),
+        eval_scale: SCALE as f32,
+        steps: TrainingSteps {
+            batch_size: 16_384,
+            batches_per_superbatch: 6104,
+            start_superbatch: 1,
+            end_superbatch: SUPERBATCHES_PRETRAIN,
+        },
+        wdl_scheduler: wdl::ConstantWDL { value: 0.25 },
+        lr_scheduler: lr::ConstantLR { value: 1e-4 },
+        save_rate: SUPERBATCHES_PRETRAIN,
+    };
+
     let schedule_2komi = TrainingSchedule {
         net_id: format!("{}_stage1", id),
         eval_scale: SCALE as f32,
@@ -268,6 +283,12 @@ fn main() {
         output_directory: "checkpoints",
         batch_queue_size: 64,
     };
+
+    trainer.run(
+        &schedule_pretrain,
+        &settings,
+        &TakReader::new(two_komi.clone(), SHUFFLE_BUFFER, LOAD_THREADS, filter),
+    );
 
     trainer.run(
         &schedule_2komi,
