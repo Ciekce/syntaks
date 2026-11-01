@@ -29,7 +29,10 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const DEFAULT_TT_SIZE_MIB: usize = 64;
-pub const MAX_TT_SIZE_MIB: usize = 131072;
+pub const MAX_TT_SIZE_MIB: usize = cfg_select! {
+    target_arch = "wasm32" => 2047,
+    _ => 131072,
+};
 
 const ENTRIES_PER_CLUSTER: usize = 3;
 
