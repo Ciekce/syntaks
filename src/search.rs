@@ -426,6 +426,8 @@ fn search<NT: NodeType>(
         tunable!(SE_DEXT_MARGIN: i32 = 26; range(0, 128));
         tunable!(SE_TEXT_MARGIN: i32 = 137; range(0, 256));
 
+        tunable!(LDSE_MARGIN: i32 = 26; range(1, 64));
+
         if !NT::ROOT_NODE && Some(mv) == tt_move && excluded.is_none() {
             if depth >= 5
                 && tt_entry.depth >= depth - 3
@@ -461,7 +463,7 @@ fn search<NT: NodeType>(
                 }
             } else if depth <= 7
                 && (ply as i32) < thread.root_depth * 2
-                && static_eval <= alpha - 26
+                && static_eval <= alpha - LDSE_MARGIN
                 && tt_entry.flag == Some(TtFlag::LowerBound)
             {
                 extension += 1;
