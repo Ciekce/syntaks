@@ -21,7 +21,8 @@
  * SOFTWARE.
  */
 
-use crate::core::Score;
+use crate::core::{Color, Score};
+use crate::position::Position;
 use crate::takmove::Move;
 use crate::thread::RootMove;
 use std::time::Instant;
@@ -32,6 +33,9 @@ use crate::stats;
 pub const MAX_MOVE_OVERHEAD_MS: u64 = 10000;
 
 const TIME_CHECK_INTERVAL: usize = 4096;
+
+const MAX_STONES_IN_HAND: u8 = 62;
+const STONE_COMPLEXITY_SCALE: f64 = 5.0;
 
 #[derive(Clone, Debug, Default)]
 pub struct TmContext {
@@ -47,10 +51,13 @@ struct TimeManager {
 }
 
 impl TimeManager {
-    fn new(remaining: f64, increment: f64, overhead: f64) -> Self {
+    fn new(remaining: f64, increment: f64, overhead: f64, pos: &Position) -> Self {
         let remaining = (remaining - overhead).max(0.001);
 
-        let base_time = remaining / 20.0 + increment;
+        let stones_in_hand = pos.stones_in_hand(Color::Black) + pos.stones_in_hand(Color::White);
+        let stones_on_board = MAX_STONES_IN_HAND.saturating_sub(stones_in_hand);
+        let complexity_offset = STONE_COMPLEXITY_SCALE * stones_on_board as f64 / MAX_STONES_IN_HAND as f64;
+        let base_time = remaining * (17.5 + complexity_offset) / 400.0 + increment;
 
         let max_time = remaining * 0.8;
         let opt_time = (base_time * 0.6).min(max_time);
@@ -159,10 +166,10 @@ impl Limits {
         }
     }
 
-    pub fn set_time_manager(&mut self, remaining: f64, increment: f64, overhead: f64) -> bool {
+    pub fn set_time_manager(&mut self, remaining: f64, increment: f64, overhead: f64, pos: &Position) -> bool {
         match self.time_manager {
             None => {
-                self.time_manager = Some(TimeManager::new(remaining, increment, overhead));
+                self.time_manager = Some(TimeManager::new(remaining, increment, overhead, pos));
                 true
             }
             Some(_) => false,

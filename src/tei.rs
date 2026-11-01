@@ -631,7 +631,7 @@ impl TeiHandler {
         if let Some(our_time) = our_time {
             let overhead = self.options.move_overhead_ms as f64 / 1000.0;
             let our_inc = our_inc.unwrap_or(0.0);
-            limits.set_time_manager(our_time, our_inc, overhead);
+            limits.set_time_manager(our_time, our_inc, overhead, &self.pos);
         }
 
         let max_depth = max_depth.unwrap_or(search::MAX_DEPTH).clamp(1, search::MAX_DEPTH);

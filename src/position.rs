@@ -417,6 +417,11 @@ impl Position {
     }
 
     #[must_use]
+    pub fn stones_in_hand(&self, color: Color) -> u8 {
+        self.caps_in_hand[color] + self.flats_in_hand[color]
+    }
+
+    #[must_use]
     pub fn cap_sq(&self, color: Color) -> Option<Square> {
         self.color_piece_bb(PieceType::Capstone.with_color(color)).lsb()
     }
