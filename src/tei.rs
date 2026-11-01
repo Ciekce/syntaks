@@ -127,6 +127,11 @@ impl TeiHandler {
         loop {
             let bytes = match std::io::stdin().read_line(&mut line) {
                 Ok(bytes) => bytes,
+                // emscripten just loves giving random errors
+                Err(_) if cfg!(target_os = "emscripten") => {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    continue;
+                }
                 Err(err) => {
                     eprintln!("Warning: Failed to read from stdin: {}", err);
                     return;
