@@ -34,10 +34,10 @@ use crate::stats;
 use crate::tunable;
 
 const SPREAD_ROAD_BONUS: i32 = 1 << 18;
-tunable!(SPREAD_FLAT_GAIN: i32 = 4096; range(0, 8192));
-tunable!(PLACEMENT_MALUS: i32 = -75; range(-2048, 2048));
-tunable!(WALL_SMASH_BONUS: i32 = 4096; range(0, 8192));
-tunable!(KILLER_MOVE_MALUS: i32 = -16384; range(-32768, 32768));
+tunable!(SPREAD_FLAT_GAIN: i32 = 5627; range(0, 8192));
+tunable!(PLACEMENT_MALUS: i32 = 78; range(-2048, 2048));
+tunable!(WALL_SMASH_BONUS: i32 = 4215; range(0, 8192));
+tunable!(KILLER_MOVE_MALUS: i32 = -16442; range(-32768, 32768));
 
 struct SpreadInfo {
     roads: Bitboard,
