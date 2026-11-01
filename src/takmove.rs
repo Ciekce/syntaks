@@ -27,7 +27,7 @@ use std::fmt::{Display, Formatter};
 use std::num::NonZeroU16;
 use std::str::FromStr;
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub struct Move {
     raw: NonZeroU16,
 }

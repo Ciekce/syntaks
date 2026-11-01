@@ -34,7 +34,7 @@ use crate::ttable::{ProbedEntry, TtFlag};
 use crate::util::command_channel::{Receiver, Sender, channel};
 use crate::wdl;
 use crate::{core::*, tunable};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::sync::Arc;
 use std::thread;
@@ -1226,6 +1226,7 @@ impl Searcher {
         limits: Limits,
         max_depth: i32,
         moves_to_search: &[Move],
+        moves_to_exclude: &HashSet<Move>,
         options: &TeiOptions,
     ) {
         let threads = self.threads.len() as u32;
@@ -1233,7 +1234,7 @@ impl Searcher {
             ctx.init_search(options, start_time, limits, threads);
         });
 
-        let root_moves = init_root_moves(pos, moves_to_search);
+        let root_moves = init_root_moves(pos, moves_to_search, moves_to_exclude);
         let multipv = options.multipv.min(root_moves.len());
 
         let ctx = SearchContext::new(
@@ -1338,7 +1339,9 @@ impl Searcher {
     }
 }
 
-fn init_root_moves(root_pos: &Position, moves_to_search: &[Move]) -> Vec<RootMove> {
+fn init_root_moves(root_pos: &Position, moves_to_search: &[Move], moves_to_exclude: &HashSet<Move>) -> Vec<RootMove> {
+    let mut moves = Vec::with_capacity(1024);
+
     if !moves_to_search.is_empty() {
         print!("info string searchmoves:");
         for &mv in moves_to_search {
@@ -1347,11 +1350,22 @@ fn init_root_moves(root_pos: &Position, moves_to_search: &[Move]) -> Vec<RootMov
         }
         println!();
 
-        return moves_to_search.iter().map(|&mv| RootMove::new(mv)).collect();
+        moves.extend_from_slice(moves_to_search);
+    } else {
+        generate_moves(&mut moves, root_pos);
     }
 
-    let mut moves = Vec::with_capacity(1024);
-    generate_moves(&mut moves, root_pos);
+    if !moves_to_exclude.is_empty() {
+        print!("info string excludemoves:");
+        moves.retain(|mv| {
+            let keep = !moves_to_exclude.contains(mv);
+            if !keep {
+                print!(" {}", *mv);
+            }
+            keep
+        });
+        println!();
+    }
 
     moves.iter().map(|&mv| RootMove::new(mv)).collect()
 }
