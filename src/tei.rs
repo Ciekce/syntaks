@@ -20,7 +20,6 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-
 use crate::core::Color;
 use crate::eval::static_eval_once;
 use crate::limit::{Limits, MAX_MOVE_OVERHEAD_MS};
@@ -30,6 +29,7 @@ use crate::search::{MAX_THREADS, Searcher};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
 use crate::wdl;
 use crate::{search, stats};
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
@@ -483,6 +483,7 @@ impl TeiHandler {
         let mut binc = None;
 
         let mut moves_to_search = Vec::new();
+        let mut moves_to_exclude = HashSet::new();
 
         let mut i = 0;
         while i < args.len() {
@@ -591,6 +592,27 @@ impl TeiHandler {
                         }
                     }
                 }
+                "excludemoves" => {
+                    while i + 1 < args.len() {
+                        let candidate = args[i + 1];
+                        if let Ok(mv) = candidate.parse() {
+                            if moves_to_exclude.contains(&mv) {
+                                i += 1;
+                                continue;
+                            }
+
+                            if !self.pos.is_legal(mv) {
+                                println!("info string excludemoves: Ignoring illegal move '{}'", mv);
+                            }
+
+                            moves_to_exclude.insert(mv);
+
+                            i += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                }
                 unsupported => eprintln!("Warning: Unsupported limit '{}'", unsupported),
             }
 
@@ -621,6 +643,7 @@ impl TeiHandler {
             limits,
             max_depth,
             &moves_to_search,
+            &moves_to_exclude,
             &self.options,
         );
     }
@@ -692,6 +715,7 @@ impl TeiHandler {
         };
 
         let mut searcher = Searcher::new(16);
+        let exclude = HashSet::new();
 
         let options = TeiOptions {
             minimal: true,
@@ -709,7 +733,7 @@ impl TeiHandler {
             let start_time = Instant::now();
             let limits = Limits::new(start_time);
 
-            searcher.start_search(&pos, &[], start_time, limits, depth, &[], &options);
+            searcher.start_search(&pos, &[], start_time, limits, depth, &[], &exclude, &options);
             searcher.wait();
 
             total_time += start_time.elapsed().as_secs_f64();
