@@ -426,40 +426,47 @@ fn search<NT: NodeType>(
         tunable!(SE_DEXT_MARGIN: i32 = 26; range(0, 128));
         tunable!(SE_TEXT_MARGIN: i32 = 137; range(0, 256));
 
-        if !NT::ROOT_NODE
-            && Some(mv) == tt_move
-            && excluded.is_none()
-            && depth >= 5
-            && tt_entry.depth >= depth - 3
-            && tt_entry.flag != Some(TtFlag::UpperBound)
-            && !is_decisive(tt_entry.score)
-        {
-            let s_beta = tt_entry.score - SE_BETA_SCALE * depth / 1024;
-            let s_depth = (depth - 1) / 2;
+        tunable!(LDSE_MARGIN: i32 = 26; range(1, 64));
 
-            thread.stack[ply].excluded = Some(mv);
-            let score = search::<NonPvNode>(
-                thread,
-                child_data,
-                pos,
-                s_depth,
-                ply,
-                s_beta - 1,
-                s_beta,
-                expected_cutnode,
-            );
-            thread.stack[ply].excluded = None;
+        if !NT::ROOT_NODE && Some(mv) == tt_move && excluded.is_none() {
+            if depth >= 5
+                && tt_entry.depth >= depth - 3
+                && tt_entry.flag != Some(TtFlag::UpperBound)
+                && !is_decisive(tt_entry.score)
+            {
+                let s_beta = tt_entry.score - SE_BETA_SCALE * depth / 1024;
+                let s_depth = (depth - 1) / 2;
 
-            if score < s_beta {
-                extension += 1
-                    + i32::from(!NT::PV_NODE && score < s_beta - SE_DEXT_MARGIN)
-                    + i32::from(!NT::PV_NODE && score < s_beta - SE_TEXT_MARGIN);
-            } else if !NT::PV_NODE && score >= beta {
-                return score;
-            } else if tt_entry.score >= beta {
-                extension -= 1;
-            } else if expected_cutnode {
-                extension -= 1;
+                thread.stack[ply].excluded = Some(mv);
+                let score = search::<NonPvNode>(
+                    thread,
+                    child_data,
+                    pos,
+                    s_depth,
+                    ply,
+                    s_beta - 1,
+                    s_beta,
+                    expected_cutnode,
+                );
+                thread.stack[ply].excluded = None;
+
+                if score < s_beta {
+                    extension += 1
+                        + i32::from(!NT::PV_NODE && score < s_beta - SE_DEXT_MARGIN)
+                        + i32::from(!NT::PV_NODE && score < s_beta - SE_TEXT_MARGIN);
+                } else if !NT::PV_NODE && score >= beta {
+                    return score;
+                } else if tt_entry.score >= beta {
+                    extension -= 1;
+                } else if expected_cutnode {
+                    extension -= 1;
+                }
+            } else if depth <= 7
+                && (ply as i32) < thread.root_depth * 2
+                && static_eval <= alpha - LDSE_MARGIN
+                && tt_entry.flag == Some(TtFlag::LowerBound)
+            {
+                extension += 1;
             }
         }
 
