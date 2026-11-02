@@ -147,6 +147,12 @@ pub unsafe fn store_i32(ptr: *mut i32, vec: VecI32) {
 
 #[must_use]
 #[inline(always)]
+pub unsafe fn load_widen_i16_i32(ptr: *const i16) -> VecI32 {
+    unsafe { vmovl_s16(vld1_s16(ptr)) }
+}
+
+#[must_use]
+#[inline(always)]
 pub fn to_array_i32(v: VecI32) -> [i32; CHUNK_SIZE_I32] {
     unsafe { std::mem::transmute(v) }
 }
@@ -179,6 +185,12 @@ pub fn min_i32(a: VecI32, b: VecI32) -> VecI32 {
 #[inline(always)]
 pub fn max_i32(a: VecI32, b: VecI32) -> VecI32 {
     unsafe { vmaxq_s32(a, b) }
+}
+
+#[must_use]
+#[inline(always)]
+pub fn shift_left_i32<const SHIFT: i32>(a: VecI32) -> VecI32 {
+    unsafe { vshlq_n_s32::<SHIFT>(a) }
 }
 
 #[must_use]
