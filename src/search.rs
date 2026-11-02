@@ -22,7 +22,9 @@
  */
 
 use crate::bitboard::Bitboard;
+use crate::correction::CorrectionHistory;
 use crate::eval::static_eval;
+use crate::history::History;
 use crate::limit::Limits;
 use crate::movegen::generate_moves;
 use crate::movepick::Movepicker;
@@ -248,7 +250,7 @@ fn search<NT: NodeType>(
 
     if ply >= MAX_DEPTH as usize {
         let static_eval = static_eval(&mut thread.nnue_state, pos);
-        let correction = thread.corrhist.correction(pos, &thread.key_history);
+        let correction = thread.corrhist.slice(pos, &thread.key_history).get();
         return static_eval + correction;
     }
 
@@ -303,7 +305,8 @@ fn search<NT: NodeType>(
         thread.shared().tt.store_static_eval(pos.key(), raw_eval);
     }
 
-    let correction = thread.corrhist.correction(pos, &thread.key_history);
+    let corrhist = thread.corrhist.slice(pos, &thread.key_history);
+    let correction = corrhist.get();
     let static_eval = raw_eval + correction;
 
     thread.stack[ply].static_eval = static_eval;
@@ -376,19 +379,20 @@ fn search<NT: NodeType>(
 
     let prev_move = if ply > 0 { thread.stack[ply - 1].mv } else { None };
 
+    let history = thread.history.hist_slice(pos, prev_move);
     let mut movepicker = Movepicker::new(
         pos,
         &mut data.movelist,
         &mut data.scores,
         tt_move,
         thread.killers[ply],
-        prev_move,
+        history,
     );
 
     let mut move_count = 0;
     let mut faillow_moves = arrayvec::ArrayVec::<Move, 32>::new();
 
-    while let Some(mv) = movepicker.next(&thread.history) {
+    while let Some(mv) = movepicker.next() {
         debug_assert!(pos.is_legal(mv));
 
         if NT::ROOT_NODE && !thread.is_legal_root_move(mv) {
@@ -521,7 +525,7 @@ fn search<NT: NodeType>(
                 r += PV_NODE_LMR * i32::from(!NT::PV_NODE);
                 r += CUTNODE_LMR * i32::from(expected_cutnode);
                 r += IMPROVING_LMR * i32::from(!improving);
-                r -= thread.history.score(pos, mv, prev_move) * HIST_LMR / 24576;
+                r -= history.score(mv) * HIST_LMR / 24576;
                 r -= (correction.abs() * CORR_LMR / 64).min(1024);
 
                 let our_influence = new_pos.influence(pos.stm());
@@ -566,9 +570,8 @@ fn search<NT: NodeType>(
 
                     let bonus =
                         (LMR_HIST_BONUS_SCALE * new_depth - LMR_HIST_BONUS_OFFSET).clamp(0, LMR_HIST_BONUS_MAX * 1);
-                    thread
-                        .history
-                        .update(pos, mv, prev_move, if score > alpha { bonus } else { -bonus });
+
+                    history.update(mv, if score > alpha { bonus } else { -bonus });
                 }
             } else if !NT::PV_NODE || move_count > 1 {
                 score = -search::<NonPvNode>(
@@ -669,10 +672,10 @@ fn search<NT: NodeType>(
         let bonus = (HIST_BONUS_SCALE * depth - HIST_BONUS_OFFSET).clamp(0, HIST_BONUS_MAX * 1);
         let malus = (HIST_MALUS_SCALE * depth - HIST_MALUS_OFFSET).clamp(0, HIST_MALUS_MAX * 1);
 
-        thread.history.update(pos, best_move, prev_move, bonus);
+        history.update(best_move, bonus);
 
         for &mv in faillow_moves.iter() {
-            thread.history.update(pos, mv, prev_move, -malus);
+            history.update(mv, -malus);
         }
 
         if best_score >= beta {
@@ -689,9 +692,7 @@ fn search<NT: NodeType>(
             || (tt_flag == TtFlag::UpperBound && best_score < static_eval)
             || (tt_flag == TtFlag::LowerBound && best_score > static_eval)
         {
-            thread
-                .corrhist
-                .update(pos, &thread.key_history, depth, best_score, static_eval);
+            corrhist.update(depth, best_score, static_eval);
         }
 
         if !NT::ROOT_NODE || thread.pv_idx == 0 {
@@ -742,7 +743,7 @@ fn leaf<NT: NodeType>(
         thread.shared().tt.store_static_eval(pos.key(), raw_eval);
     }
 
-    let correction = thread.corrhist.correction(pos, &thread.key_history);
+    let correction = thread.corrhist.slice(pos, &thread.key_history).get();
     let static_eval = raw_eval + correction;
 
     if ply >= MAX_DEPTH as usize {
@@ -1206,7 +1207,9 @@ impl Searcher {
     }
 
     fn run_thread(id: u32, mut receiver: Receiver<ThreadCommand>) {
-        let mut data = ThreadData::new(id);
+        let hist = History::boxed();
+        let corrhist = CorrectionHistory::boxed();
+        let mut data = ThreadData::new(id, &hist, &corrhist);
 
         loop {
             match receiver.recv(|cmd| cmd.clone()) {

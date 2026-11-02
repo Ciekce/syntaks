@@ -280,7 +280,7 @@ pub enum TerminalState {
     Loss,
 }
 
-pub struct ThreadData {
+pub struct ThreadData<'a> {
     pub id: u32,
     pub key_history: Vec<u64>,
     pub root_depth: i32,
@@ -288,16 +288,16 @@ pub struct ThreadData {
     pub pv_idx: usize,
     pub root_moves: Vec<RootMove>,
     pub stack: Vec<StackEntry>,
-    pub corrhist: Box<CorrectionHistory>,
-    pub history: Box<History>,
+    pub corrhist: &'a CorrectionHistory,
+    pub history: &'a History,
     pub killers: [KillerTable; MAX_DEPTH as usize],
     pub nnue_state: NnueState,
     pub shared: Option<Arc<SharedContext>>,
     pub tm_ctx: TmContext,
 }
 
-impl ThreadData {
-    pub fn new(id: u32) -> Self {
+impl<'a> ThreadData<'a> {
+    pub fn new(id: u32, history: &'a History, corrhist: &'a CorrectionHistory) -> Self {
         Self {
             id,
             key_history: Vec::with_capacity(1024),
@@ -306,8 +306,8 @@ impl ThreadData {
             pv_idx: 0,
             root_moves: Vec::with_capacity(1024),
             stack: vec![StackEntry::default(); MAX_DEPTH as usize + 1],
-            corrhist: CorrectionHistory::boxed(),
-            history: History::boxed(),
+            corrhist,
+            history,
             killers: [Default::default(); _],
             nnue_state: NnueState::new(),
             shared: None,

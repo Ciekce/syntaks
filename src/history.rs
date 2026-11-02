@@ -25,30 +25,35 @@ use crate::bitboard::Bitboard;
 use crate::core::{Color, Direction, Square};
 use crate::takmove::Move;
 use crate::{core::PieceType, position::Position};
-use std::ops::{Index, IndexMut};
+use std::cell::Cell;
+use std::ops::Index;
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 #[repr(C)]
 struct Entry {
-    value: i16,
+    value: Cell<i16>,
 }
 
 impl Entry {
     const LIMIT: i32 = 16384;
 
-    fn update(&mut self, bonus: i32) {
-        let mut value = self.value as i32;
+    const fn new() -> Self {
+        Self { value: Cell::new(0) }
+    }
+
+    fn update(&self, bonus: i32) {
+        let mut value = self.value.get() as i32;
         value += bonus - value * bonus.abs() / Self::LIMIT;
-        self.value = value as i16;
+        self.value.set(value as i16);
     }
 
     #[must_use]
     fn get(&self) -> i32 {
-        self.value as i32
+        self.value.get() as i32
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 struct CombinedHist {
     entries: [Entry; Self::ENTRIES],
 }
@@ -56,15 +61,21 @@ struct CombinedHist {
 impl CombinedHist {
     const ENTRIES: usize = 1 << Move::TOTAL_BITS;
 
-    fn clear(&mut self) {
-        self.entries.fill(Default::default());
+    const fn new() -> Self {
+        Self {
+            entries: [const { Entry::new() }; Self::ENTRIES],
+        }
+    }
+
+    fn clear(&self) {
+        self.entries.iter().for_each(|entry| entry.value.set(0));
     }
 }
 
 impl Default for CombinedHist {
     fn default() -> Self {
         Self {
-            entries: [Default::default(); Self::ENTRIES],
+            entries: [const { Entry::new() }; Self::ENTRIES],
         }
     }
 }
@@ -77,27 +88,27 @@ impl Index<Move> for CombinedHist {
     }
 }
 
-impl IndexMut<Move> for CombinedHist {
-    fn index_mut(&mut self, index: Move) -> &mut Self::Output {
-        &mut self.entries[index.raw() as usize]
-    }
-}
-
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 struct ConthistSubTable {
     entries: [Entry; ConthistTable::ENTRIES],
 }
 
 impl ConthistSubTable {
-    fn clear(&mut self) {
-        self.entries.fill(Default::default());
+    const fn new() -> Self {
+        Self {
+            entries: [const { Entry::new() }; _],
+        }
+    }
+
+    fn clear(&self) {
+        self.entries.iter().for_each(|entry| entry.value.set(0));
     }
 }
 
 impl Default for ConthistSubTable {
     fn default() -> Self {
         Self {
-            entries: [Default::default(); _],
+            entries: [const { Entry::new() }; _],
         }
     }
 }
@@ -110,13 +121,7 @@ impl Index<Move> for ConthistSubTable {
     }
 }
 
-impl IndexMut<Move> for ConthistSubTable {
-    fn index_mut(&mut self, mv: Move) -> &mut Self::Output {
-        &mut self.entries[ConthistTable::move_idx(mv)]
-    }
-}
-
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 struct ConthistTable {
     entries: [ConthistSubTable; Self::ENTRIES],
 }
@@ -136,8 +141,8 @@ impl ConthistTable {
         type_idx * Square::COUNT + mv.sq().idx()
     }
 
-    fn clear(&mut self) {
-        for subtable in self.entries.iter_mut() {
+    fn clear(&self) {
+        for subtable in self.entries.iter() {
             subtable.clear();
         }
     }
@@ -146,7 +151,7 @@ impl ConthistTable {
 impl Default for ConthistTable {
     fn default() -> Self {
         Self {
-            entries: [Default::default(); _],
+            entries: [const { ConthistSubTable::new() }; _],
         }
     }
 }
@@ -159,13 +164,7 @@ impl Index<Move> for ConthistTable {
     }
 }
 
-impl IndexMut<Move> for ConthistTable {
-    fn index_mut(&mut self, mv: Move) -> &mut Self::Output {
-        &mut self.entries[Self::move_idx(mv)]
-    }
-}
-
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 struct InfluenceHist {
     entries: [[Entry; Square::COUNT]; Self::BUCKETS],
 }
@@ -185,9 +184,9 @@ impl InfluenceHist {
         (hash >> (64 - Self::BITS)) as usize
     }
 
-    fn clear(&mut self) {
-        for bucket in self.entries.iter_mut() {
-            bucket.fill(Default::default());
+    fn clear(&self) {
+        for bucket in self.entries.iter() {
+            bucket.iter().for_each(|entry| entry.value.set(0));
         }
     }
 }
@@ -195,19 +194,19 @@ impl InfluenceHist {
 impl Default for InfluenceHist {
     fn default() -> Self {
         Self {
-            entries: [[Default::default(); Square::COUNT]; Self::BUCKETS],
+            entries: [const { [const { Entry::new() }; Square::COUNT] }; Self::BUCKETS],
         }
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 struct CapstoneHist {
     entries: [CombinedHist; Square::COUNT],
 }
 
 impl CapstoneHist {
-    fn clear(&mut self) {
-        for subtable in self.entries.iter_mut() {
+    fn clear(&self) {
+        for subtable in self.entries.iter() {
             subtable.clear();
         }
     }
@@ -216,7 +215,7 @@ impl CapstoneHist {
 impl Default for CapstoneHist {
     fn default() -> Self {
         Self {
-            entries: [Default::default(); Square::COUNT],
+            entries: [const { CombinedHist::new() }; Square::COUNT],
         }
     }
 }
@@ -229,13 +228,7 @@ impl Index<Square> for CapstoneHist {
     }
 }
 
-impl IndexMut<Square> for CapstoneHist {
-    fn index_mut(&mut self, square: Square) -> &mut Self::Output {
-        &mut self.entries[square]
-    }
-}
-
-#[derive(Copy, Clone, Default)]
+#[derive(Clone, Default)]
 struct SidedTables {
     hist: CombinedHist,
     capstone_hist: CapstoneHist,
@@ -244,7 +237,7 @@ struct SidedTables {
 }
 
 impl SidedTables {
-    fn clear(&mut self) {
+    fn clear(&self) {
         self.hist.clear();
         self.capstone_hist.clear();
         self.conthist.clear();
@@ -266,42 +259,58 @@ impl History {
         unsafe { Box::new_zeroed().assume_init() }
     }
 
-    pub fn clear(&mut self) {
-        for table in self.tables.iter_mut() {
+    pub fn clear(&self) {
+        for table in self.tables.iter() {
             table.clear();
         }
     }
 
-    pub fn update(&mut self, pos: &Position, mv: Move, prev: Option<Move>, bonus: i32) {
-        let tables = &mut self.tables[pos.stm()];
-        let bonus = bonus.clamp(-Self::MAX_BONUS, Self::MAX_BONUS);
-        tables.hist[mv].update(bonus);
-        if let Some(cap_sq) = pos.cap_sq(pos.stm()) {
-            tables.capstone_hist[cap_sq][mv].update(bonus);
-        }
-        if !mv.is_spread() {
-            let bucket = InfluenceHist::bucket(pos.influence(pos.stm()));
-            tables.influence.entries[bucket][mv.sq().idx()].update(bonus);
-        }
-        if let Some(prev) = prev {
-            tables.conthist[prev][mv].update(bonus);
+    pub fn hist_slice<'a>(&'a self, pos: &Position, prev: Option<Move>) -> HistorySlice<'a> {
+        let tables = &self.tables[pos.stm()];
+        let bucket = InfluenceHist::bucket(pos.influence(pos.stm()));
+        HistorySlice {
+            hist: &tables.hist,
+            capstone_hist: pos.cap_sq(pos.stm()).map(|cap_sq| &tables.capstone_hist[cap_sq]),
+            conthist: prev.map(|prev| &tables.conthist[prev]),
+            influence: &tables.influence.entries[bucket],
         }
     }
+}
 
-    #[must_use]
-    pub fn score(&self, pos: &Position, mv: Move, prev: Option<Move>) -> i32 {
-        let tables = &self.tables[pos.stm()];
-        let mut res = tables.hist[mv].get();
-        if let Some(cap_sq) = pos.cap_sq(pos.stm()) {
-            res = (res + tables.capstone_hist[cap_sq][mv].get()) / 2
+#[derive(Clone, Copy)]
+pub struct HistorySlice<'a> {
+    hist: &'a CombinedHist,
+    capstone_hist: Option<&'a CombinedHist>,
+    conthist: Option<&'a ConthistSubTable>,
+    influence: &'a [Entry; Square::COUNT],
+}
+
+impl<'a> HistorySlice<'a> {
+    pub fn score(&self, mv: Move) -> i32 {
+        let mut res = self.hist[mv].get();
+        if let Some(capstone_hist) = self.capstone_hist {
+            res = (res + capstone_hist[mv].get()) / 2;
         }
         if !mv.is_spread() {
-            let bucket = InfluenceHist::bucket(pos.influence(pos.stm()));
-            res += tables.influence.entries[bucket][mv.sq().idx()].get();
+            res += self.influence[mv.sq().idx()].get();
         }
-        if let Some(prev) = prev {
-            res += tables.conthist[prev][mv].get();
+        if let Some(conthist) = self.conthist {
+            res += conthist[mv].get();
         }
         res
+    }
+
+    pub fn update(&self, mv: Move, bonus: i32) {
+        let bonus = bonus.clamp(-History::MAX_BONUS, History::MAX_BONUS);
+        self.hist[mv].update(bonus);
+        if let Some(capstone_hist) = self.capstone_hist {
+            capstone_hist[mv].update(bonus);
+        }
+        if !mv.is_spread() {
+            self.influence[mv.sq().idx()].update(bonus);
+        }
+        if let Some(conthist) = self.conthist {
+            conthist[mv].update(bonus);
+        }
     }
 }

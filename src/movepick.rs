@@ -23,7 +23,7 @@
 
 use crate::bitboard::Bitboard;
 use crate::core::{PieceType, Score};
-use crate::history::History;
+use crate::history::HistorySlice;
 use crate::movegen::generate_moves;
 use crate::position::Position;
 use crate::road::influence;
@@ -157,7 +157,7 @@ pub struct Movepicker<'a> {
     idx: usize,
     tt_move: Option<Move>,
     killers: KillerTable,
-    prev_move: Option<Move>,
+    history: HistorySlice<'a>,
     stage: Stage,
 }
 
@@ -168,7 +168,7 @@ impl<'a> Movepicker<'a> {
         scores: &'a mut Vec<Score>,
         tt_move: Option<Move>,
         killers: KillerTable,
-        prev_move: Option<Move>,
+        history: HistorySlice<'a>,
     ) -> Self {
         Self {
             pos,
@@ -177,15 +177,15 @@ impl<'a> Movepicker<'a> {
             idx: 0,
             tt_move,
             killers,
-            prev_move,
+            history,
             stage: Stage::TtMove,
         }
     }
 
-    fn score_moves(&mut self, history: &History) {
+    fn score_moves(&mut self) {
         self.scores.clear();
         for &mv in self.moves.iter() {
-            let mut score = history.score(self.pos, mv, self.prev_move);
+            let mut score = self.history.score(mv);
 
             if self.killers.killers[1] == Some(mv) {
                 score += KILLER_MOVE_BONUS;
@@ -228,7 +228,7 @@ impl<'a> Movepicker<'a> {
         self.moves[self.idx]
     }
 
-    pub fn next(&mut self, history: &History) -> Option<Move> {
+    pub fn next(&mut self) -> Option<Move> {
         while self.stage != Stage::End {
             match self.stage {
                 Stage::TtMove => {
@@ -250,7 +250,7 @@ impl<'a> Movepicker<'a> {
                 }
                 Stage::GenMoves => {
                     generate_moves(self.moves, self.pos);
-                    self.score_moves(history);
+                    self.score_moves();
                 }
                 Stage::Moves => {
                     while self.idx < self.moves.len() {
