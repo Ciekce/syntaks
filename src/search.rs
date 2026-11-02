@@ -494,7 +494,7 @@ fn search<NT: NodeType>(
 
         let is_crush = mv.is_spread() && pos.top_pt(mv.spread_dest()) == Some(PieceType::Wall);
 
-        if extension == 0 && is_crush {
+        if extension == 0 && is_crush && tt_move == Some(mv) {
             extension += 1;
         }
 
