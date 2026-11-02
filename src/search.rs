@@ -36,7 +36,7 @@ use crate::wdl;
 use crate::{core::*, tunable};
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -78,26 +78,27 @@ impl SearchContext {
     }
 }
 
-const LMR_TABLE_MOVES: usize = 64;
+const LMR_TABLE_MOVES: usize = 56;
+const LMR_TABLE_DEPTH: usize = 56;
 
-static LMR_REDUCTIONS: LazyLock<[[i32; LMR_TABLE_MOVES]; MAX_DEPTH as usize]> = LazyLock::new(|| {
-    const BASE: f64 = 0.0;
-    const DIVISOR: f64 = 3.0;
-
+const fn lmr_table(base: i32, divisor: i32) -> [[i32; LMR_TABLE_MOVES]; LMR_TABLE_DEPTH] {
     let mut reductions = [[0; _]; _];
-
-    #[allow(clippy::needless_range_loop)]
-    for depth in 1..MAX_DEPTH as usize {
-        let ln_depth = (depth as f64).ln();
-        for move_number in 1..LMR_TABLE_MOVES {
-            let ln_move_number = (move_number as f64).ln();
-            let reduction = ((BASE + ln_depth * ln_move_number / DIVISOR) * 1024.0) as i32;
-            reductions[depth][move_number] = reduction;
+    let mut depth = 1;
+    while depth < LMR_TABLE_DEPTH as u128 {
+        let ln_depth = depth.pow(22).ilog2() as i32;
+        let mut move_number = 1;
+        while move_number < LMR_TABLE_MOVES as u128 {
+            let ln_moves = move_number.pow(22).ilog2() as i32;
+            let reduction = base + (ln_depth * ln_moves / divisor);
+            reductions[depth as usize][move_number as usize] = reduction;
+            move_number += 1;
         }
+        depth += 1;
     }
-
     reductions
-});
+}
+
+const LMR_REDUCTIONS: [[i32; LMR_TABLE_MOVES]; LMR_TABLE_DEPTH] = lmr_table(0, 3);
 
 #[derive(Clone)]
 struct PlyData {
@@ -508,7 +509,8 @@ fn search<NT: NodeType>(
             let new_depth = depth + extension - 1;
 
             if depth >= 2 && move_count >= 2 + usize::from(NT::ROOT_NODE) {
-                let mut r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
+                let mut r =
+                    LMR_REDUCTIONS[(depth as usize).min(LMR_TABLE_DEPTH) - 1][move_count.min(LMR_TABLE_MOVES) - 1];
 
                 tunable!(PV_NODE_LMR: i32 = 1263; range(0, 4096));
                 tunable!(CUTNODE_LMR: i32 = 2289; range(0, 4096));
