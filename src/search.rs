@@ -347,7 +347,7 @@ fn search<NT: NodeType>(
         tunable!(NMP_DEPTH_SCALE: i32 = 452; range(0, 1024));
 
         // nullmove pruning (nmp)
-        if expected_cutnode && depth >= 4 && static_eval >= beta && thread.stack[ply - 1].mv.is_some() {
+        if expected_cutnode && depth >= 4 && static_eval >= beta + 50 && thread.stack[ply - 1].mv.is_some() {
             let r = (NMP_BASE_R + NMP_DEPTH_SCALE * depth) / 1024;
 
             let new_pos = thread.apply_nullmove(ply, pos);
