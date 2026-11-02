@@ -471,7 +471,12 @@ fn search<NT: NodeType>(
                 && static_eval <= alpha - LDSE_MARGIN
                 && tt_entry.flag == Some(TtFlag::LowerBound)
             {
-                extension += 1;
+                extension += 1 + i32::from(
+                    !NT::PV_NODE
+                        && !cfg!(feature = "datagen")
+                        && tt_entry.depth >= depth - 3
+                        && static_eval <= alpha - 40,
+                );
             }
         }
 
