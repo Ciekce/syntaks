@@ -460,7 +460,7 @@ fn search<NT: NodeType>(
                         + i32::from(!NT::PV_NODE && score < s_beta - SE_DEXT_MARGIN)
                         + i32::from(!NT::PV_NODE && score < s_beta - SE_TEXT_MARGIN);
                 } else if !NT::PV_NODE && score >= beta {
-                    return score;
+                    return if !is_decisive(score) { (score + beta) / 2 } else { score };
                 } else if tt_entry.score >= beta {
                     extension -= 1;
                 } else if expected_cutnode {
