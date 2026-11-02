@@ -130,9 +130,9 @@ pub fn print() {
     let mut out = stdout().lock();
 
     for (i, condition) in CONDITION_HITS.iter().enumerate() {
-        let (hits, misses) = condition.get();
+        let (misses, hits) = condition.get();
 
-        if hits == 0 && misses == 0 {
+        if misses == 0 && hits == 0 {
             continue;
         }
 
