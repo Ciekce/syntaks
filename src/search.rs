@@ -81,7 +81,7 @@ impl SearchContext {
 const LMR_TABLE_MOVES: usize = 56;
 const LMR_TABLE_DEPTH: usize = 56;
 
-const fn lmr_table(base: i32, divisor: i32) -> [[i32; LMR_TABLE_MOVES]; LMR_TABLE_DEPTH] {
+const fn lmr_table(base: i32, scale: i32) -> [[i32; LMR_TABLE_MOVES]; LMR_TABLE_DEPTH] {
     let mut reductions = [[0; _]; _];
     let mut depth = 1;
     while depth < LMR_TABLE_DEPTH as u128 {
@@ -89,7 +89,7 @@ const fn lmr_table(base: i32, divisor: i32) -> [[i32; LMR_TABLE_MOVES]; LMR_TABL
         let mut move_number = 1;
         while move_number < LMR_TABLE_MOVES as u128 {
             let ln_moves = move_number.pow(22).ilog2() as i32;
-            let reduction = base + (ln_depth * ln_moves / divisor);
+            let reduction = base + (ln_depth * ln_moves * scale / 1024);
             reductions[depth as usize][move_number as usize] = reduction;
             move_number += 1;
         }
@@ -98,7 +98,7 @@ const fn lmr_table(base: i32, divisor: i32) -> [[i32; LMR_TABLE_MOVES]; LMR_TABL
     reductions
 }
 
-const LMR_REDUCTIONS: [[i32; LMR_TABLE_MOVES]; LMR_TABLE_DEPTH] = lmr_table(0, 3);
+const LMR_REDUCTIONS: [[i32; LMR_TABLE_MOVES]; LMR_TABLE_DEPTH] = lmr_table(0, 350);
 
 #[derive(Clone)]
 struct PlyData {
