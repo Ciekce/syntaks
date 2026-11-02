@@ -38,12 +38,12 @@ checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 [[package]]
 name = "bullet-compiler"
 version = "0.1.0"
-source = "git+https://github.com/jw1912/bullet#579b78b37a694cacd6e9ede4706386c15c34837c"
+source = "git+https://github.com/JonathanHallstrom/bullet?branch=smatmul#39a943f75ef2eecd16698f84de2a6f9347ed5939"
 
 [[package]]
 name = "bullet-gpu"
 version = "0.1.0"
-source = "git+https://github.com/jw1912/bullet#579b78b37a694cacd6e9ede4706386c15c34837c"
+source = "git+https://github.com/JonathanHallstrom/bullet?branch=smatmul#39a943f75ef2eecd16698f84de2a6f9347ed5939"
 dependencies = [
  "bullet-compiler",
 ]
@@ -51,7 +51,7 @@ dependencies = [
 [[package]]
 name = "bullet-trainer"
 version = "0.1.0"
-source = "git+https://github.com/jw1912/bullet#579b78b37a694cacd6e9ede4706386c15c34837c"
+source = "git+https://github.com/JonathanHallstrom/bullet?branch=smatmul#39a943f75ef2eecd16698f84de2a6f9347ed5939"
 dependencies = [
  "bullet-compiler",
  "bullet-gpu",
@@ -62,7 +62,7 @@ dependencies = [
 [[package]]
 name = "bullet_lib"
 version = "1.0.0"
-source = "git+https://github.com/jw1912/bullet#579b78b37a694cacd6e9ede4706386c15c34837c"
+source = "git+https://github.com/JonathanHallstrom/bullet?branch=smatmul#39a943f75ef2eecd16698f84de2a6f9347ed5939"
 dependencies = [
  "bullet-compiler",
  "bullet-gpu",

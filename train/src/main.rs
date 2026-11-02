@@ -1,6 +1,7 @@
 mod inputs;
 mod loader;
 
+use bullet_lib::nn::MatmulPrecision;
 use bullet_lib::{
     nn::optimiser::{AdamW, AdamWParams},
     trainer::{
@@ -18,7 +19,7 @@ use syntaks::format::GameResult;
 use syntaks::position::Position;
 use syntaks::takmove::Move;
 
-const L1: usize = 1024;
+const L1: usize = 1280;
 const L2: usize = 32;
 const L3: usize = 32;
 const SCALE: i32 = 400;
@@ -35,12 +36,12 @@ const PACKUS_LANE: usize = 8;
 const PACKUS_WIDTH: usize = 32;
 
 const SUPERBATCHES_PRETRAIN: usize = 5;
-const SUPERBATCHES_2KOMI: usize = 200;
-const SUPERBATCHES_COMBINED: usize = 100;
+const SUPERBATCHES_2KOMI: usize = 250;
+const SUPERBATCHES_COMBINED: usize = 150;
 
 const MAP_THREADS: usize = 16;
 const LOAD_THREADS: usize = 16;
-const SHUFFLE_BUFFER: usize = 1024;
+const SHUFFLE_BUFFER: usize = 8192;
 
 fn filter(_pos: &Position, _mv: Move, score: Score, _result: GameResult) -> bool {
     let mut rng = rng();
@@ -199,7 +200,9 @@ fn main() {
         .loss_fn(|output, target| output.sigmoid().squared_error(target))
         .build(|builder, stm_inputs, ntm_inputs, output_buckets| {
             let l0 = builder.new_affine("l0", TakTopRelativeStacks::NUM_INPUTS, L1);
-            let l1 = builder.new_affine("l1", L1, (OUTPUT_BUCKETS + 1) * L2);
+            let l1 = builder
+                .new_affine("l1", L1, (OUTPUT_BUCKETS + 1) * L2)
+                .with_precision(MatmulPrecision::Half);
             let l2 = builder.new_affine("l2", L2, (OUTPUT_BUCKETS + 1) * L3);
             let l3 = builder.new_affine("l3", L3, OUTPUT_BUCKETS + 1);
 

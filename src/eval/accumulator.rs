@@ -226,7 +226,7 @@ impl Accumulator {
 }
 
 #[cfg(target_feature = "avx512f")]
-const UPDATE_CHUNK: usize = L1_SIZE;
+const UPDATE_CHUNK: usize = L1_SIZE / 2;
 #[cfg(not(target_feature = "avx512f"))]
 const UPDATE_CHUNK: usize = 256;
 const MAX_UPDATE_ROWS: usize = 128;
