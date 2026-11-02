@@ -475,6 +475,8 @@ fn search<NT: NodeType>(
             }
         }
 
+        let expected_cutnode = expected_cutnode || extension < 0;
+
         if NT::ROOT_NODE
             && thread.shared().options.show_curr_move
             && !thread.shared().options.minimal
