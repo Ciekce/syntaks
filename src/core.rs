@@ -232,6 +232,8 @@ pub enum Direction {
 impl Direction {
     pub const COUNT: usize = 4;
 
+    pub const ALL: [Self; Self::COUNT] = [Self::Up, Self::Down, Self::Left, Self::Right];
+
     pub const fn from_raw(raw: u8) -> Option<Self> {
         match raw {
             0 => Some(Self::Up),
@@ -255,6 +257,50 @@ impl Direction {
     #[must_use]
     pub const fn offset(self) -> i8 {
         [6, -6, -1, 1][self.idx()]
+    }
+
+    #[must_use]
+    pub const fn flip_rank(self) -> Self {
+        [Self::Down, Self::Up, Self::Left, Self::Right][self.idx()]
+    }
+
+    #[must_use]
+    pub const fn flip_file(self) -> Self {
+        [Self::Up, Self::Down, Self::Right, Self::Left][self.idx()]
+    }
+
+    #[must_use]
+    pub const fn flip_diag(self) -> Self {
+        [Self::Right, Self::Left, Self::Up, Self::Down][self.idx()]
+    }
+
+    #[must_use]
+    pub const fn transform(self, transform: Transform) -> Self {
+        static LUT: [[Direction; 8]; Direction::COUNT] = {
+            let mut lut = [[Direction::Up; _]; _];
+            let mut t = 0;
+            while t < 8 {
+                let transform = Transform::from_raw(t as u8).unwrap();
+                let mut s = 0;
+                while s < Direction::COUNT {
+                    let mut dir = Direction::from_raw(s as u8).unwrap();
+                    if transform.is_flip_rank() {
+                        dir = dir.flip_rank();
+                    }
+                    if transform.is_flip_file() {
+                        dir = dir.flip_file();
+                    }
+                    if transform.is_flip_diag() {
+                        dir = dir.flip_diag();
+                    }
+                    lut[s][t] = dir;
+                    s += 1;
+                }
+                t += 1;
+            }
+            lut
+        };
+        LUT[self.idx()][transform.idx()]
     }
 }
 

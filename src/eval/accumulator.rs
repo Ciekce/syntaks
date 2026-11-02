@@ -21,9 +21,10 @@
  * SOFTWARE.
  */
 
-use crate::core::{Color, Square, Transform, normalizer};
+use crate::core::{Color, Direction, Square, Transform, normalizer};
 use crate::eval::nnue::*;
 use crate::position::Position;
+use crate::stats;
 use arrayvec::ArrayVec;
 
 #[derive(Clone)]
@@ -69,6 +70,18 @@ impl Accumulator {
                 colors >>= 1;
             }
         }
+
+        let mut influence_features = 0;
+
+        for color in [Color::White, Color::Black] {
+            for edge in Direction::ALL {
+                let influence = pos.influence(color)[edge] & !pos.color_bb(color);
+                influence_features += influence.popcount();
+            }
+        }
+
+        stats::mean(0, influence_features);
+        stats::range(0, influence_features);
 
         for color in [Color::White, Color::Black] {
             let reserves = pos.flats_in_hand(color);
@@ -191,6 +204,26 @@ impl Accumulator {
         }
     }
 
+    fn collect_influence_updates(&self, perspective: Color, transform: Transform, _rows: &mut Updates) {
+        //let map_sq = |sq: Square| sq.transform(transform);
+        //let updates = &self.ctx.updates;
+
+        let mut updates = 0;
+
+        for edge in Direction::ALL {
+            let mapped_edge = edge.transform(transform);
+
+            let influence_before = self.ctx.influence[perspective][0][edge];
+            let influence_after = self.ctx.influence[perspective][1][edge];
+
+            updates += (influence_before & !influence_after).popcount();
+            updates += (influence_after & !influence_before).popcount();
+        }
+
+        stats::range(0, updates);
+        stats::mean(0, updates);
+    }
+
     fn collect_reserve_updates(&self, perspective: Color, rows: &mut Updates) {
         for color in [Color::White, Color::Black] {
             let [reserves_before, reserves_after] = self.ctx.reserves[color];
@@ -217,6 +250,7 @@ impl Accumulator {
         let mut rows = Updates::default();
         self.collect_top_updates(perspective, transform, &mut rows);
         self.collect_stack_updates(perspective, transform, &mut rows);
+        self.collect_influence_updates(perspective, transform, &mut rows);
         self.collect_reserve_updates(perspective, &mut rows);
 
         rows.apply(&mut self.values[perspective], &src.values[perspective]);

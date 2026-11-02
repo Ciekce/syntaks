@@ -22,7 +22,8 @@
  */
 
 use super::forward::forward;
-use crate::core::{Color, Piece, PieceType, Square, normalizer};
+use crate::bitboard::Bitboard;
+use crate::core::{Color, Direction, Piece, PieceType, Square, normalizer};
 use crate::eval::accumulator::Accumulator;
 use crate::position::{BoardObserver, Position};
 use arrayvec::ArrayVec;
@@ -56,6 +57,7 @@ cfg_select! {
 
 pub const TOP_INPUT_SIZE: usize = Color::COUNT * PieceType::COUNT * Square::COUNT;
 pub const STACK_INPUT_SIZE: usize = 12 * Color::COUNT * PieceType::COUNT * Square::COUNT * Color::COUNT;
+pub const INFLUENCE_INPUT_SIZE: usize = Direction::COUNT * Color::COUNT * Square::COUNT;
 pub const RESERVES_INPUT_SIZE: usize = 30 * Color::COUNT;
 
 pub const L1_SIZE: usize = 1280;
@@ -124,6 +126,10 @@ pub(super) fn stack_feature_idx(perspective: Color, top: Piece, side: Color, dep
     ((top_idx * Color::COUNT + usize::from(side != perspective)) * Square::COUNT + sq.idx()) * 12 + depth as usize
 }
 
+pub(super) fn influence_feature_idx(perspective: Color, side: Color, edge: Direction, sq: Square) -> usize {
+    (usize::from(side != perspective) * Direction::COUNT + edge.idx()) * Square::COUNT + sq.idx()
+}
+
 pub(super) fn reserves_feature_idx(perspective: Color, side: Color, reserves: u8) -> usize {
     usize::from(side != perspective) * 30 + (reserves as usize - 1)
 }
@@ -147,6 +153,7 @@ impl NnueUpdates {
 pub(super) struct UpdateContext {
     pub updates: NnueUpdates,
     pub caps: [Option<Square>; Color::COUNT],
+    pub influence: [[[Bitboard; Direction::COUNT]; 2]; Color::COUNT],
     pub reserves: [[u8; 2]; Color::COUNT],
 }
 
@@ -198,6 +205,13 @@ impl<'a> BoardObserver for NnueObserver<'a> {
         let w_cap = pos_after.color_piece_bb(Piece::WhiteCapstone).lsb();
         let b_cap = pos_after.color_piece_bb(Piece::BlackCapstone).lsb();
         self.ctx.caps = [w_cap, b_cap];
+
+        self.ctx.influence = [Color::White, Color::Black].map(|color| {
+            [
+                pos_before.influence(color).map(|bb| bb & !pos_before.color_bb(color)),
+                pos_after.influence(color).map(|bb| bb & !pos_after.color_bb(color)),
+            ]
+        });
 
         self.ctx.reserves =
             [Color::White, Color::Black].map(|p| [pos_before.flats_in_hand(p), pos_after.flats_in_hand(p)]);

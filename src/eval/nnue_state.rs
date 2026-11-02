@@ -27,6 +27,7 @@ use crate::eval::forward::forward;
 use crate::eval::nnue::*;
 use crate::position::Position;
 use crate::search::MAX_DEPTH;
+use crate::stats;
 
 pub struct NnueState {
     acc_stacc: Vec<Accumulator>,
@@ -76,6 +77,7 @@ impl NnueState {
             }
 
             if self.acc_stacc[self.top_idx].ctx.updates.requires_refresh(side) {
+                stats::condition_hit(0, true);
                 self.acc_stacc[self.top_idx].reset(pos, side);
                 continue;
             }
@@ -86,8 +88,10 @@ impl NnueState {
             }
 
             if self.acc_stacc[curr].ctx.updates.requires_refresh(side) {
+                stats::condition_hit(0, true);
                 self.acc_stacc[self.top_idx].reset(pos, side);
             } else {
+                stats::condition_hit(0, false);
                 loop {
                     let [prev_acc, curr_acc] = self.acc_stacc.get_disjoint_mut([curr, curr + 1]).unwrap();
 

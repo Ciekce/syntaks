@@ -2,7 +2,7 @@ use bullet_lib::game::inputs::SparseInputType;
 use bullet_lib::game::outputs::OutputBuckets;
 use bullet_lib::value::loader::{GameResult as LoaderResult, LoadableDataType};
 use std::ops::Deref;
-use syntaks::core::{Color, PieceType, Square, normalizer};
+use syntaks::core::{Color, Direction, PieceType, Square, normalizer};
 use syntaks::format::PackedTakBoard;
 use syntaks::position::Position;
 
@@ -67,12 +67,14 @@ pub struct TakTopRelativeStacks;
 impl TakTopRelativeStacks {
     const TOPS_COUNT: usize = Color::COUNT * PieceType::COUNT * Square::COUNT;
     const STACKS_COUNT: usize = 12 * Color::COUNT * PieceType::COUNT * Square::COUNT * Color::COUNT;
+    const INFLUENCE_COUNT: usize = Direction::COUNT * Color::COUNT * Square::COUNT;
     const RESERVES_COUNT: usize = 30 * Color::COUNT;
 
     const STACKS_OFFSET: usize = Self::TOPS_COUNT;
-    const RESERVES_OFFSET: usize = Self::STACKS_OFFSET + Self::STACKS_COUNT;
+    const INFLUENCE_OFFSET: usize = Self::STACKS_OFFSET + Self::STACKS_COUNT;
+    const RESERVES_OFFSET: usize = Self::INFLUENCE_OFFSET + Self::INFLUENCE_COUNT;
 
-    pub const NUM_INPUTS: usize = Self::TOPS_COUNT + Self::STACKS_COUNT + Self::RESERVES_COUNT;
+    pub const NUM_INPUTS: usize = Self::TOPS_COUNT + Self::STACKS_COUNT + Self::INFLUENCE_COUNT + Self::RESERVES_COUNT;
 }
 
 impl SparseInputType for TakTopRelativeStacks {
@@ -83,7 +85,7 @@ impl SparseInputType for TakTopRelativeStacks {
     }
 
     fn max_active(&self) -> usize {
-        64
+        160
     }
 
     fn map_features<F: FnMut(usize, usize)>(&self, pos: &LoadedTakBoard, mut f: F) {
@@ -92,6 +94,7 @@ impl SparseInputType for TakTopRelativeStacks {
 
         let transforms = [Color::White, Color::Black].map(|perspective| normalizer(pos.cap_sq(perspective)));
         let map_sq = |perspective: Color, sq: Square| sq.transform(transforms[perspective]);
+        let map_edge = |perspective: Color, edge: Direction| edge.transform(transforms[perspective]);
 
         for sq in pos.occ() {
             let stm_sq = map_sq(pos.stm(), sq).idx();
@@ -132,6 +135,23 @@ impl SparseInputType for TakTopRelativeStacks {
                         * 12
                     + depth;
                 f(stm, nstm);
+            }
+        }
+
+        for color in [Color::White, Color::Black] {
+            let influence = pos.influence(color).map(|bb| bb & !pos.color_bb(color));
+            for edge in Direction::ALL {
+                let stm_edge = map_edge(pos.stm(), edge);
+                let nstm_edge = map_edge(pos.stm().flip(), edge);
+                for sq in influence[edge] {
+                    let stm = Self::INFLUENCE_OFFSET
+                        + ((color.idx() ^ stm_flip) * Direction::COUNT + stm_edge.idx()) * Square::COUNT
+                        + sq.idx();
+                    let nstm = Self::INFLUENCE_OFFSET
+                        + ((color.idx() ^ stm_flip ^ 1) * Direction::COUNT + nstm_edge.idx()) * Square::COUNT
+                        + sq.idx();
+                    f(stm, nstm);
+                }
             }
         }
 
