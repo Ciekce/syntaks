@@ -100,6 +100,13 @@ pub mod inner {
         }
     }
 
+    impl<T: Sync + Copy> crate::tune::Val for TunableValue<T> {
+        type Type = T;
+        fn val(&self) -> Self::Type {
+            **self
+        }
+    }
+
     impl<T: Sync> Deref for TunableValue<T> {
         type Target = T;
 
@@ -281,3 +288,24 @@ pub mod inner {
 
 #[cfg(feature = "tune")]
 pub use inner::*;
+
+/// Convenience trait to allow a uniform API between primitive values and `TunableValue`s
+pub trait Val {
+    type Type;
+    fn val(&self) -> Self::Type;
+}
+
+macro_rules! impl_val {
+    ($($type: ty);*) => {
+        $(
+            impl Val for $type {
+                type Type = $type;
+                fn val(&self) -> Self::Type {
+                    *self
+                }
+            }
+        )*
+    }
+}
+
+impl_val!(i8; i16; i32; i64; i128; isize; u8; u16; u32; u64; u128; usize; f32; f64);

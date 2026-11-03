@@ -33,6 +33,7 @@ use crate::takmove::Move;
 use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, set_pv, update_pv};
 use crate::ttable::{ProbedEntry, TtFlag};
+use crate::tune::Val;
 use crate::util::command_channel::{Receiver, Sender, channel};
 use crate::wdl;
 use crate::{core::*, tunable};
@@ -619,7 +620,7 @@ fn search<NT: NodeType>(
                     tunable!(LMR_HIST_BONUS_MAX: i32 = 3760; range(0, 4096));
 
                     let bonus =
-                        (LMR_HIST_BONUS_SCALE * new_depth - LMR_HIST_BONUS_OFFSET).clamp(0, LMR_HIST_BONUS_MAX * 1);
+                        (LMR_HIST_BONUS_SCALE * new_depth - LMR_HIST_BONUS_OFFSET).clamp(0, LMR_HIST_BONUS_MAX.val());
 
                     history.update(mv, if score > alpha { bonus } else { -bonus });
                 }
@@ -719,8 +720,8 @@ fn search<NT: NodeType>(
         tunable!(HIST_MALUS_OFFSET: i32 = 512; range(0, 1024));
         tunable!(HIST_MALUS_MAX: i32 = 3092; range(0, 4096));
 
-        let bonus = (HIST_BONUS_SCALE * depth - HIST_BONUS_OFFSET).clamp(0, HIST_BONUS_MAX * 1);
-        let malus = (HIST_MALUS_SCALE * depth - HIST_MALUS_OFFSET).clamp(0, HIST_MALUS_MAX * 1);
+        let bonus = (HIST_BONUS_SCALE * depth - HIST_BONUS_OFFSET).clamp(0, HIST_BONUS_MAX.val());
+        let malus = (HIST_MALUS_SCALE * depth - HIST_MALUS_OFFSET).clamp(0, HIST_MALUS_MAX.val());
 
         history.update(best_move, bonus);
 
@@ -859,7 +860,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
             tunable!(ASP_DELTA: i32 = 23; range(1, 64));
             tunable!(ASP_WIDEN: i32 = 1280; range(1024, 4096));
 
-            let mut delta = ASP_DELTA * 1;
+            let mut delta = ASP_DELTA.val();
 
             let mut alpha = -SCORE_INF;
             let mut beta = SCORE_INF;
