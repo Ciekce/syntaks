@@ -74,9 +74,7 @@ impl CombinedHist {
 
 impl Default for CombinedHist {
     fn default() -> Self {
-        Self {
-            entries: [const { Entry::new() }; Self::ENTRIES],
-        }
+        Self::new()
     }
 }
 
@@ -107,9 +105,7 @@ impl ConthistSubTable {
 
 impl Default for ConthistSubTable {
     fn default() -> Self {
-        Self {
-            entries: [const { Entry::new() }; _],
-        }
+        Self::new()
     }
 }
 
@@ -131,6 +127,12 @@ impl ConthistTable {
     const MOVE_TYPES: usize = PieceType::COUNT + Direction::COUNT;
     const ENTRIES: usize = Self::MOVE_TYPES * Square::COUNT;
 
+    const fn new() -> Self {
+        Self {
+            entries: [const { ConthistSubTable::new() }; _],
+        }
+    }
+
     #[must_use]
     fn move_idx(mv: Move) -> usize {
         let type_idx = if mv.is_spread() {
@@ -150,9 +152,7 @@ impl ConthistTable {
 
 impl Default for ConthistTable {
     fn default() -> Self {
-        Self {
-            entries: [const { ConthistSubTable::new() }; _],
-        }
+        Self::new()
     }
 }
 
@@ -172,6 +172,12 @@ struct InfluenceHist {
 impl InfluenceHist {
     const BITS: u32 = 10;
     const BUCKETS: usize = 1 << Self::BITS;
+
+    const fn new() -> Self {
+        Self {
+            entries: [const { [const { Entry::new() }; Square::COUNT] }; Self::BUCKETS],
+        }
+    }
 
     fn bucket(influence: &[Bitboard; 4]) -> usize {
         let mut hash = influence
@@ -193,9 +199,7 @@ impl InfluenceHist {
 
 impl Default for InfluenceHist {
     fn default() -> Self {
-        Self {
-            entries: [const { [const { Entry::new() }; Square::COUNT] }; Self::BUCKETS],
-        }
+        Self::new()
     }
 }
 
@@ -205,6 +209,12 @@ struct CapstoneHist {
 }
 
 impl CapstoneHist {
+    const fn new() -> Self {
+        Self {
+            entries: [const { CombinedHist::new() }; Square::COUNT],
+        }
+    }
+
     fn clear(&self) {
         for subtable in self.entries.iter() {
             subtable.clear();
@@ -214,9 +224,7 @@ impl CapstoneHist {
 
 impl Default for CapstoneHist {
     fn default() -> Self {
-        Self {
-            entries: [const { CombinedHist::new() }; Square::COUNT],
-        }
+        Self::new()
     }
 }
 

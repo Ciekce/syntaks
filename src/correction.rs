@@ -70,9 +70,7 @@ impl<const ENTRIES: usize> HashedTable<ENTRIES> {
 
 impl<const ENTRIES: usize> Default for HashedTable<ENTRIES> {
     fn default() -> Self {
-        Self {
-            entries: [const { Entry::new() }; _],
-        }
+        Self::new()
     }
 }
 
