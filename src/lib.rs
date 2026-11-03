@@ -1,3 +1,6 @@
+#[cfg(target_endian = "big")]
+compile_error!("big endian is not supported");
+
 pub mod bitboard;
 pub mod core;
 mod correction;
