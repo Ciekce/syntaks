@@ -43,6 +43,9 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
+#[cfg(feature = "tune")]
+use crate::tune::TunableValue;
+
 #[allow(unused)]
 use crate::stats;
 
@@ -83,7 +86,7 @@ impl SearchContext {
 const LMR_TABLE_MOVES: usize = 56;
 const LMR_TABLE_DEPTH: usize = 56;
 
-const fn lmr_table(base: i32, scale: i32) -> [[i32; LMR_TABLE_MOVES]; LMR_TABLE_DEPTH] {
+const fn lmr_table(base: i32, scale: i32) -> LmrTable {
     let mut reductions = [[0; _]; _];
     let mut depth = 1;
     while depth < LMR_TABLE_DEPTH as u128 {
@@ -97,10 +100,49 @@ const fn lmr_table(base: i32, scale: i32) -> [[i32; LMR_TABLE_MOVES]; LMR_TABLE_
         }
         depth += 1;
     }
-    reductions
+    LmrTable { reductions }
 }
 
-const LMR_REDUCTIONS: [[i32; LMR_TABLE_MOVES]; LMR_TABLE_DEPTH] = lmr_table(0, 350);
+#[derive(Debug, Clone)]
+struct LmrTable {
+    reductions: [[i32; LMR_TABLE_MOVES]; LMR_TABLE_DEPTH],
+}
+
+impl LmrTable {
+    fn get(&self, depth: i32, move_count: usize) -> i32 {
+        self.reductions[(depth as usize).min(LMR_TABLE_DEPTH) - 1][move_count.min(LMR_TABLE_MOVES) - 1]
+    }
+}
+
+#[cfg(feature = "tune")]
+struct DynamicLmrTable {
+    lookup: LmrTable,
+    base: TunableValue<i32>,
+    scale: TunableValue<i32>,
+}
+
+#[cfg(feature = "tune")]
+impl DynamicLmrTable {
+    const fn new(base: TunableValue<i32>, scale: TunableValue<i32>) -> Self {
+        Self {
+            lookup: lmr_table(0, 1024),
+            base,
+            scale,
+        }
+    }
+
+    fn get(&self, depth: i32, move_count: usize) -> i32 {
+        self.base + (self.lookup.get(depth, move_count) * self.scale / 1024)
+    }
+}
+
+tunable!(LMR_BASE: i32 = 0; range(0, 4096));
+tunable!(LMR_SCALE: i32 = 350; range(0, 1024));
+
+#[cfg(not(feature = "tune"))]
+static LMR_REDUCTIONS: LmrTable = lmr_table(LMR_BASE, LMR_SCALE);
+#[cfg(feature = "tune")]
+static LMR_REDUCTIONS: DynamicLmrTable = DynamicLmrTable::new(LMR_BASE, LMR_SCALE);
 
 #[derive(Clone)]
 struct PlyData {
@@ -520,8 +562,7 @@ fn search<NT: NodeType>(
             let new_depth = depth + extension - 1;
 
             if depth >= 2 && move_count >= 2 + usize::from(NT::ROOT_NODE) {
-                let mut r =
-                    LMR_REDUCTIONS[(depth as usize).min(LMR_TABLE_DEPTH) - 1][move_count.min(LMR_TABLE_MOVES) - 1];
+                let mut r = LMR_REDUCTIONS.get(depth, move_count);
 
                 tunable!(PV_NODE_LMR: i32 = 1263; range(0, 4096));
                 tunable!(CUTNODE_LMR: i32 = 2289; range(0, 4096));
