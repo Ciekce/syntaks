@@ -19,7 +19,7 @@ macro_rules! tunable {
 pub mod inner {
     use std::{
         cell::UnsafeCell,
-        collections::HashMap,
+        collections::BTreeMap,
         error::Error,
         fmt::Display,
         ops::{Add, AddAssign, Deref, Div, DivAssign, Mul, MulAssign, Sub, SubAssign},
@@ -186,12 +186,12 @@ pub mod inner {
     impl_primitive_types!(i8; i16; i32; i64; i128; isize; u8; u16; u32; u64; u128; usize; f32; f64);
 
     pub struct ParamHandler {
-        tunables: HashMap<String, &'static dyn ErasedTunable>,
+        tunables: BTreeMap<String, &'static dyn ErasedTunable>,
     }
 
     impl ParamHandler {
         pub fn new() -> Self {
-            let mut tunables: HashMap<String, &'static dyn ErasedTunable> = HashMap::new();
+            let mut tunables: BTreeMap<String, &'static dyn ErasedTunable> = BTreeMap::new();
             macro_rules! collect_types {
             ($($type: ty);*) => {
                 $(
