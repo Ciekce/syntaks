@@ -432,6 +432,7 @@ fn search<NT: NodeType>(
         tunable!(SE_TEXT_MARGIN: i32 = 137; range(0, 256));
 
         tunable!(LDSE_MARGIN: i32 = 26; range(1, 64));
+        tunable!(LDSE_DOUBLE_MARGIN: i32 = 40; range(20, 120));
 
         if !NT::ROOT_NODE && Some(mv) == tt_move && excluded.is_none() {
             if depth >= 5
@@ -475,7 +476,7 @@ fn search<NT: NodeType>(
                     !NT::PV_NODE
                         && !cfg!(feature = "datagen")
                         && tt_entry.depth >= depth - 3
-                        && static_eval <= alpha - 40,
+                        && static_eval <= alpha - LDSE_DOUBLE_MARGIN,
                 );
             }
         }
