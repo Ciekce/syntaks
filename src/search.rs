@@ -435,6 +435,7 @@ fn search<NT: NodeType>(
         tunable!(LDSE_DOUBLE_MARGIN: i32 = 40; range(20, 120));
 
         if !NT::ROOT_NODE && Some(mv) == tt_move && excluded.is_none() {
+            #[allow(clippy::if_same_then_else)]
             if depth >= 5
                 && tt_entry.depth >= depth - 3
                 && tt_entry.flag != Some(TtFlag::UpperBound)
