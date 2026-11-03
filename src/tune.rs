@@ -3,8 +3,7 @@ macro_rules! tunable {
     ($name: ident: $type: ty = $value: expr; range($min: expr, $max: expr)) => {
         #[cfg(feature = "tune")]
         static $name: $crate::tune::inner::TunableValue<$type> = {
-            static INNER: $crate::tune::inner::MakeSync<std::cell::UnsafeCell<$type>> =
-                $crate::tune::inner::MakeSync(std::cell::UnsafeCell::new($value));
+            static INNER: $crate::tune::inner::MakeSync<$type> = $crate::tune::inner::MakeSync::new($value);
             $crate::tune::inner::TunableValue::new(&INNER)
         };
         #[cfg(feature = "tune")]
@@ -63,41 +62,45 @@ pub mod inner {
     impl_tunable_type_int!(i8; i16; i32; i64; i128; isize; u8; u16; u32; u64; u128; usize);
     impl_tunable_type_float!(f32; f64);
 
-    pub struct Value<T: 'static> {
+    pub struct Value<T: Sync + 'static> {
         name: &'static str,
         value: &'static TunableValue<T>,
         min: T,
         max: T,
     }
 
-    impl<T: 'static> Value<T> {
+    impl<T: Sync + 'static> Value<T> {
         pub const fn new(name: &'static str, value: &'static TunableValue<T>, min: T, max: T) -> Self {
             Self { name, value, min, max }
         }
     }
 
-    pub struct MakeSync<T>(pub T);
+    pub struct MakeSync<T: Sync>(UnsafeCell<T>);
 
-    unsafe impl<T> Sync for MakeSync<T> {}
+    impl<T: Sync> MakeSync<T> {
+        pub const fn new(value: T) -> Self {
+            Self(UnsafeCell::new(value))
+        }
+    }
+
+    unsafe impl<T: Sync> Sync for MakeSync<T> {}
 
     #[derive(Copy, Clone)]
-    pub struct TunableValue<T: 'static>(&'static MakeSync<UnsafeCell<T>>);
+    pub struct TunableValue<T: Sync + 'static>(&'static MakeSync<T>);
 
-    unsafe impl<T: 'static> Sync for TunableValue<T> {}
-
-    impl<T> TunableValue<T> {
-        pub const fn new(value: &'static MakeSync<UnsafeCell<T>>) -> Self {
+    impl<T: Sync> TunableValue<T> {
+        pub const fn new(value: &'static MakeSync<T>) -> Self {
             Self(value)
         }
 
-        pub unsafe fn set(&self, value: T) {
+        unsafe fn set(&self, value: T) {
             unsafe {
                 *self.0.0.get() = value;
             }
         }
     }
 
-    impl<T> Deref for TunableValue<T> {
+    impl<T: Sync> Deref for TunableValue<T> {
         type Target = T;
 
         fn deref(&self) -> &Self::Target {
@@ -214,9 +217,14 @@ pub mod inner {
     pub trait ErasedTunable {
         fn name(&self) -> &'static str;
 
+        /// SAFETY: Caller must ensure that no other threads are calling `ErasedTunable::set`
+        ///
+        /// In practice, this means that this function should only be called in TEI handling
         unsafe fn get(&self) -> String;
 
-        // SAFETY: Caller must ensure that (TODO)
+        /// SAFETY: Caller must ensure that the no other threads hold a reference to the named value
+        ///
+        /// In practice, this means that this function should only be called in TEI handling
         unsafe fn set(&self, value: &str) -> Result<(), Box<dyn Error>>;
 
         fn range(&self) -> (String, String);
@@ -226,7 +234,7 @@ pub mod inner {
         fn ob_spsa_c_end(&self) -> f64;
     }
 
-    impl<T: PartialOrd + Display + TunableType> ErasedTunable for Value<T>
+    impl<T: Sync + PartialOrd + Display + TunableType> ErasedTunable for Value<T>
     where
         T: ToString + FromStr,
         <T as FromStr>::Err: Error,
