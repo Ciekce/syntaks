@@ -84,7 +84,7 @@ impl SearchContext {
     }
 }
 
-const LMR_TABLE_MOVES: usize = 56;
+const LMR_TABLE_MOVES: usize = 32;
 const LMR_TABLE_DEPTH: usize = 56;
 
 const fn lmr_table(base: i32, scale: i32) -> LmrTable {
