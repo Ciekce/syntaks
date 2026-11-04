@@ -447,6 +447,8 @@ fn search<NT: NodeType>(
             continue;
         }
 
+        let mv_history = history.score(mv);
+
         #[allow(clippy::collapsible_if)]
         if !NT::ROOT_NODE && !is_loss(best_score) && (!NT::PV_NODE || !cfg!(feature = "datagen")) {
             tunable!(LMP_LOSING_MARGIN: i32 = 146; range(0, 512));
@@ -455,7 +457,7 @@ fn search<NT: NodeType>(
 
             if depth <= 8 {
                 let losing = static_eval + LMP_LOSING_MARGIN <= alpha;
-                let limit = (LMP_BASE + LMP_DEPTH_SCALE * depth * depth)
+                let limit = (LMP_BASE + LMP_DEPTH_SCALE * depth * depth + mv_history / 8)
                     * (1 + i32::from(improving))
                     * (1 + i32::from(!losing))
                     * (1 + i32::from(NT::PV_NODE))
@@ -576,7 +578,7 @@ fn search<NT: NodeType>(
                 r += PV_NODE_LMR * i32::from(!NT::PV_NODE);
                 r += CUTNODE_LMR * i32::from(expected_cutnode);
                 r += IMPROVING_LMR * i32::from(!improving);
-                r -= history.score(mv) * HIST_LMR / 24576;
+                r -= mv_history * HIST_LMR / 24576;
                 r -= (correction.abs() * CORR_LMR / 64).min(1024);
 
                 let our_influence = new_pos.influence(pos.stm());
