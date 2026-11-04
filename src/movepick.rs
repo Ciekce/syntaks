@@ -137,11 +137,20 @@ fn first_winning_spread(
 pub fn spread_road_win(pos: &Position) -> Option<Move> {
     let us = pos.stm();
     let infl = pos.influence(us);
+    let criticals = (infl[0] & infl[1]) | (infl[2] & infl[3]);
+    let near = criticals
+        | criticals.shift(Direction::Up)
+        | criticals.shift(Direction::Down)
+        | criticals.shift(Direction::Left)
+        | criticals.shift(Direction::Right);
     let top_bit = 1 << (Position::CARRY_LIMIT - 1);
     let limit = 1 << Position::CARRY_LIMIT;
 
     for sq in pos.color_bb(us) {
         let max_carry = pos.height(sq).min(Position::CARRY_LIMIT as u8);
+        if max_carry == 1 && !near.has_sq(sq) {
+            continue;
+        }
         let lsb = limit >> max_carry;
         let capstone = pos.top_pt(sq) == Some(PieceType::Capstone);
         let hits = find_hits(pos.all_blockers(), sq);
@@ -156,12 +165,19 @@ pub fn spread_road_win(pos: &Position) -> Option<Move> {
             let blocked = !can_smash && pos.all_blockers().has_sq(hit_sq);
             let max_dist = max_carry.min(dist - u8::from(blocked));
 
-            let mut line = Bitboard::empty();
-            let mut last = sq.bb();
-            for _ in 0..max_dist {
-                last = last.shift(dir);
-                line |= last;
-            }
+            let step = u32::from(dir.offset().unsigned_abs());
+            let span = u32::from(max_dist) * step;
+            let mask = if step == 6 { Bitboard::LEFT_EDGE.raw() } else { Bitboard::LOWER_EDGE.raw() };
+            let prefix = mask >> (step * (Position::CARRY_LIMIT - u32::from(max_dist)));
+            let (line, last) = match dir {
+                Direction::Up | Direction::Right => (
+                    prefix << (sq.idx() as u32 + step), sq.bb().raw() << span,
+                ),
+                Direction::Down | Direction::Left => (
+                    prefix << (sq.idx() as u32 - span), sq.bb().raw() >> span,
+                ),
+            };
+            let (line, last) = (Bitboard::from_raw(line), Bitboard::from_raw(last));
             let gainable = if pos.roads(us).has_sq(sq) {
                 line
             } else {
