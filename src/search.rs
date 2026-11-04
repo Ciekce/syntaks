@@ -33,6 +33,7 @@ use crate::takmove::Move;
 use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, set_pv, update_pv};
 use crate::ttable::{ProbedEntry, TtFlag};
+use crate::tune::Val;
 use crate::util::command_channel::{Receiver, Sender, channel};
 use crate::wdl;
 use crate::{core::*, tunable};
@@ -42,6 +43,9 @@ use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;
+
+#[cfg(feature = "tune")]
+use crate::tune::TunableValue;
 
 #[allow(unused)]
 use crate::stats;
@@ -83,7 +87,7 @@ impl SearchContext {
 const LMR_TABLE_MOVES: usize = 56;
 const LMR_TABLE_DEPTH: usize = 56;
 
-const fn lmr_table(base: i32, scale: i32) -> [[i32; LMR_TABLE_MOVES]; LMR_TABLE_DEPTH] {
+const fn lmr_table(base: i32, scale: i32) -> LmrTable {
     let mut reductions = [[0; _]; _];
     let mut depth = 1;
     while depth < LMR_TABLE_DEPTH as u128 {
@@ -97,10 +101,49 @@ const fn lmr_table(base: i32, scale: i32) -> [[i32; LMR_TABLE_MOVES]; LMR_TABLE_
         }
         depth += 1;
     }
-    reductions
+    LmrTable { reductions }
 }
 
-const LMR_REDUCTIONS: [[i32; LMR_TABLE_MOVES]; LMR_TABLE_DEPTH] = lmr_table(0, 350);
+#[derive(Debug, Clone)]
+struct LmrTable {
+    reductions: [[i32; LMR_TABLE_MOVES]; LMR_TABLE_DEPTH],
+}
+
+impl LmrTable {
+    fn get(&self, depth: i32, move_count: usize) -> i32 {
+        self.reductions[(depth as usize).min(LMR_TABLE_DEPTH) - 1][move_count.min(LMR_TABLE_MOVES) - 1]
+    }
+}
+
+#[cfg(feature = "tune")]
+struct DynamicLmrTable {
+    lookup: LmrTable,
+    base: TunableValue<i32>,
+    scale: TunableValue<i32>,
+}
+
+#[cfg(feature = "tune")]
+impl DynamicLmrTable {
+    const fn new(base: TunableValue<i32>, scale: TunableValue<i32>) -> Self {
+        Self {
+            lookup: lmr_table(0, 1024),
+            base,
+            scale,
+        }
+    }
+
+    fn get(&self, depth: i32, move_count: usize) -> i32 {
+        self.base + (self.lookup.get(depth, move_count) * self.scale / 1024)
+    }
+}
+
+tunable!(LMR_BASE: i32 = 0; range(0, 4096));
+tunable!(LMR_SCALE: i32 = 350; range(0, 1024));
+
+#[cfg(not(feature = "tune"))]
+static LMR_REDUCTIONS: LmrTable = lmr_table(LMR_BASE, LMR_SCALE);
+#[cfg(feature = "tune")]
+static LMR_REDUCTIONS: DynamicLmrTable = DynamicLmrTable::new(LMR_BASE, LMR_SCALE);
 
 #[derive(Clone)]
 struct PlyData {
@@ -435,6 +478,7 @@ fn search<NT: NodeType>(
         tunable!(LDSE_DOUBLE_MARGIN: i32 = 40; range(20, 120));
 
         if !NT::ROOT_NODE && Some(mv) == tt_move && excluded.is_none() {
+            #[allow(clippy::if_same_then_else)]
             if depth >= 5
                 && tt_entry.depth >= depth - 3
                 && tt_entry.flag != Some(TtFlag::UpperBound)
@@ -519,8 +563,7 @@ fn search<NT: NodeType>(
             let new_depth = depth + extension - 1;
 
             if depth >= 2 && move_count >= 2 + usize::from(NT::ROOT_NODE) {
-                let mut r =
-                    LMR_REDUCTIONS[(depth as usize).min(LMR_TABLE_DEPTH) - 1][move_count.min(LMR_TABLE_MOVES) - 1];
+                let mut r = LMR_REDUCTIONS.get(depth, move_count);
 
                 tunable!(PV_NODE_LMR: i32 = 1263; range(0, 4096));
                 tunable!(CUTNODE_LMR: i32 = 2289; range(0, 4096));
@@ -577,7 +620,7 @@ fn search<NT: NodeType>(
                     tunable!(LMR_HIST_BONUS_MAX: i32 = 3760; range(0, 4096));
 
                     let bonus =
-                        (LMR_HIST_BONUS_SCALE * new_depth - LMR_HIST_BONUS_OFFSET).clamp(0, LMR_HIST_BONUS_MAX * 1);
+                        (LMR_HIST_BONUS_SCALE * new_depth - LMR_HIST_BONUS_OFFSET).clamp(0, LMR_HIST_BONUS_MAX.val());
 
                     history.update(mv, if score > alpha { bonus } else { -bonus });
                 }
@@ -677,8 +720,8 @@ fn search<NT: NodeType>(
         tunable!(HIST_MALUS_OFFSET: i32 = 512; range(0, 1024));
         tunable!(HIST_MALUS_MAX: i32 = 3092; range(0, 4096));
 
-        let bonus = (HIST_BONUS_SCALE * depth - HIST_BONUS_OFFSET).clamp(0, HIST_BONUS_MAX * 1);
-        let malus = (HIST_MALUS_SCALE * depth - HIST_MALUS_OFFSET).clamp(0, HIST_MALUS_MAX * 1);
+        let bonus = (HIST_BONUS_SCALE * depth - HIST_BONUS_OFFSET).clamp(0, HIST_BONUS_MAX.val());
+        let malus = (HIST_MALUS_SCALE * depth - HIST_MALUS_OFFSET).clamp(0, HIST_MALUS_MAX.val());
 
         history.update(best_move, bonus);
 
@@ -817,7 +860,7 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
             tunable!(ASP_DELTA: i32 = 23; range(1, 64));
             tunable!(ASP_WIDEN: i32 = 1280; range(1024, 4096));
 
-            let mut delta = ASP_DELTA * 1;
+            let mut delta = ASP_DELTA.val();
 
             let mut alpha = -SCORE_INF;
             let mut beta = SCORE_INF;

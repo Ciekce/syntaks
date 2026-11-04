@@ -143,11 +143,6 @@ impl KillerTable {
             self.killers[0] = Some(mv);
         }
     }
-
-    #[must_use]
-    pub fn contains(&self, mv: Move) -> bool {
-        self.killers.contains(&Some(mv))
-    }
 }
 
 pub struct Movepicker<'a> {
