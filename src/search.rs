@@ -321,7 +321,7 @@ fn search<NT: NodeType>(
                 Some(TtFlag::Exact) => true,
             }
         {
-            return account_for_spread(tt_entry.score, pos, ply, beta);
+            return tt_entry.score;
         }
     }
 
