@@ -22,8 +22,9 @@
  */
 
 use crate::bitboard::Bitboard;
-use crate::core::{PieceType, Score};
+use crate::core::{Direction, PieceType, Score, Square};
 use crate::history::HistorySlice;
+use crate::hits::find_hits;
 use crate::movegen::generate_moves;
 use crate::position::Position;
 use crate::road::influence;
@@ -101,10 +102,90 @@ fn spread_ordering_info(pos: &Position, mv: Move) -> SpreadInfo {
 fn spread_wins_road(pos: &Position, info: &SpreadInfo) -> bool {
     let gained = info.roads & !pos.roads(pos.stm());
 
-    let [touches_up, touches_down, touches_left, touches_right] =
-        pos.influence(pos.stm()).map(|bb| !(bb & gained).is_empty());
+    touches_opposite_edges(gained, pos.influence(pos.stm())) && influence(info.roads).0
+}
 
-    ((touches_up && touches_down) || (touches_left && touches_right)) && influence(info.roads).0
+fn touches_opposite_edges(bb: Bitboard, infl: &[Bitboard; 4]) -> bool {
+    let [up, down, left, right] = infl.map(|inf| !(inf & bb).is_empty());
+    (up && down) || (left && right)
+}
+
+fn first_winning_spread(
+    pos: &Position,
+    sq: Square,
+    dir: Direction,
+    lsb: u16,
+    mut pattern: u16,
+    max_dist: u8,
+    limit: u16,
+) -> Option<Move> {
+    while max_dist > 0 && pattern < limit {
+        let mv = Move::spread(sq, dir, pattern);
+        if spread_wins_road(pos, &spread_ordering_info(pos, mv)) {
+            return Some(mv);
+        }
+        if pattern.count_ones() == u32::from(max_dist) {
+            pattern += pattern.isolate_lowest_one();
+        } else {
+            pattern += lsb;
+        }
+    }
+    None
+}
+
+#[must_use]
+pub fn spread_road_win(pos: &Position) -> Option<Move> {
+    let us = pos.stm();
+    let infl = pos.influence(us);
+    let top_bit = 1 << (Position::CARRY_LIMIT - 1);
+    let limit = 1 << Position::CARRY_LIMIT;
+
+    for sq in pos.color_bb(us) {
+        let max_carry = pos.height(sq).min(Position::CARRY_LIMIT as u8);
+        let lsb = limit >> max_carry;
+        let capstone = pos.top_pt(sq) == Some(PieceType::Capstone);
+        let hits = find_hits(pos.all_blockers(), sq);
+
+        for dir in [Direction::Up, Direction::Down, Direction::Left, Direction::Right] {
+            let (dist, hit_sq) = hits[dir];
+            if dist == 0 {
+                continue;
+            }
+
+            let can_smash = capstone && pos.top_pt(hit_sq) == Some(PieceType::Wall);
+            let blocked = !can_smash && pos.all_blockers().has_sq(hit_sq);
+            let max_dist = max_carry.min(dist - u8::from(blocked));
+
+            let mut line = Bitboard::empty();
+            let mut last = sq.bb();
+            for _ in 0..max_dist {
+                last = last.shift(dir);
+                line |= last;
+            }
+            let gainable = if pos.roads(us).has_sq(sq) {
+                line
+            } else {
+                (line ^ last) | sq.bb()
+            };
+            if !touches_opposite_edges(gainable, infl) {
+                continue;
+            }
+
+            let win = if can_smash {
+                let non_smash_dist = max_dist - u8::from(dist <= max_carry);
+                first_winning_spread(pos, sq, dir, lsb, top_bit, max_dist, limit)
+                    .or_else(|| first_winning_spread(pos, sq, dir, lsb, lsb, non_smash_dist, top_bit))
+            } else {
+                first_winning_spread(pos, sq, dir, lsb, lsb, max_dist, limit)
+            };
+
+            if win.is_some() {
+                return win;
+            }
+        }
+    }
+
+    None
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

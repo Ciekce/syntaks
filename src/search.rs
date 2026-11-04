@@ -27,7 +27,7 @@ use crate::eval::static_eval;
 use crate::history::History;
 use crate::limit::Limits;
 use crate::movegen::generate_moves;
-use crate::movepick::Movepicker;
+use crate::movepick::{Movepicker, spread_road_win};
 use crate::position::Position;
 use crate::takmove::Move;
 use crate::tei::TeiOptions;
@@ -321,7 +321,7 @@ fn search<NT: NodeType>(
                 Some(TtFlag::Exact) => true,
             }
         {
-            return tt_entry.score;
+            return account_for_spread(tt_entry.score, pos, ply, beta);
         }
     }
 
@@ -461,6 +461,20 @@ fn search<NT: NodeType>(
                     * (1 + i32::from(NT::PV_NODE))
                     / 1024;
                 if move_count as i32 >= limit {
+                    if tt_flag == TtFlag::UpperBound
+                        && let Some(win) = spread_road_win(pos)
+                    {
+                        best_score = win_in(ply + 1);
+                        best_move = Some(win);
+                        tt_flag = if best_score >= beta {
+                            TtFlag::LowerBound
+                        } else {
+                            TtFlag::Exact
+                        };
+                        if NT::PV_NODE {
+                            set_pv(&mut data.pv, win);
+                        }
+                    }
                     break;
                 }
             }
@@ -757,6 +771,14 @@ fn search<NT: NodeType>(
     best_score
 }
 
+fn account_for_spread(score: Score, pos: &Position, ply: usize, beta: Score) -> Score {
+    if score < beta && spread_road_win(pos).is_some() {
+        win_in(ply + 1)
+    } else {
+        score
+    }
+}
+
 fn leaf<NT: NodeType>(
     thread: &mut ThreadData,
     pos: &Position,
@@ -781,7 +803,7 @@ fn leaf<NT: NodeType>(
             Some(TtFlag::Exact) => true,
         }
     {
-        return tt_entry.score;
+        return account_for_spread(tt_entry.score, pos, ply, beta);
     }
 
     let raw_eval = if tt_hit {
@@ -816,9 +838,9 @@ fn leaf<NT: NodeType>(
             TtFlag::LowerBound => i32::max(static_eval, score),
             TtFlag::Exact => unreachable!(),
         };
-        return score;
+        return account_for_spread(score, pos, ply, beta);
     }
-    static_eval
+    account_for_spread(static_eval, pos, ply, beta)
 }
 
 fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut ThreadData) {
