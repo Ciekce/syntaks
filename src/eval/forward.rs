@@ -154,6 +154,8 @@ pub(super) fn forward(acc: &Accumulator, pos: &Position) -> i32 {
         let l2_biases = NET.l2b[output_bucket].as_ptr();
         let l3_weights = NET.l3w[output_bucket].as_ptr();
 
+        let skip_values = l1_out.0.as_ptr();
+
         let lo = zero_i32();
         let hi3 = set1_i32(1 << (3 * Q_BITS));
 
@@ -161,10 +163,13 @@ pub(super) fn forward(acc: &Accumulator, pos: &Position) -> i32 {
             let l2_bias = unsafe { load_i32(l2_biases.add(i * CHUNK_SIZE_I32)) };
             let l3_weight = unsafe { load_i32(l3_weights.add(i * CHUNK_SIZE_I32)) };
 
+            let skip = unsafe { load_widen_i16_i32(skip_values.add(i * CHUNK_SIZE_I32)) };
+
             let biased = add_i32(intermediate, l2_bias);
             let activated = min_i32(max_i32(biased, lo), hi3);
+            let skipped = add_i32(shift_left_i32::<Q_BITS>(skip), activated);
 
-            l3_sum = add_i32(l3_sum, mul_i32(activated, l3_weight));
+            l3_sum = add_i32(l3_sum, mul_i32(skipped, l3_weight));
         }
     }
 

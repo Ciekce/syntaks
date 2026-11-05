@@ -22,24 +22,34 @@
  */
 
 use crate::bitboard::Bitboard;
-use crate::core::*;
+use crate::correction::CorrectionHistory;
 use crate::eval::static_eval;
+use crate::history::History;
 use crate::limit::Limits;
 use crate::movegen::generate_moves;
-use crate::movepick::Movepicker;
+use crate::movepick::{Movepicker, spread_road_win};
 use crate::position::Position;
 use crate::prng::seed_from_entropy;
 use crate::takmove::Move;
 use crate::tei::TeiOptions;
 use crate::thread::{PvList, RootMove, SharedContext, TerminalState, ThreadData, set_pv, update_pv};
 use crate::ttable::{ProbedEntry, TtFlag};
+use crate::tune::Val;
 use crate::util::command_channel::{Receiver, Sender, channel};
 use crate::wdl;
+use crate::{core::*, tunable};
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;
+
+#[cfg(feature = "tune")]
+use crate::tune::TunableValue;
+
+#[allow(unused)]
+use crate::stats;
 
 pub const MAX_THREADS: u32 = 2048;
 pub const MAX_DEPTH: i32 = 248;
@@ -75,28 +85,66 @@ impl SearchContext {
     }
 }
 
-const LMR_TABLE_MOVES: usize = 64;
+const LMR_TABLE_MOVES: usize = 32;
+const LMR_TABLE_DEPTH: usize = 56;
 
-#[static_init::dynamic]
-static LMR_REDUCTIONS: [[i32; LMR_TABLE_MOVES]; MAX_DEPTH as usize] = {
-    #![allow(clippy::needless_range_loop)]
-
-    const BASE: f64 = 0.0;
-    const DIVISOR: f64 = 3.0;
-
+const fn lmr_table(base: i32, scale: i32) -> LmrTable {
     let mut reductions = [[0; _]; _];
+    let mut depth = 1;
+    while depth < LMR_TABLE_DEPTH as u128 {
+        let ln_depth = depth.pow(22).ilog2() as i32;
+        let mut move_number = 1;
+        while move_number < LMR_TABLE_MOVES as u128 {
+            let ln_moves = move_number.pow(22).ilog2() as i32;
+            let reduction = base + (ln_depth * ln_moves * scale / 1024);
+            reductions[depth as usize][move_number as usize] = reduction;
+            move_number += 1;
+        }
+        depth += 1;
+    }
+    LmrTable { reductions }
+}
 
-    for depth in 1..MAX_DEPTH as usize {
-        let ln_depth = (depth as f64).ln();
-        for move_number in 1..LMR_TABLE_MOVES {
-            let ln_move_number = (move_number as f64).ln();
-            let reduction = ((BASE + ln_depth * ln_move_number / DIVISOR) * 1024.0) as i32;
-            reductions[depth][move_number] = reduction;
+#[derive(Debug, Clone)]
+struct LmrTable {
+    reductions: [[i32; LMR_TABLE_MOVES]; LMR_TABLE_DEPTH],
+}
+
+impl LmrTable {
+    fn get(&self, depth: i32, move_count: usize) -> i32 {
+        self.reductions[(depth as usize).min(LMR_TABLE_DEPTH) - 1][move_count.min(LMR_TABLE_MOVES) - 1]
+    }
+}
+
+#[cfg(feature = "tune")]
+struct DynamicLmrTable {
+    lookup: LmrTable,
+    base: TunableValue<i32>,
+    scale: TunableValue<i32>,
+}
+
+#[cfg(feature = "tune")]
+impl DynamicLmrTable {
+    const fn new(base: TunableValue<i32>, scale: TunableValue<i32>) -> Self {
+        Self {
+            lookup: lmr_table(0, 1024),
+            base,
+            scale,
         }
     }
 
-    reductions
-};
+    fn get(&self, depth: i32, move_count: usize) -> i32 {
+        self.base + (self.lookup.get(depth, move_count) * self.scale / 1024)
+    }
+}
+
+tunable!(LMR_BASE: i32 = 0; range(0, 4096));
+tunable!(LMR_SCALE: i32 = 350; range(0, 1024));
+
+#[cfg(not(feature = "tune"))]
+static LMR_REDUCTIONS: LmrTable = lmr_table(LMR_BASE, LMR_SCALE);
+#[cfg(feature = "tune")]
+static LMR_REDUCTIONS: DynamicLmrTable = DynamicLmrTable::new(LMR_BASE, LMR_SCALE);
 
 #[derive(Clone)]
 struct PlyData {
@@ -144,7 +192,7 @@ fn search<NT: NodeType>(
     data_stack: &mut [PlyData],
     pos: &Position,
     depth: i32,
-    ply: i32,
+    ply: usize,
     mut alpha: Score,
     mut beta: Score,
     expected_cutnode: bool,
@@ -158,16 +206,14 @@ fn search<NT: NodeType>(
     }
 
     if !NT::ROOT_NODE {
-        alpha = alpha.max(-SCORE_MATE + ply);
-        beta = beta.min(SCORE_MATE - ply);
+        alpha = alpha.max(loss_in(ply));
+        beta = beta.min(win_in(ply));
         if alpha >= beta {
             return alpha;
         }
     }
 
     let beta = beta;
-
-    thread.inc_nodes();
 
     if !NT::ROOT_NODE {
         let mut push_to_pv = |bb: Bitboard| {
@@ -193,8 +239,9 @@ fn search<NT: NodeType>(
         let open_criticals = criticals & !pos.occ();
 
         if !open_criticals.is_empty() {
+            thread.inc_nodes();
             push_to_pv(open_criticals);
-            return SCORE_MATE - ply - 1;
+            return win_in(ply + 1);
         }
 
         for (criticals, edges) in [
@@ -206,26 +253,30 @@ fn search<NT: NodeType>(
                 let attackers = neighbors & pos.roads(pos.stm());
                 let edge_bonus = sq.bb() & edges;
                 if (attackers | edge_bonus).popcount() >= 3 {
+                    thread.inc_nodes();
                     // todo push_to_pv
-                    return SCORE_MATE - ply - 1;
+                    return win_in(ply + 1);
                 }
             }
         }
 
-        if (pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0)
-            || pos.occ().popcount() == Square::COUNT as u32 - 1
+        if pos.flats_in_hand(pos.stm()) > 0
+            && ((pos.flats_in_hand(pos.stm()) == 1 && pos.caps_in_hand(pos.stm()) == 0)
+                || pos.occ().popcount() == Square::COUNT as u32 - 1)
         {
             let hfcd = pos.hfcd(pos.stm());
 
             if hfcd >= -1 {
+                thread.inc_nodes();
                 push_to_pv(!pos.occ());
-                return SCORE_MATE - ply - 1;
+                return win_in(ply + 1);
             }
 
             if hfcd == -2 && alpha < 0 {
                 push_to_pv(!pos.occ());
                 alpha = 0;
                 if alpha >= beta {
+                    thread.inc_nodes();
                     return alpha;
                 }
             }
@@ -233,22 +284,24 @@ fn search<NT: NodeType>(
     }
 
     if depth <= 0 {
-        return leaf::<NT>(thread, pos, ply, alpha, beta);
+        return leaf::<NT>(thread, pos, 0, ply, alpha, beta);
     }
+
+    thread.inc_nodes();
 
     if NT::PV_NODE {
         thread.update_seldepth(ply);
     }
 
-    if ply > MAX_DEPTH {
+    if ply >= MAX_DEPTH as usize {
         let static_eval = static_eval(&mut thread.nnue_state, pos);
-        let correction = thread.corrhist.correction(pos, &thread.key_history);
+        let correction = thread.corrhist.slice(pos, &thread.key_history).get();
         return static_eval + correction;
     }
 
     let mut depth = depth.min(MAX_DEPTH);
 
-    let excluded = thread.stack[ply as usize].excluded;
+    let excluded = thread.stack[ply].excluded;
 
     let tt_hit;
     let tt_entry;
@@ -261,6 +314,7 @@ fn search<NT: NodeType>(
 
         if !NT::PV_NODE
             && tt_entry.depth >= depth
+            && (tt_entry.score <= alpha || expected_cutnode)
             && match tt_entry.flag {
                 None => false,
                 Some(TtFlag::UpperBound) => tt_entry.score <= alpha,
@@ -278,7 +332,11 @@ fn search<NT: NodeType>(
         tt_entry.mv
     };
 
-    if excluded.is_none() && (NT::PV_NODE || expected_cutnode) && depth >= 3 && tt_move.is_none() {
+    if excluded.is_none()
+        && (NT::PV_NODE || expected_cutnode)
+        && depth >= 3
+        && (tt_move.is_none() || (tt_hit && tt_entry.depth + 2 < depth))
+    {
         depth -= 1;
     }
 
@@ -292,23 +350,49 @@ fn search<NT: NodeType>(
         thread.shared().tt.store_static_eval(pos.key(), raw_eval);
     }
 
-    let correction = thread.corrhist.correction(pos, &thread.key_history);
+    let corrhist = thread.corrhist.slice(pos, &thread.key_history);
+    let correction = corrhist.get();
     let static_eval = raw_eval + correction;
 
-    thread.stack[ply as usize].static_eval = static_eval;
+    thread.stack[ply].static_eval = static_eval;
 
-    let improving = ply < 2 || static_eval > thread.stack[ply as usize - 2].static_eval;
+    let improving = ply < 2 || static_eval > thread.stack[ply - 2].static_eval;
+    let opp_worsening = ply > 0 && static_eval > -thread.stack[ply - 1].static_eval;
 
     if !NT::PV_NODE && excluded.is_none() {
-        // reverse futility pruning (rfp)
-        let rfp_margin = (100 * depth + 184 - 75 * i32::from(expected_cutnode) - 150 * i32::from(improving)).max(0);
-        if depth <= 6 && static_eval - rfp_margin >= beta {
-            return static_eval;
+        let parent_reduction = thread.stack[ply - 1].reduction;
+        let parent_static_eval = thread.stack[ply - 1].static_eval;
+
+        if depth < MAX_DEPTH && parent_reduction >= 3 && static_eval + parent_static_eval <= 0 {
+            depth += 1;
         }
 
+        tunable!(RFP_DEPTH_SCALE: i32 = 92; range(0, 256));
+        tunable!(RFP_BASE: i32 = 154; range(0, 512));
+        tunable!(RFP_CUTNODE: i32 = 101; range(0, 256));
+        tunable!(RFP_IMPROVING: i32 = 70; range(0, 512));
+        tunable!(RFP_OPP_WORSENING: i32 = 32; range(0, 128));
+
+        // reverse futility pruning (rfp)
+        let rfp_margin = (RFP_DEPTH_SCALE * depth + RFP_BASE
+            - RFP_CUTNODE * i32::from(expected_cutnode)
+            - RFP_IMPROVING * i32::from(improving)
+            - RFP_OPP_WORSENING * i32::from(opp_worsening))
+        .max(0);
+        if depth <= 10 && static_eval - rfp_margin >= beta {
+            return if !is_decisive(static_eval) && !is_decisive(beta) {
+                (static_eval + beta) / 2
+            } else {
+                static_eval
+            };
+        }
+
+        tunable!(NMP_BASE_R: i32 = 5249; range(0, 8192));
+        tunable!(NMP_DEPTH_SCALE: i32 = 452; range(0, 1024));
+
         // nullmove pruning (nmp)
-        if expected_cutnode && depth >= 4 && static_eval >= beta && thread.stack[ply as usize - 1].mv.is_some() {
-            let r = 3 + depth / 5;
+        if expected_cutnode && depth >= 4 && static_eval >= beta && thread.stack[ply - 1].mv.is_some() {
+            let r = (NMP_BASE_R + NMP_DEPTH_SCALE * depth) / 1024;
 
             let new_pos = thread.apply_nullmove(ply, pos);
 
@@ -338,25 +422,22 @@ fn search<NT: NodeType>(
 
     let mut tt_flag = TtFlag::UpperBound;
 
-    let prev_move = if ply > 0 {
-        thread.stack[(ply - 1) as usize].mv
-    } else {
-        None
-    };
+    let prev_move = if ply > 0 { thread.stack[ply - 1].mv } else { None };
 
+    let history = thread.history.hist_slice(pos, prev_move);
     let mut movepicker = Movepicker::new(
         pos,
         &mut data.movelist,
         &mut data.scores,
         tt_move,
-        thread.killers[ply as usize],
-        prev_move,
+        thread.killers[ply],
+        history,
     );
 
     let mut move_count = 0;
     let mut faillow_moves = arrayvec::ArrayVec::<Move, 32>::new();
 
-    while let Some(mv) = movepicker.next(&thread.history) {
+    while let Some(mv) = movepicker.next() {
         debug_assert!(pos.is_legal(mv));
 
         if NT::ROOT_NODE && !thread.is_legal_root_move(mv) {
@@ -369,8 +450,34 @@ fn search<NT: NodeType>(
 
         #[allow(clippy::collapsible_if)]
         if !NT::ROOT_NODE && !is_loss(best_score) && (!NT::PV_NODE || !cfg!(feature = "datagen")) {
-            if depth <= 6 && move_count as i32 >= (5 + 2 * depth * depth) / (2 - i32::from(improving)) {
-                break;
+            tunable!(LMP_LOSING_MARGIN: i32 = 146; range(0, 512));
+            tunable!(LMP_BASE: i32 = 1629; range(0, 2048));
+            tunable!(LMP_DEPTH_SCALE: i32 = 310; range(0, 1024));
+
+            if depth <= 8 {
+                let losing = static_eval + LMP_LOSING_MARGIN <= alpha;
+                let limit = (LMP_BASE + LMP_DEPTH_SCALE * depth * depth)
+                    * (1 + i32::from(improving))
+                    * (1 + i32::from(!losing))
+                    * (1 + i32::from(NT::PV_NODE))
+                    / 1024;
+                if move_count as i32 >= limit {
+                    if tt_flag == TtFlag::UpperBound
+                        && let Some(win) = spread_road_win(pos)
+                    {
+                        best_score = win_in(ply + 1);
+                        best_move = Some(win);
+                        tt_flag = if best_score >= beta {
+                            TtFlag::LowerBound
+                        } else {
+                            TtFlag::Exact
+                        };
+                        if NT::PV_NODE {
+                            set_pv(&mut data.pv, win);
+                        }
+                    }
+                    break;
+                }
             }
         }
 
@@ -378,34 +485,58 @@ fn search<NT: NodeType>(
 
         let mut extension = 0;
 
-        if !NT::ROOT_NODE
-            && Some(mv) == tt_move
-            && excluded.is_none()
-            && depth >= 5
-            && tt_entry.depth >= depth - 3
-            && tt_entry.flag != Some(TtFlag::UpperBound)
-            && !is_decisive(tt_entry.score)
-        {
-            let s_beta = tt_entry.score - 3 * depth / 2;
-            let s_depth = (depth - 1) / 2;
+        tunable!(SE_BETA_SCALE: i32 = 1391; range(0, 4096));
+        tunable!(SE_DEXT_MARGIN: i32 = 26; range(0, 128));
+        tunable!(SE_TEXT_MARGIN: i32 = 137; range(0, 256));
 
-            thread.stack[ply as usize].excluded = Some(mv);
-            let score = search::<NonPvNode>(
-                thread,
-                child_data,
-                pos,
-                s_depth,
-                ply,
-                s_beta - 1,
-                s_beta,
-                expected_cutnode,
-            );
-            thread.stack[ply as usize].excluded = None;
+        tunable!(LDSE_MARGIN: i32 = 26; range(1, 64));
+        tunable!(LDSE_DOUBLE_MARGIN: i32 = 40; range(20, 120));
 
-            if score < s_beta {
-                extension += 1 + i32::from(!NT::PV_NODE && score < s_beta - 30);
-            } else if !NT::PV_NODE && score >= beta {
-                return score;
+        if !NT::ROOT_NODE && Some(mv) == tt_move && excluded.is_none() {
+            #[allow(clippy::if_same_then_else)]
+            if depth >= 5
+                && tt_entry.depth >= depth - 3
+                && tt_entry.flag != Some(TtFlag::UpperBound)
+                && !is_decisive(tt_entry.score)
+            {
+                let s_beta = tt_entry.score - SE_BETA_SCALE * depth / 1024;
+                let s_depth = (depth - 1) / 2;
+
+                thread.stack[ply].excluded = Some(mv);
+                let score = search::<NonPvNode>(
+                    thread,
+                    child_data,
+                    pos,
+                    s_depth,
+                    ply,
+                    s_beta - 1,
+                    s_beta,
+                    expected_cutnode,
+                );
+                thread.stack[ply].excluded = None;
+
+                if score < s_beta {
+                    extension += 1
+                        + i32::from(!NT::PV_NODE && score < s_beta - SE_DEXT_MARGIN)
+                        + i32::from(!NT::PV_NODE && score < s_beta - SE_TEXT_MARGIN);
+                } else if !NT::PV_NODE && score >= beta {
+                    return score;
+                } else if tt_entry.score >= beta {
+                    extension -= 1;
+                } else if expected_cutnode {
+                    extension -= 1;
+                }
+            } else if depth <= 7
+                && (ply as i32) < thread.root_depth * 2
+                && static_eval <= alpha - LDSE_MARGIN
+                && tt_entry.flag == Some(TtFlag::LowerBound)
+            {
+                extension += 1 + i32::from(
+                    !NT::PV_NODE
+                        && !cfg!(feature = "datagen")
+                        && tt_entry.depth >= depth - 3
+                        && static_eval <= alpha - LDSE_DOUBLE_MARGIN,
+                );
             }
         }
 
@@ -429,7 +560,7 @@ fn search<NT: NodeType>(
 
         let is_crush = mv.is_spread() && pos.top_pt(mv.spread_dest()) == Some(PieceType::Wall);
 
-        if extension == 0 && is_crush {
+        if extension == 0 && is_crush && tt_move == Some(mv) {
             extension += 1;
         }
 
@@ -437,9 +568,9 @@ fn search<NT: NodeType>(
 
         let score = if let Some(state) = thread.check_terminal_state(ply, &new_pos, mv) {
             match state {
-                TerminalState::Win => SCORE_MATE - ply - 1,
+                TerminalState::Win => win_in(ply + 1),
                 TerminalState::Draw => 0,
-                TerminalState::Loss => -SCORE_MATE + ply + 1,
+                TerminalState::Loss => loss_in(ply + 1),
             }
         } else {
             let mut score = 0;
@@ -447,24 +578,47 @@ fn search<NT: NodeType>(
             let new_depth = depth + extension - 1;
 
             if depth >= 2 && move_count >= 2 + usize::from(NT::ROOT_NODE) {
-                let mut r = LMR_REDUCTIONS[depth as usize - 1][move_count.min(LMR_TABLE_MOVES) - 1];
+                let mut r = LMR_REDUCTIONS.get(depth, move_count);
 
-                r += 1024 * i32::from(!NT::PV_NODE);
-                r += 1024 * i32::from(!improving);
-                r -= thread.history.score(pos, mv, prev_move) / 24;
+                tunable!(PV_NODE_LMR: i32 = 1263; range(0, 4096));
+                tunable!(CUTNODE_LMR: i32 = 2289; range(0, 4096));
+                tunable!(IMPROVING_LMR: i32 = 264; range(0, 4096));
+                tunable!(HIST_LMR: i32 = 925; range(0, 4096));
+                tunable!(CORR_LMR: i32 = 439; range(0, 2048));
+                tunable!(THREAT_LMR: i32 = 1001; range(0, 4096));
+                tunable!(SPREAD_GAIN_LMR: i32 = -603; range(-2048, 2048));
+
+                r += PV_NODE_LMR * i32::from(!NT::PV_NODE);
+                r += CUTNODE_LMR * i32::from(expected_cutnode);
+                r += IMPROVING_LMR * i32::from(!improving);
+                r -= history.score(mv) * HIST_LMR / 24576;
+                r -= (correction.abs() * CORR_LMR / 64).min(1024);
+
+                let our_influence = new_pos.influence(pos.stm());
+                let threats = (((our_influence[0] & our_influence[1]) | (our_influence[2] & our_influence[3]))
+                    & !new_pos.occ())
+                .popcount() as i32;
+                r -= THREAT_LMR * threats.min(2);
 
                 if mv.is_spread() {
                     let gain = (new_pos.hfcd(pos.stm()) - pos.hfcd(pos.stm())) / 2;
-                    r += (1 - gain).clamp(0, 3) * 1024;
+                    r += (1 - gain).clamp(0, 3) * SPREAD_GAIN_LMR;
                 }
 
                 r /= 1024;
 
                 let reduced = (new_depth - r).max(1).min(new_depth);
 
+                thread.stack[ply].reduction = new_depth - reduced;
                 score = -search::<NonPvNode>(thread, child_data, &new_pos, reduced, ply + 1, -alpha - 1, -alpha, true);
+                thread.stack[ply].reduction = 0;
 
                 if score > alpha && reduced < new_depth {
+                    tunable!(DODEEPER_BASE: i32 = 34365; range(0, 131072));
+                    tunable!(DODEEPER_SCALE: i32 = 2154; range(0, 8192));
+
+                    let do_deeper = score > best_score + (DODEEPER_BASE + DODEEPER_SCALE * new_depth) / 1024;
+                    let new_depth = new_depth + i32::from(do_deeper);
                     score = -search::<NonPvNode>(
                         thread,
                         child_data,
@@ -475,6 +629,15 @@ fn search<NT: NodeType>(
                         -alpha,
                         !expected_cutnode,
                     );
+
+                    tunable!(LMR_HIST_BONUS_SCALE: i32 = 457; range(0, 1024));
+                    tunable!(LMR_HIST_BONUS_OFFSET: i32 = 380; range(0, 1024));
+                    tunable!(LMR_HIST_BONUS_MAX: i32 = 3760; range(0, 4096));
+
+                    let bonus =
+                        (LMR_HIST_BONUS_SCALE * new_depth - LMR_HIST_BONUS_OFFSET).clamp(0, LMR_HIST_BONUS_MAX.val());
+
+                    history.update(mv, if score > alpha { bonus } else { -bonus });
                 }
             } else if !NT::PV_NODE || move_count > 1 {
                 score = -search::<NonPvNode>(
@@ -565,17 +728,29 @@ fn search<NT: NodeType>(
     debug_assert!(move_count > 0);
 
     if let Some(best_move) = best_move {
-        let bonus = (500 * depth - 500).clamp(0, 3000);
+        tunable!(HIST_BONUS_SCALE: i32 = 482; range(0, 1024));
+        tunable!(HIST_BONUS_OFFSET: i32 = 479; range(0, 1024));
+        tunable!(HIST_BONUS_MAX: i32 = 3655; range(0, 4096));
+        tunable!(HIST_MALUS_SCALE: i32 = 482; range(0, 1024));
+        tunable!(HIST_MALUS_OFFSET: i32 = 512; range(0, 1024));
+        tunable!(HIST_MALUS_MAX: i32 = 3092; range(0, 4096));
 
-        thread.history.update(pos, best_move, prev_move, bonus);
+        let bonus = (HIST_BONUS_SCALE * depth - HIST_BONUS_OFFSET).clamp(0, HIST_BONUS_MAX.val());
+        let malus = (HIST_MALUS_SCALE * depth - HIST_MALUS_OFFSET).clamp(0, HIST_MALUS_MAX.val());
+
+        history.update(best_move, bonus);
 
         for &mv in faillow_moves.iter() {
-            thread.history.update(pos, mv, prev_move, -bonus);
+            history.update(mv, -malus);
         }
 
         if best_score >= beta {
-            thread.killers[ply as usize].push(best_move);
+            thread.killers[ply].push(best_move);
         }
+    }
+
+    if !NT::PV_NODE && best_score >= beta && !is_decisive(best_score) && !is_decisive(beta) {
+        best_score = (best_score * depth + beta) / (depth + 1);
     }
 
     if excluded.is_none() {
@@ -583,9 +758,7 @@ fn search<NT: NodeType>(
             || (tt_flag == TtFlag::UpperBound && best_score < static_eval)
             || (tt_flag == TtFlag::LowerBound && best_score > static_eval)
         {
-            thread
-                .corrhist
-                .update(pos, &thread.key_history, depth, best_score, static_eval);
+            corrhist.update(depth, best_score, static_eval);
         }
 
         if !NT::ROOT_NODE || thread.pv_idx == 0 {
@@ -599,7 +772,24 @@ fn search<NT: NodeType>(
     best_score
 }
 
-fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: i32, alpha: Score, beta: Score) -> Score {
+fn account_for_spread(score: Score, pos: &Position, ply: usize, beta: Score) -> Score {
+    if score < beta && spread_road_win(pos).is_some() {
+        win_in(ply + 1)
+    } else {
+        score
+    }
+}
+
+fn leaf<NT: NodeType>(
+    thread: &mut ThreadData,
+    pos: &Position,
+    depth: i32,
+    ply: usize,
+    alpha: Score,
+    beta: Score,
+) -> Score {
+    thread.inc_nodes();
+
     if NT::PV_NODE {
         thread.update_seldepth(ply);
     }
@@ -614,7 +804,7 @@ fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: i32, alpha: 
             Some(TtFlag::Exact) => true,
         }
     {
-        return tt_entry.score;
+        return account_for_spread(tt_entry.score, pos, ply, beta);
     }
 
     let raw_eval = if tt_hit {
@@ -627,10 +817,31 @@ fn leaf<NT: NodeType>(thread: &mut ThreadData, pos: &Position, ply: i32, alpha: 
         thread.shared().tt.store_static_eval(pos.key(), raw_eval);
     }
 
-    let correction = thread.corrhist.correction(pos, &thread.key_history);
+    let correction = thread.corrhist.slice(pos, &thread.key_history).get();
     let static_eval = raw_eval + correction;
 
-    static_eval
+    if ply >= MAX_DEPTH as usize {
+        return static_eval;
+    }
+
+    let repeated = depth <= -4 && thread.key_history[thread.key_history.len() - 4] == pos.key();
+    if !NT::PV_NODE
+        && tt_hit
+        && !repeated
+        && let Some((mv, flag)) = Option::zip(tt_entry.mv, tt_entry.flag)
+        && pos.is_legal(mv)
+    {
+        let new_pos = thread.apply_move(ply, pos, mv);
+        let score = -leaf::<NT>(thread, &new_pos, depth - 1, ply + 1, -alpha - 1, -alpha);
+        thread.pop_move();
+        let score = match flag {
+            TtFlag::UpperBound => i32::min(static_eval, score),
+            TtFlag::LowerBound => i32::max(static_eval, score),
+            TtFlag::Exact => unreachable!(),
+        };
+        return account_for_spread(score, pos, ply, beta);
+    }
+    account_for_spread(static_eval, pos, ply, beta)
 }
 
 fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut ThreadData) {
@@ -669,7 +880,10 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
         while thread.pv_idx < ctx.multipv {
             thread.reset_seldepth();
 
-            let mut delta = 25;
+            tunable!(ASP_DELTA: i32 = 23; range(1, 64));
+            tunable!(ASP_WIDEN: i32 = 1280; range(1024, 4096));
+
+            let mut delta = ASP_DELTA.val();
 
             let mut alpha = -SCORE_INF;
             let mut beta = SCORE_INF;
@@ -680,12 +894,15 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                 beta = (last_score + delta).min(SCORE_INF);
             }
 
+            let mut reduction = 0;
+
             while !thread.shared().has_stopped() {
+                let root_depth = (thread.root_depth - reduction).max(1);
                 let score = search::<RootNode>(
                     thread,
                     &mut data_stack,
                     &ctx.root_pos,
-                    thread.root_depth,
+                    root_depth,
                     0,
                     alpha,
                     beta,
@@ -706,14 +923,17 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
                     let time = thread.shared().elapsed();
                     if time >= WIDEN_REPORT_DELAY {
                         let nodes = thread.shared().total_nodes();
-                        report_single(thread, ctx, time, nodes, thread.pv_idx);
+                        report_single(thread.pv_move(), thread.shared(), ctx, time, nodes, thread.pv_idx);
                     }
                 }
 
-                delta = (delta * 3 / 2).min(SCORE_INF);
+                delta = (delta * ASP_WIDEN / 1024).min(SCORE_INF);
                 if score <= alpha {
+                    reduction = 0;
+                    beta = (alpha + beta) / 2;
                     alpha = (alpha - delta).max(-SCORE_INF);
                 } else {
+                    reduction = (reduction + 1).min(3);
                     beta = (beta + delta).min(SCORE_INF);
                 }
             }
@@ -753,29 +973,23 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
         thread.root_depth += 1;
     }
 
+    if thread.is_main_thread() && thread.shared().options.pick_random {
+        let random = seed_from_entropy() as usize % ctx.multipv;
+        if random != 0 {
+            thread.root_moves.swap(0, random);
+        }
+    }
+
+    thread.publish_result();
+
     if thread.is_main_thread() {
         counter.unregister_and_wait();
-
-        #[cfg(feature = "datagen")]
-        {
-            thread.shared().set_result(thread.pv_move().clone());
-        }
-
-        if thread.shared().options.pick_random {
-            let random = seed_from_entropy() as usize % ctx.multipv;
-            if random != 0 {
-                thread.root_moves.swap(0, random);
-            }
-        }
-
-        let silent = thread.shared().options.silent;
-        let best_move = thread.pv_move().mv();
-
-        thread.shared = None;
         counter.complete_search(|| {
-            if !silent {
-                final_report(best_move);
+            if !thread.shared().options.silent {
+                final_report(thread.shared(), ctx);
             }
+            thread.shared = None;
+            stats::print();
         });
     } else {
         thread.shared = None;
@@ -783,9 +997,122 @@ fn run_search(shared: Arc<SharedContext>, ctx: &SearchContext, thread: &mut Thre
     }
 }
 
-fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usize, pv_idx: usize) -> bool {
-    let root_move = &thread.root_moves[pv_idx];
+fn select_thread(thread_results: &[RootMove]) -> usize {
+    if thread_results.len() == 1 {
+        return 0;
+    }
 
+    let lowest_root_score = thread_results
+        .iter()
+        .map(|root_move| root_move.score)
+        .filter(|&score| score != -SCORE_INF)
+        .min()
+        .unwrap();
+
+    let thread_weight = |thread_idx: usize| {
+        let thread = &thread_results[thread_idx];
+        (thread.score - lowest_root_score + 10) * thread.searched_depth
+    };
+
+    let mut votes = HashMap::<u16, i32>::new();
+
+    for (idx, thread) in thread_results
+        .iter()
+        .filter(|&root_move| root_move.score != -SCORE_INF)
+        .enumerate()
+    {
+        *votes.entry(thread.mv().raw()).or_insert(0) += thread_weight(idx);
+    }
+
+    let votes = |thread_idx: usize| {
+        let thread = &thread_results[thread_idx];
+        *votes.get(&thread.mv().raw()).unwrap()
+    };
+
+    let mut curr_best_idx = 0;
+
+    let mut curr_best_score = thread_results[0].score;
+    let mut curr_best_votes = votes(0);
+
+    for (idx, thread) in thread_results.iter().enumerate().skip(1) {
+        let best_idx = curr_best_idx;
+
+        let best_score = curr_best_score;
+        let best_votes = curr_best_votes;
+
+        let mut accept_thread = || {
+            curr_best_idx = idx;
+            curr_best_score = thread.score;
+            curr_best_votes = votes(idx);
+        };
+
+        let score = thread.score;
+
+        if score == -SCORE_INF {
+            continue;
+        }
+
+        if best_score == -SCORE_INF {
+            accept_thread();
+            continue;
+        }
+
+        // if the best thread has a proven win, only take a faster win
+        if is_win(best_score) {
+            if score > best_score {
+                accept_thread();
+            }
+            continue;
+        }
+
+        // if the best thread has a proven loss, only take a faster one.
+        // this may seem unintuitive but we assume that we can't propagate false mates to root,
+        //   so any slower loss means that that thread missed something
+        if is_loss(best_score) {
+            if score < best_score {
+                accept_thread();
+            }
+            continue;
+        }
+
+        // if we don't have a decisive score yet, take any
+        if is_decisive(score) {
+            accept_thread();
+            continue;
+        }
+
+        let votes = votes(idx);
+
+        // always pick the move with the most votes
+        if votes > best_votes {
+            accept_thread();
+            continue;
+        }
+
+        // if we have a move with the same number of votes (not necessarily the same move),
+        //   then take the highest-weighted thread, avoiding truncated PVs from fails at root
+        if votes == best_votes
+            && thread_weight(idx) * i32::from(thread.pv.len() > 2)
+                > thread_weight(best_idx) * i32::from(thread_results[best_idx].pv.len() > 2)
+        {
+            accept_thread();
+            continue;
+        }
+    }
+
+    println!("info string Selected thread {}", curr_best_idx);
+
+    curr_best_idx
+}
+
+fn report_single(
+    root_move: &RootMove,
+    shared: &SharedContext,
+    ctx: &SearchContext,
+    time: f64,
+    nodes: usize,
+    pv_idx: usize,
+) -> bool {
     // previous scores are exact, as the depth was completed
     let (score, upper_bound, lower_bound) = if root_move.score == -SCORE_INF {
         (root_move.previous_score, false, false)
@@ -806,7 +1133,7 @@ fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usi
     let mut out = std::io::stdout().lock();
     write!(out, "info ").unwrap();
 
-    if thread.shared().options.multipv > 1 {
+    if shared.options.multipv > 1 {
         write!(out, "multipv {} ", pv_idx + 1).unwrap();
     }
 
@@ -818,7 +1145,7 @@ fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usi
     .unwrap();
 
     if is_decisive(score) {
-        if thread.shared().options.mate_scores {
+        if shared.options.mate_scores {
             if score > 0 {
                 write!(out, "mate {}", (SCORE_MATE - score + 1) / 2).unwrap();
             } else {
@@ -853,7 +1180,7 @@ fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usi
             write!(out, " wdl 0 0 1000").unwrap();
         }
     } else {
-        let (w, d, l) = if thread.shared().options.human_wdl {
+        let (w, d, l) = if shared.options.human_wdl {
             wdl::human_probabilities(score, &ctx.root_pos)
         } else {
             wdl::probabilities(score)
@@ -861,7 +1188,7 @@ fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usi
         write!(out, " wdl {} {} {}", w, d, l).unwrap();
     }
 
-    let hashfull = thread.shared().tt.estimate_full_permille();
+    let hashfull = shared.tt.estimate_full_permille();
     write!(out, " hashfull {}", hashfull).unwrap();
 
     write!(out, " pv").unwrap();
@@ -878,13 +1205,42 @@ fn report_single(thread: &ThreadData, ctx: &SearchContext, time: f64, nodes: usi
 fn report(thread: &ThreadData, ctx: &SearchContext, time: f64) {
     let nodes = thread.shared().total_nodes();
     for pv_idx in 0..ctx.multipv {
-        if !report_single(thread, ctx, time, nodes, pv_idx) {
+        let root_move = &thread.root_moves[pv_idx];
+        if !report_single(root_move, thread.shared(), ctx, time, nodes, pv_idx) {
             break;
         }
     }
 }
 
-fn final_report(best_move: Move) {
+fn final_report(shared: &SharedContext, ctx: &SearchContext) {
+    let best_move;
+
+    #[cfg(feature = "datagen")]
+    {
+        best_move = shared.result().unwrap().mv();
+    }
+
+    #[cfg(not(feature = "datagen"))]
+    {
+        let results = shared.results.lock().unwrap();
+
+        // we currently don't support thread voting with multipv enabled
+        if shared.options.multipv > 1 {
+            best_move = results[0].mv();
+        } else {
+            let thread_idx = select_thread(&results);
+
+            // the main thread already printed its info before stopping
+            if thread_idx != 0 {
+                let time = shared.elapsed();
+                let nodes = shared.total_nodes();
+                report_single(&results[thread_idx], shared, ctx, time, nodes, 0);
+            }
+
+            best_move = results[thread_idx].mv();
+        }
+    }
+
     println!("bestmove {}", best_move);
 }
 
@@ -932,7 +1288,9 @@ impl Searcher {
     }
 
     fn run_thread(id: u32, mut receiver: Receiver<ThreadCommand>) {
-        let mut data = ThreadData::new(id);
+        let hist = History::boxed();
+        let corrhist = CorrectionHistory::boxed();
+        let mut data = ThreadData::new(id, &hist, &corrhist);
 
         loop {
             match receiver.recv(|cmd| cmd.clone()) {
@@ -957,6 +1315,7 @@ impl Searcher {
         limits: Limits,
         max_depth: i32,
         moves_to_search: &[Move],
+        moves_to_exclude: &HashSet<Move>,
         options: &TeiOptions,
     ) {
         let threads = self.threads.len() as u32;
@@ -964,7 +1323,7 @@ impl Searcher {
             ctx.init_search(options, start_time, limits, threads);
         });
 
-        let root_moves = init_root_moves(pos, moves_to_search);
+        let root_moves = init_root_moves(pos, moves_to_search, moves_to_exclude);
         let multipv = options.multipv.min(root_moves.len());
 
         let ctx = SearchContext::new(
@@ -1069,7 +1428,9 @@ impl Searcher {
     }
 }
 
-fn init_root_moves(root_pos: &Position, moves_to_search: &[Move]) -> Vec<RootMove> {
+fn init_root_moves(root_pos: &Position, moves_to_search: &[Move], moves_to_exclude: &HashSet<Move>) -> Vec<RootMove> {
+    let mut moves = Vec::with_capacity(1024);
+
     if !moves_to_search.is_empty() {
         print!("info string searchmoves:");
         for &mv in moves_to_search {
@@ -1078,11 +1439,22 @@ fn init_root_moves(root_pos: &Position, moves_to_search: &[Move]) -> Vec<RootMov
         }
         println!();
 
-        return moves_to_search.iter().map(|&mv| RootMove::new(mv)).collect();
+        moves.extend_from_slice(moves_to_search);
+    } else {
+        generate_moves(&mut moves, root_pos);
     }
 
-    let mut moves = Vec::with_capacity(1024);
-    generate_moves(&mut moves, root_pos);
+    if !moves_to_exclude.is_empty() {
+        print!("info string excludemoves:");
+        moves.retain(|mv| {
+            let keep = !moves_to_exclude.contains(mv);
+            if !keep {
+                print!(" {}", *mv);
+            }
+            keep
+        });
+        println!();
+    }
 
     moves.iter().map(|&mv| RootMove::new(mv)).collect()
 }

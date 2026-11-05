@@ -20,16 +20,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-
 use crate::core::Color;
 use crate::eval::static_eval_once;
 use crate::limit::{Limits, MAX_MOVE_OVERHEAD_MS};
 use crate::perft::{perft, split_perft};
 use crate::position::*;
-use crate::search;
 use crate::search::{MAX_THREADS, Searcher};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
 use crate::wdl;
+use crate::{search, stats};
+use std::collections::HashSet;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 const NAME: &str = "syntaks";
@@ -38,7 +39,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub const MAX_MULTIPV: usize = 2048;
 
-const DEFAULT_BENCH_DEPTH: i32 = 12;
+const DEFAULT_BENCH_DEPTH: i32 = 13;
 
 const BENCH_POSITIONS: [&str; 25] = [
     "x6/x6/x6/x6/x6/x6 1 1",
@@ -78,6 +79,7 @@ pub struct TeiOptions {
     pub silent: bool,
     pub move_overhead_ms: u64,
     pub pick_random: bool,
+    pub double_black_stack: bool,
 }
 
 impl Default for TeiOptions {
@@ -91,6 +93,7 @@ impl Default for TeiOptions {
             silent: false,
             move_overhead_ms: 10,
             pick_random: false,
+            double_black_stack: false,
         }
     }
 }
@@ -101,6 +104,9 @@ struct TeiHandler {
     searcher: Searcher,
     options: TeiOptions,
     half_komi: i8,
+
+    #[cfg(feature = "tune")]
+    param_handler: crate::tune::ParamHandler,
 }
 
 impl TeiHandler {
@@ -112,6 +118,9 @@ impl TeiHandler {
             searcher: Searcher::new(DEFAULT_TT_SIZE_MIB),
             options: TeiOptions::default(),
             half_komi: Position::DEFAULT_HALF_KOMI,
+
+            #[cfg(feature = "tune")]
+            param_handler: crate::tune::ParamHandler::new(),
         }
     }
 
@@ -120,6 +129,11 @@ impl TeiHandler {
         loop {
             let bytes = match std::io::stdin().read_line(&mut line) {
                 Ok(bytes) => bytes,
+                // emscripten just loves giving random errors
+                Err(_) if cfg!(target_os = "emscripten") => {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    continue;
+                }
                 Err(err) => {
                     eprintln!("Warning: Failed to read from stdin: {}", err);
                     return;
@@ -155,6 +169,8 @@ impl TeiHandler {
                 "perft" => self.handle_perft(args),
                 "splitperft" => self.handle_splitperft(args),
                 "bench" => self.handle_bench(args.first().copied()),
+                #[cfg(feature = "tune")]
+                "obspsa" => self.ob_spsa(),
                 "quit" => break,
                 unknown => eprintln!("Warning: Unknown command '{}'", unknown),
             }
@@ -198,6 +214,19 @@ impl TeiHandler {
             "option name MoveOverhead type spin default {} min 0 max {}",
             default_options.move_overhead_ms, MAX_MOVE_OVERHEAD_MS
         );
+        println!("option name DoubleBlackStack type check default false");
+
+        #[cfg(feature = "tune")]
+        for tunable in self.param_handler.tunables() {
+            let (min, max) = tunable.range();
+            println!(
+                "option name {} type spin default {} min {} max {}",
+                tunable.name(),
+                unsafe { tunable.get() },
+                min,
+                max
+            );
+        }
 
         println!("teiok");
     }
@@ -349,7 +378,20 @@ impl TeiHandler {
                     invalid(&value);
                 }
             }
-            unknown => eprintln!("Warning: Unknown option '{}'", unknown),
+            "doubleblackstack" => {
+                if let Ok(double_black_stack) = value.parse::<bool>() {
+                    DOUBLE_BLACK_STACK.store(double_black_stack, Ordering::Relaxed);
+                }
+            }
+            #[cfg(feature = "tune")]
+            param if let Some(param) = self.param_handler.get(param) => {
+                if let Err(err) = unsafe { param.set(&value) } {
+                    eprintln!("{err}");
+                }
+            }
+            unknown => {
+                eprintln!("Warning: Unknown option '{}'", unknown)
+            }
         }
     }
 
@@ -439,8 +481,16 @@ impl TeiHandler {
             self.options.multipv = 6;
             self.options.pick_random = true;
             let limits = Limits::new(start_time);
-            self.searcher
-                .start_search(&self.pos, &self.key_history, start_time, limits, 8, &[], &self.options);
+            self.searcher.start_search(
+                &self.pos,
+                &self.key_history,
+                start_time,
+                limits,
+                8,
+                &[],
+                &HashSet::new(),
+                &self.options,
+            );
             self.options.multipv = multipv;
             self.options.pick_random = false;
             return;
@@ -455,6 +505,7 @@ impl TeiHandler {
         let mut binc = None;
 
         let mut moves_to_search = Vec::new();
+        let mut moves_to_exclude = HashSet::new();
 
         let mut i = 0;
         while i < args.len() {
@@ -563,6 +614,27 @@ impl TeiHandler {
                         }
                     }
                 }
+                "excludemoves" => {
+                    while i + 1 < args.len() {
+                        let candidate = args[i + 1];
+                        if let Ok(mv) = candidate.parse() {
+                            if moves_to_exclude.contains(&mv) {
+                                i += 1;
+                                continue;
+                            }
+
+                            if !self.pos.is_legal(mv) {
+                                println!("info string excludemoves: Ignoring illegal move '{}'", mv);
+                            }
+
+                            moves_to_exclude.insert(mv);
+
+                            i += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                }
                 unsupported => eprintln!("Warning: Unsupported limit '{}'", unsupported),
             }
 
@@ -581,7 +653,7 @@ impl TeiHandler {
         if let Some(our_time) = our_time {
             let overhead = self.options.move_overhead_ms as f64 / 1000.0;
             let our_inc = our_inc.unwrap_or(0.0);
-            limits.set_time_manager(our_time, our_inc, overhead);
+            limits.set_time_manager(our_time, our_inc, overhead, &self.pos);
         }
 
         let max_depth = max_depth.unwrap_or(search::MAX_DEPTH).clamp(1, search::MAX_DEPTH);
@@ -593,6 +665,7 @@ impl TeiHandler {
             limits,
             max_depth,
             &moves_to_search,
+            &moves_to_exclude,
             &self.options,
         );
     }
@@ -664,6 +737,7 @@ impl TeiHandler {
         };
 
         let mut searcher = Searcher::new(16);
+        let exclude = HashSet::new();
 
         let options = TeiOptions {
             minimal: true,
@@ -681,7 +755,7 @@ impl TeiHandler {
             let start_time = Instant::now();
             let limits = Limits::new(start_time);
 
-            searcher.start_search(&pos, &[], start_time, limits, depth, &[], &options);
+            searcher.start_search(&pos, &[], start_time, limits, depth, &[], &exclude, &options);
             searcher.wait();
 
             total_time += start_time.elapsed().as_secs_f64();
@@ -694,6 +768,8 @@ impl TeiHandler {
 
         println!("{:.3} seconds", total_time);
         println!("{} nodes {} nps", total_nodes, nps);
+
+        stats::print();
     }
 
     fn handle_perft(&self, args: &[&str]) {
@@ -728,6 +804,23 @@ impl TeiHandler {
         };
 
         split_perft(&self.pos, depth);
+    }
+
+    #[cfg(feature = "tune")]
+    fn ob_spsa(&self) {
+        for tunable in self.param_handler.tunables() {
+            let (min, max) = tunable.range();
+            println!(
+                "{}, {}, {}, {}, {}, {}, {}",
+                tunable.name(),
+                tunable.ob_spsa_type(),
+                unsafe { tunable.get() },
+                min,
+                max,
+                tunable.ob_spsa_c_end(),
+                0.002,
+            );
+        }
     }
 }
 

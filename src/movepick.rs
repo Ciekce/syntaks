@@ -22,15 +22,23 @@
  */
 
 use crate::bitboard::Bitboard;
-use crate::core::{PieceType, Score};
-use crate::history::History;
+use crate::core::{Direction, PieceType, Score, Square};
+use crate::history::HistorySlice;
+use crate::hits::find_hits;
 use crate::movegen::generate_moves;
 use crate::position::Position;
 use crate::road::influence;
 use crate::takmove::Move;
 
+#[allow(unused)]
+use crate::stats;
+use crate::tunable;
+
 const SPREAD_ROAD_BONUS: i32 = 1 << 18;
-const SPREAD_FLAT_GAIN: i32 = 4096;
+tunable!(SPREAD_FLAT_GAIN: i32 = 5627; range(0, 8192));
+tunable!(PLACEMENT_PENALTY: i32 = 78; range(-2048, 2048));
+tunable!(WALL_SMASH_BONUS: i32 = 4215; range(0, 8192));
+tunable!(KILLER_MOVE_BONUS: i32 = 16442; range(-32768, 32768));
 
 struct SpreadInfo {
     roads: Bitboard,
@@ -94,17 +102,111 @@ fn spread_ordering_info(pos: &Position, mv: Move) -> SpreadInfo {
 fn spread_wins_road(pos: &Position, info: &SpreadInfo) -> bool {
     let gained = info.roads & !pos.roads(pos.stm());
 
-    let [touches_up, touches_down, touches_left, touches_right] =
-        pos.influence(pos.stm()).map(|bb| !(bb & gained).is_empty());
+    touches_opposite_edges(gained, pos.influence(pos.stm())) && influence(info.roads).0
+}
 
-    ((touches_up && touches_down) || (touches_left && touches_right)) && influence(info.roads).0
+fn touches_opposite_edges(bb: Bitboard, infl: &[Bitboard; 4]) -> bool {
+    let [up, down, left, right] = infl.map(|inf| !(inf & bb).is_empty());
+    (up && down) || (left && right)
+}
+
+fn first_winning_spread(
+    pos: &Position,
+    sq: Square,
+    dir: Direction,
+    lsb: u16,
+    mut pattern: u16,
+    max_dist: u8,
+    limit: u16,
+) -> Option<Move> {
+    while max_dist > 0 && pattern < limit {
+        let mv = Move::spread(sq, dir, pattern);
+        if spread_wins_road(pos, &spread_ordering_info(pos, mv)) {
+            return Some(mv);
+        }
+        if pattern.count_ones() == u32::from(max_dist) {
+            pattern += pattern.isolate_lowest_one();
+        } else {
+            pattern += lsb;
+        }
+    }
+    None
+}
+
+#[must_use]
+pub fn spread_road_win(pos: &Position) -> Option<Move> {
+    let us = pos.stm();
+    let infl = pos.influence(us);
+    let criticals = (infl[0] & infl[1]) | (infl[2] & infl[3]);
+    let near = criticals
+        | criticals.shift(Direction::Up)
+        | criticals.shift(Direction::Down)
+        | criticals.shift(Direction::Left)
+        | criticals.shift(Direction::Right);
+    let top_bit = 1 << (Position::CARRY_LIMIT - 1);
+    let limit = 1 << Position::CARRY_LIMIT;
+
+    for sq in pos.color_bb(us) {
+        let max_carry = pos.height(sq).min(Position::CARRY_LIMIT as u8);
+        if max_carry == 1 && !near.has_sq(sq) {
+            continue;
+        }
+        let lsb = limit >> max_carry;
+        let capstone = pos.top_pt(sq) == Some(PieceType::Capstone);
+        let hits = find_hits(pos.all_blockers(), sq);
+
+        for dir in [Direction::Up, Direction::Down, Direction::Left, Direction::Right] {
+            let (dist, hit_sq) = hits[dir];
+            if dist == 0 {
+                continue;
+            }
+
+            let can_smash = capstone && pos.top_pt(hit_sq) == Some(PieceType::Wall);
+            let blocked = !can_smash && pos.all_blockers().has_sq(hit_sq);
+            let max_dist = max_carry.min(dist - u8::from(blocked));
+
+            let step = u32::from(dir.offset().unsigned_abs());
+            let span = u32::from(max_dist) * step;
+            let mask = if step == 6 {
+                Bitboard::LEFT_EDGE
+            } else {
+                Bitboard::LOWER_EDGE
+            };
+            let prefix = mask >> (step * (Position::CARRY_LIMIT - u32::from(max_dist)));
+            let (line, last) = match dir {
+                Direction::Up | Direction::Right => (prefix << (sq.idx() as u32 + step), sq.bb() << span),
+                Direction::Down | Direction::Left => (prefix << (sq.idx() as u32 - span), sq.bb() >> span),
+            };
+            let gainable = if pos.roads(us).has_sq(sq) {
+                line
+            } else {
+                (line ^ last) | sq.bb()
+            };
+            if !touches_opposite_edges(gainable, infl) {
+                continue;
+            }
+
+            let win = if can_smash {
+                let non_smash_dist = max_dist - u8::from(dist <= max_carry);
+                first_winning_spread(pos, sq, dir, lsb, top_bit, max_dist, limit)
+                    .or_else(|| first_winning_spread(pos, sq, dir, lsb, lsb, non_smash_dist, top_bit))
+            } else {
+                first_winning_spread(pos, sq, dir, lsb, lsb, max_dist, limit)
+            };
+
+            if win.is_some() {
+                return win;
+            }
+        }
+    }
+
+    None
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum Stage {
     TtMove,
     Killer1,
-    Killer2,
     GenMoves,
     Moves,
     End,
@@ -115,8 +217,7 @@ impl Stage {
         assert_ne!(*self, Self::End);
         match *self {
             Self::TtMove => Self::Killer1,
-            Self::Killer1 => Self::Killer2,
-            Self::Killer2 => Self::GenMoves,
+            Self::Killer1 => Self::GenMoves,
             Self::GenMoves => Self::Moves,
             Self::Moves => Self::End,
             Self::End => unreachable!(),
@@ -138,11 +239,6 @@ impl KillerTable {
             self.killers[0] = Some(mv);
         }
     }
-
-    #[must_use]
-    pub fn contains(&self, mv: Move) -> bool {
-        self.killers.contains(&Some(mv))
-    }
 }
 
 pub struct Movepicker<'a> {
@@ -152,7 +248,7 @@ pub struct Movepicker<'a> {
     idx: usize,
     tt_move: Option<Move>,
     killers: KillerTable,
-    prev_move: Option<Move>,
+    history: HistorySlice<'a>,
     stage: Stage,
 }
 
@@ -163,7 +259,7 @@ impl<'a> Movepicker<'a> {
         scores: &'a mut Vec<Score>,
         tt_move: Option<Move>,
         killers: KillerTable,
-        prev_move: Option<Move>,
+        history: HistorySlice<'a>,
     ) -> Self {
         Self {
             pos,
@@ -172,24 +268,30 @@ impl<'a> Movepicker<'a> {
             idx: 0,
             tt_move,
             killers,
-            prev_move,
+            history,
             stage: Stage::TtMove,
         }
     }
 
-    fn score_moves(&mut self, history: &History) {
+    fn score_moves(&mut self) {
         self.scores.clear();
-        for mv in self.moves.iter() {
-            let mut score = history.score(self.pos, *mv, self.prev_move);
+        for &mv in self.moves.iter() {
+            let mut score = self.history.score(mv);
 
+            if self.killers.killers[1] == Some(mv) {
+                score += KILLER_MOVE_BONUS;
+            }
             if !mv.is_spread() {
-                score += 75;
+                score -= PLACEMENT_PENALTY;
             } else {
-                let info = spread_ordering_info(self.pos, *mv);
+                let info = spread_ordering_info(self.pos, mv);
                 if spread_wins_road(self.pos, &info) {
                     score += SPREAD_ROAD_BONUS;
                 }
                 score += SPREAD_FLAT_GAIN * info.flat_delta;
+                if self.pos.top_pt(mv.spread_dest()) == Some(PieceType::Wall) {
+                    score += WALL_SMASH_BONUS;
+                }
             }
 
             // scores have to be less than 2²⁰ to make the movepicking more efficient
@@ -217,7 +319,7 @@ impl<'a> Movepicker<'a> {
         self.moves[self.idx]
     }
 
-    pub fn next(&mut self, history: &History) -> Option<Move> {
+    pub fn next(&mut self) -> Option<Move> {
         while self.stage != Stage::End {
             match self.stage {
                 Stage::TtMove => {
@@ -237,24 +339,15 @@ impl<'a> Movepicker<'a> {
                         return Some(killer);
                     }
                 }
-                Stage::Killer2 => {
-                    if let Some(killer) = self.killers.killers[1]
-                        && self.tt_move.is_none_or(|tt_move| killer != tt_move)
-                        && self.pos.is_legal(killer)
-                    {
-                        self.stage = self.stage.next();
-                        return Some(killer);
-                    }
-                }
                 Stage::GenMoves => {
                     generate_moves(self.moves, self.pos);
-                    self.score_moves(history);
+                    self.score_moves();
                 }
                 Stage::Moves => {
                     while self.idx < self.moves.len() {
                         let mv = self.pick_best();
                         self.idx += 1;
-                        if self.tt_move.is_none_or(|tt_move| mv != tt_move) && !self.killers.contains(mv) {
+                        if self.tt_move.is_none_or(|tt_move| mv != tt_move) && self.killers.killers[0] != Some(mv) {
                             return Some(mv);
                         }
                     }

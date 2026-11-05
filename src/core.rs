@@ -581,3 +581,13 @@ pub const fn is_loss(score: Score) -> bool {
 pub const fn is_decisive(score: Score) -> bool {
     score.abs() > SCORE_WIN
 }
+
+#[must_use]
+pub const fn win_in(plies: usize) -> Score {
+    SCORE_MATE - plies as Score
+}
+
+#[must_use]
+pub const fn loss_in(plies: usize) -> Score {
+    -SCORE_MATE + plies as Score
+}

@@ -29,7 +29,10 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const DEFAULT_TT_SIZE_MIB: usize = 64;
-pub const MAX_TT_SIZE_MIB: usize = 131072;
+pub const MAX_TT_SIZE_MIB: usize = cfg_select! {
+    target_arch = "wasm32" => 2047,
+    _ => 131072,
+};
 
 const ENTRIES_PER_CLUSTER: usize = 3;
 
@@ -68,7 +71,7 @@ impl Entry {
         static_eval: Score,
         mv: Option<Move>,
         depth: i32,
-        ply: i32,
+        ply: usize,
         age: u8,
         flag: Option<TtFlag>,
     ) -> Self {
@@ -208,7 +211,8 @@ fn pack_entry_key(key: u64) -> u16 {
 }
 
 #[must_use]
-fn score_to_tt(score: Score, ply: i32) -> i16 {
+fn score_to_tt(score: Score, ply: usize) -> i16 {
+    let ply = ply as Score;
     if is_loss(score) {
         (score - ply) as i16
     } else if is_win(score) {
@@ -219,8 +223,9 @@ fn score_to_tt(score: Score, ply: i32) -> i16 {
 }
 
 #[must_use]
-fn score_from_tt(score: i16, ply: i32) -> Score {
+fn score_from_tt(score: i16, ply: usize) -> Score {
     let score = score as Score;
+    let ply = ply as Score;
     if is_loss(score) {
         score + ply
     } else if is_win(score) {
@@ -321,7 +326,7 @@ impl TranspositionTable {
     }
 
     #[must_use]
-    pub fn probe(&self, key: u64, ply: i32) -> (bool, ProbedEntry) {
+    pub fn probe(&self, key: u64, ply: usize) -> (bool, ProbedEntry) {
         let idx = self.calc_index(key);
         let entry_key = pack_entry_key(key);
 
@@ -357,7 +362,7 @@ impl TranspositionTable {
         static_eval: Score,
         mv: Option<Move>,
         depth: i32,
-        ply: i32,
+        ply: usize,
         flag: Option<TtFlag>,
     ) {
         let idx = self.calc_index(key);
@@ -400,7 +405,7 @@ impl TranspositionTable {
         static_eval: Score,
         mv: Option<Move>,
         depth: i32,
-        ply: i32,
+        ply: usize,
         flag: TtFlag,
     ) {
         self.store_internal(key, score, static_eval, mv, depth, ply, Some(flag));

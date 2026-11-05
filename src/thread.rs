@@ -21,6 +21,7 @@
  * SOFTWARE.
  */
 
+use crate::core::{PieceType, Square};
 use crate::eval::nnue_state::NnueState;
 use crate::limit::{Limits, TmContext};
 use crate::node_counter::NodeCounter;
@@ -102,6 +103,8 @@ pub struct SharedContext {
     nodes: NodeCounter,
     #[cfg(feature = "datagen")]
     result: Mutex<Option<RootMove>>,
+    #[cfg(not(feature = "datagen"))]
+    pub results: Mutex<Vec<RootMove>>,
 }
 
 impl SharedContext {
@@ -117,11 +120,16 @@ impl SharedContext {
             nodes: NodeCounter::new(1),
             #[cfg(feature = "datagen")]
             result: Mutex::new(None),
+            #[cfg(not(feature = "datagen"))]
+            results: Mutex::new(Vec::new()),
         }
     }
 
     pub fn set_threads(&mut self, threads: u32) {
         self.nodes.resize(threads as usize);
+
+        let mut results = self.results.lock().unwrap();
+        *results = Vec::with_capacity(threads as usize);
     }
 
     pub fn init_search(&mut self, options: &TeiOptions, start_time: Instant, limits: Limits, threads: u32) {
@@ -135,6 +143,11 @@ impl SharedContext {
         #[cfg(feature = "datagen")]
         {
             *self.result.get_mut().unwrap() = None;
+        }
+        #[cfg(not(feature = "datagen"))]
+        {
+            let mut results = self.results.lock().unwrap();
+            *results = vec![RootMove::new(Move::placement(PieceType::Flat, Square::A1)); threads as usize];
         }
     }
 
@@ -224,18 +237,7 @@ pub struct RootMove {
 impl RootMove {
     #[must_use]
     pub fn new(mv: Move) -> Self {
-        let mut result = Self {
-            score: -SCORE_INF,
-            window_score: -SCORE_INF,
-            display_score: -SCORE_INF,
-            previous_score: -SCORE_INF,
-            upper_bound: false,
-            lower_bound: false,
-            searched_depth: 1,
-            seldepth: 0,
-            pv: PvList::new(),
-            nodes: 0,
-        };
+        let mut result = Self::default();
         result.pv.push(mv);
         result
     }
@@ -246,11 +248,29 @@ impl RootMove {
     }
 }
 
+impl Default for RootMove {
+    fn default() -> Self {
+        Self {
+            score: -SCORE_INF,
+            window_score: -SCORE_INF,
+            display_score: -SCORE_INF,
+            previous_score: -SCORE_INF,
+            upper_bound: false,
+            lower_bound: false,
+            searched_depth: 1,
+            seldepth: 0,
+            pv: PvList::new(),
+            nodes: 0,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, Default)]
 pub struct StackEntry {
     pub mv: Option<Move>,
     pub static_eval: Score,
     pub excluded: Option<Move>,
+    pub reduction: i32,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -260,7 +280,7 @@ pub enum TerminalState {
     Loss,
 }
 
-pub struct ThreadData {
+pub struct ThreadData<'a> {
     pub id: u32,
     pub key_history: Vec<u64>,
     pub root_depth: i32,
@@ -268,16 +288,16 @@ pub struct ThreadData {
     pub pv_idx: usize,
     pub root_moves: Vec<RootMove>,
     pub stack: Vec<StackEntry>,
-    pub corrhist: Box<CorrectionHistory>,
-    pub history: Box<History>,
+    pub corrhist: &'a CorrectionHistory,
+    pub history: &'a History,
     pub killers: [KillerTable; MAX_DEPTH as usize],
     pub nnue_state: NnueState,
     pub shared: Option<Arc<SharedContext>>,
     pub tm_ctx: TmContext,
 }
 
-impl ThreadData {
-    pub fn new(id: u32) -> Self {
+impl<'a> ThreadData<'a> {
+    pub fn new(id: u32, history: &'a History, corrhist: &'a CorrectionHistory) -> Self {
         Self {
             id,
             key_history: Vec::with_capacity(1024),
@@ -286,8 +306,8 @@ impl ThreadData {
             pv_idx: 0,
             root_moves: Vec::with_capacity(1024),
             stack: vec![StackEntry::default(); MAX_DEPTH as usize + 1],
-            corrhist: CorrectionHistory::boxed(),
-            history: History::boxed(),
+            corrhist,
+            history,
             killers: [Default::default(); _],
             nnue_state: NnueState::new(),
             shared: None,
@@ -328,8 +348,8 @@ impl ThreadData {
         self.seldepth = 0;
     }
 
-    pub fn update_seldepth(&mut self, ply: i32) {
-        self.seldepth = self.seldepth.max(ply + 1);
+    pub fn update_seldepth(&mut self, ply: usize) {
+        self.seldepth = self.seldepth.max(ply as i32 + 1);
     }
 
     #[must_use]
@@ -347,16 +367,16 @@ impl ThreadData {
         self.root_moves[self.pv_idx..].sort_by_key(|mv| std::cmp::Reverse(mv.score));
     }
 
-    pub fn apply_move(&mut self, ply: i32, pos: &Position, mv: Move) -> Position {
+    pub fn apply_move(&mut self, ply: usize, pos: &Position, mv: Move) -> Position {
         self.key_history.push(pos.key());
-        self.stack[ply as usize].mv = Some(mv);
+        self.stack[ply].mv = Some(mv);
         let mut observer = self.nnue_state.push();
         pos.apply_move_with_observer(mv, &mut observer)
     }
 
-    pub fn apply_nullmove(&mut self, ply: i32, pos: &Position) -> Position {
+    pub fn apply_nullmove(&mut self, ply: usize, pos: &Position) -> Position {
         self.key_history.push(pos.key());
-        self.stack[ply as usize].mv = None;
+        self.stack[ply].mv = None;
         pos.apply_nullmove()
     }
 
@@ -369,8 +389,8 @@ impl ThreadData {
         self.key_history.pop();
     }
 
-    fn is_drawn_by_repetition(&self, curr: u64, ply: i32) -> bool {
-        let mut ply = ply - 1;
+    fn is_drawn_by_repetition(&self, curr: u64, ply: usize) -> bool {
+        let mut ply = ply as i32 - 1;
         let mut repetitions = 0;
 
         //TODO skip properly
@@ -391,7 +411,7 @@ impl ThreadData {
     }
 
     // note: `pos` is the position *after* `prev_move`
-    pub fn check_terminal_state(&self, ply: i32, pos: &Position, prev_move: Move) -> Option<TerminalState> {
+    pub fn check_terminal_state(&self, ply: usize, pos: &Position, prev_move: Move) -> Option<TerminalState> {
         // player we care about: the one that made the move
         let stm = pos.stm().flip();
 
@@ -448,5 +468,20 @@ impl ThreadData {
     #[must_use]
     pub fn pv_move(&self) -> &RootMove {
         &self.root_moves[0]
+    }
+
+    pub fn publish_result(&mut self) {
+        #[cfg(feature = "datagen")]
+        {
+            if self.is_main_thread() {
+                self.shared().set_result(self.pv_move().clone());
+            }
+        }
+
+        #[cfg(not(feature = "datagen"))]
+        {
+            let mut results = self.shared().results.lock().unwrap();
+            results[self.id as usize] = self.pv_move().clone();
+        }
     }
 }

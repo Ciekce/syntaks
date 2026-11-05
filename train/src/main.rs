@@ -1,6 +1,7 @@
 mod inputs;
 mod loader;
 
+use bullet_lib::nn::MatmulPrecision;
 use bullet_lib::{
     nn::optimiser::{AdamW, AdamWParams},
     trainer::{
@@ -18,7 +19,7 @@ use syntaks::format::GameResult;
 use syntaks::position::Position;
 use syntaks::takmove::Move;
 
-const L1: usize = 1024;
+const L1: usize = 1280;
 const L2: usize = 32;
 const L3: usize = 32;
 const SCALE: i32 = 400;
@@ -34,12 +35,13 @@ const L1_RANGE: f32 = I8_RANGE * FT_SHIFT_SCALE * FT_SHIFT_SCALE;
 const PACKUS_LANE: usize = 8;
 const PACKUS_WIDTH: usize = 32;
 
-const SUPERBATCHES_2KOMI: usize = 200;
-const SUPERBATCHES_COMBINED: usize = 100;
+const SUPERBATCHES_PRETRAIN: usize = 5;
+const SUPERBATCHES_2KOMI: usize = 250;
+const SUPERBATCHES_COMBINED: usize = 150;
 
 const MAP_THREADS: usize = 16;
 const LOAD_THREADS: usize = 16;
-const SHUFFLE_BUFFER: usize = 1024;
+const SHUFFLE_BUFFER: usize = 8192;
 
 fn filter(_pos: &Position, _mv: Move, score: Score, _result: GameResult) -> bool {
     let mut rng = rng();
@@ -97,30 +99,52 @@ fn merge_fac(weights: Vec<f32>, inner: usize) -> Vec<f32> {
     out
 }
 
-fn l1w_layout(weights: Vec<f32>) -> Vec<f32> {
-    let bucketed = bucket_major(weights, L2);
-    let mut out = vec![0.0; bucketed.len()];
+fn dpbusd_layout(weights: Vec<f32>) -> Vec<f32> {
+    let mut out = vec![0.0; weights.len()];
     for ob in 0..OUTPUT_BUCKETS {
         for neuron in 0..L1 {
             for j in 0..L2 {
-                out[ob * L1 * L2 + neuron / 4 * 4 * L2 + j * 4 + neuron % 4] = bucketed[(ob * L1 + neuron) * L2 + j];
+                out[ob * L1 * L2 + neuron / 4 * 4 * L2 + j * 4 + neuron % 4] = weights[(ob * L1 + neuron) * L2 + j];
             }
         }
     }
     out
 }
 
-fn l2w_layout(weights: Vec<f32>) -> Vec<f32> {
-    let bucketed = bucket_major(weights, L3);
-    let mut out = vec![0.0; bucketed.len()];
+fn l1_out_pos(i: usize) -> usize {
+    i % (L2 / 2) / 4 * 8 + i / (L2 / 2) * 4 + i % 4
+}
+
+fn l2_in_layout(weights: Vec<f32>) -> Vec<f32> {
+    let mut out = vec![0.0; weights.len()];
     for ob in 0..OUTPUT_BUCKETS {
-        for k in 0..L2 / 2 {
-            let base = k / 4 * 4 + k % 2 * 2 + if k % 4 >= 2 { L2 / 2 } else { 0 };
+        for neuron in 0..L2 {
             for j in 0..L3 {
-                let to = ((ob * L2 / 2 + k) * L3 + j) * 2;
-                out[to] = bucketed[(ob * L2 + base) * L3 + j];
-                out[to + 1] = bucketed[(ob * L2 + base + 1) * L3 + j];
+                out[(ob * L2 + l1_out_pos(neuron)) * L3 + j] = weights[(ob * L2 + neuron) * L3 + j];
             }
+        }
+    }
+    out
+}
+
+fn dpwssdx2_layout(weights: Vec<f32>) -> Vec<f32> {
+    let mut out = vec![0.0; weights.len()];
+    for ob in 0..OUTPUT_BUCKETS {
+        for i in 0..L2 {
+            for j in 0..L3 {
+                out[((ob * L2 / 2 + i / 2) * L3 + j) * 2 + i % 2] = weights[(ob * L2 + i) * L3 + j];
+            }
+        }
+    }
+    out
+}
+
+fn l2_out_layout(weights: Vec<f32>) -> Vec<f32> {
+    let rows = weights.len() / L3;
+    let mut out = vec![0.0; weights.len()];
+    for row in 0..rows {
+        for neuron in 0..L3 {
+            out[row * L3 + l1_out_pos(neuron)] = weights[row * L3 + neuron];
         }
     }
     out
@@ -169,7 +193,8 @@ fn main() {
             SavedFormat::id("l1w")
                 .transform(|_, values| merge_fac(values, L2))
                 .transform(|_, values| values.iter().map(|f| f / (FT_SHIFT_SCALE * FT_SHIFT_SCALE)).collect())
-                .transform(|_, values| l1w_layout(values))
+                .transform(|_, values| bucket_major(values, L2))
+                .transform(|_, values| dpbusd_layout(values))
                 .round()
                 .quantise::<i8>(Q1),
             SavedFormat::id("l1b")
@@ -178,16 +203,21 @@ fn main() {
                 .quantise::<i32>(Q * 256),
             SavedFormat::id("l2w")
                 .transform(|_, values| merge_fac(values, L3))
-                .transform(|_, values| l2w_layout(values))
+                .transform(|_, values| bucket_major(values, L3))
+                .transform(|_, values| l2_out_layout(values))
+                .transform(|_, values| l2_in_layout(values))
+                .transform(|_, values| dpwssdx2_layout(values))
                 .round()
                 .quantise::<i16>(Q as i16),
             SavedFormat::id("l2b")
                 .transform(|_, values| merge_fac(values, L3))
+                .transform(|_, values| l2_out_layout(values))
                 .round()
                 .quantise::<i32>(Q.pow(3)),
             SavedFormat::id("l3w")
                 .transform(|_, values| merge_fac(values, 1))
                 .transform(|_, values| bucket_major(values, 1))
+                .transform(|_, values| l2_out_layout(values))
                 .round()
                 .quantise::<i32>(Q),
             SavedFormat::id("l3b")
@@ -198,7 +228,9 @@ fn main() {
         .loss_fn(|output, target| output.sigmoid().squared_error(target))
         .build(|builder, stm_inputs, ntm_inputs, output_buckets| {
             let l0 = builder.new_affine("l0", TakTopRelativeStacks::NUM_INPUTS, L1);
-            let l1 = builder.new_affine("l1", L1, (OUTPUT_BUCKETS + 1) * L2);
+            let l1 = builder
+                .new_affine("l1", L1, (OUTPUT_BUCKETS + 1) * L2)
+                .with_precision(MatmulPrecision::Half);
             let l2 = builder.new_affine("l2", L2, (OUTPUT_BUCKETS + 1) * L3);
             let l3 = builder.new_affine("l3", L3, OUTPUT_BUCKETS + 1);
 
@@ -213,7 +245,8 @@ fn main() {
             let hl2 = l1_out.screlu();
             let hl3 = (l2.slice(0, OUTPUT_BUCKETS * L3).forward(hl2).select(output_buckets)
                 + l2.slice(OUTPUT_BUCKETS * L3, (OUTPUT_BUCKETS + 1) * L3).forward(hl2))
-            .crelu();
+            .crelu()
+                + hl2;
             l3.slice(0, OUTPUT_BUCKETS).forward(hl3).select(output_buckets)
                 + l3.slice(OUTPUT_BUCKETS, OUTPUT_BUCKETS + 1).forward(hl3)
                 + skip
@@ -225,6 +258,20 @@ fn main() {
         ..Default::default()
     };
     trainer.optimiser.set_params_for_weight("l1w", l1_clip);
+
+    let schedule_pretrain = TrainingSchedule {
+        net_id: format!("{}_stage0", id),
+        eval_scale: SCALE as f32,
+        steps: TrainingSteps {
+            batch_size: 16_384,
+            batches_per_superbatch: 6104,
+            start_superbatch: 1,
+            end_superbatch: SUPERBATCHES_PRETRAIN,
+        },
+        wdl_scheduler: wdl::ConstantWDL { value: 0.25 },
+        lr_scheduler: lr::ConstantLR { value: 1e-4 },
+        save_rate: SUPERBATCHES_PRETRAIN,
+    };
 
     let schedule_2komi = TrainingSchedule {
         net_id: format!("{}_stage1", id),
@@ -253,7 +300,7 @@ fn main() {
             start_superbatch: 1,
             end_superbatch: SUPERBATCHES_COMBINED,
         },
-        wdl_scheduler: wdl::ConstantWDL { value: 0.5 },
+        wdl_scheduler: wdl::ConstantWDL { value: 0.75 },
         lr_scheduler: lr::CosineDecayLR {
             initial_lr: 1e-4,
             final_lr: 1e-6,
@@ -268,6 +315,12 @@ fn main() {
         output_directory: "checkpoints",
         batch_queue_size: 64,
     };
+
+    trainer.run(
+        &schedule_pretrain,
+        &settings,
+        &TakReader::new(two_komi.clone(), SHUFFLE_BUFFER, LOAD_THREADS, filter),
+    );
 
     trainer.run(
         &schedule_2komi,

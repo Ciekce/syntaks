@@ -95,8 +95,8 @@ fn influence_sse42(road_occ: Bitboard, edges: &mut [Bitboard; 4]) -> bool {
         _mm_set_epi64x(Bitboard::RIGHT_EDGE.raw() as i64, Bitboard::LOWER_EDGE.raw() as i64),
     );
 
-    let edges_ul = unsafe { std::mem::transmute::<__m128i, [Bitboard; 2]>(influence_masks_ul) };
-    let edges_dr = unsafe { std::mem::transmute::<__m128i, [Bitboard; 2]>(influence_masks_dr) };
+    let edges_ul = unsafe { std::mem::transmute::<__m128i, [u64; 2]>(influence_masks_ul) }.map(Bitboard::from_raw);
+    let edges_dr = unsafe { std::mem::transmute::<__m128i, [u64; 2]>(influence_masks_dr) }.map(Bitboard::from_raw);
 
     *edges = [edges_ul[0], edges_dr[0], edges_ul[1], edges_dr[1]];
 

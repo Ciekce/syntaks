@@ -178,6 +178,15 @@ pub unsafe fn store_i32(ptr: *mut i32, vec: VecI32) {
 
 #[must_use]
 #[inline(always)]
+pub unsafe fn load_widen_i16_i32(ptr: *const i16) -> VecI32 {
+    unsafe {
+        let i16s = ptr.cast::<[i16; 4]>().read();
+        i16s.map(i32::from)
+    }
+}
+
+#[must_use]
+#[inline(always)]
 pub fn to_array_i32(v: VecI32) -> [i32; CHUNK_SIZE_I32] {
     v
 }
@@ -220,6 +229,15 @@ pub fn min_i32(mut a: VecI32, b: VecI32) -> VecI32 {
 pub fn max_i32(mut a: VecI32, b: VecI32) -> VecI32 {
     for (a, b) in a.iter_mut().zip(b) {
         *a = (*a).max(b);
+    }
+    a
+}
+
+#[must_use]
+#[inline(always)]
+pub fn shift_left_i32<const SHIFT: i32>(mut a: VecI32) -> VecI32 {
+    for a in a.iter_mut() {
+        *a <<= SHIFT;
     }
     a
 }
