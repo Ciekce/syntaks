@@ -167,15 +167,15 @@ pub fn spread_road_win(pos: &Position) -> Option<Move> {
 
             let step = u32::from(dir.offset().unsigned_abs());
             let span = u32::from(max_dist) * step;
-            let mask = if step == 6 { Bitboard::LEFT_EDGE } else { Bitboard::LOWER_EDGE };
+            let mask = if step == 6 {
+                Bitboard::LEFT_EDGE
+            } else {
+                Bitboard::LOWER_EDGE
+            };
             let prefix = mask >> (step * (Position::CARRY_LIMIT - u32::from(max_dist)));
             let (line, last) = match dir {
-                Direction::Up | Direction::Right => (
-                    prefix << (sq.idx() as u32 + step), sq.bb() << span,
-                ),
-                Direction::Down | Direction::Left => (
-                    prefix << (sq.idx() as u32 - span), sq.bb() >> span,
-                ),
+                Direction::Up | Direction::Right => (prefix << (sq.idx() as u32 + step), sq.bb() << span),
+                Direction::Down | Direction::Left => (prefix << (sq.idx() as u32 - span), sq.bb() >> span),
             };
             let gainable = if pos.roads(us).has_sq(sq) {
                 line
