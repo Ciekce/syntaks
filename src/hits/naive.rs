@@ -25,7 +25,7 @@ use crate::bitboard::Bitboard;
 use crate::core::{Direction, Square};
 
 #[must_use]
-fn find_hit_for_dir_naive(blockers: Bitboard, start: Square, dir: Direction) -> (u8, Square) {
+const fn find_hit_for_dir_naive(blockers: Bitboard, start: Square, dir: Direction) -> (u8, Square) {
     let mut sq = start;
     let mut dist = 0;
 
@@ -42,9 +42,13 @@ fn find_hit_for_dir_naive(blockers: Bitboard, start: Square, dir: Direction) -> 
 }
 
 #[must_use]
-pub(super) fn find_hits_naive(blockers: Bitboard, start: Square) -> super::Hits {
-    std::array::from_fn(|idx| {
+pub(super) const fn find_hits_naive(blockers: Bitboard, start: Square) -> super::Hits {
+    let mut hits: [super::Hit; Direction::COUNT] = [(0, Square::A1); _];
+    let mut idx = 0;
+    while idx < Direction::COUNT {
         let dir = Direction::from_raw(idx as u8).unwrap();
-        find_hit_for_dir_naive(blockers, start, dir)
-    })
+        hits[idx] = find_hit_for_dir_naive(blockers, start, dir);
+        idx += 1;
+    }
+    hits
 }
