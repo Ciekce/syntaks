@@ -76,7 +76,9 @@ impl PackedTakBoard {
 
         debug_assert!(bit <= BOARD_BITS);
 
-        out[FLAGS_OFFSET] = pos.stm().raw() | (u8::from(pos.ply() < 2) << 1);
+        out[FLAGS_OFFSET] = pos.stm().raw()
+            | (u8::from(pos.ply() < 2) << 1)
+            | (((pos.half_komi().wrapping_sub(Position::DEFAULT_HALF_KOMI) as u8) & 0xf) << 4);
         out[RESERVES_OFFSET] = pos.flats_in_hand(Color::White);
         out[RESERVES_OFFSET + 1] = pos.flats_in_hand(Color::Black);
 
@@ -158,6 +160,8 @@ impl PackedTakBoard {
         let swap_phase = self.bytes[FLAGS_OFFSET] & 0b10 != 0;
 
         pos.finish_build(stm, u16::from(stm.raw()) + if swap_phase { 0 } else { 2 });
+
+        pos.set_half_komi((self.bytes[FLAGS_OFFSET] as i8 >> 4) + Position::DEFAULT_HALF_KOMI);
 
         if pos.flats_in_hand(Color::White) != self.bytes[RESERVES_OFFSET]
             || pos.flats_in_hand(Color::Black) != self.bytes[RESERVES_OFFSET + 1]

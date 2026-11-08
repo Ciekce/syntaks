@@ -2,11 +2,11 @@ use crate::core::*;
 use crate::format::{GameResult, write_game};
 use crate::limit::Limits;
 use crate::position::{FlatCountOutcome, Position};
-use crate::prng::{Sfc64, seed_from_entropy, splitmix64};
 use crate::search::{MAX_DEPTH, Searcher};
 use crate::takmove::Move;
 use crate::tei::TeiOptions;
 use crate::thread::RootMove;
+use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 use std::path::Path;
@@ -17,11 +17,18 @@ use std::time::Instant;
 const TT_SIZE_MIB: usize = 8;
 const REPORT_INTERVAL: usize = 512;
 
-const RANDOM_MOVES: usize = 8;
-const UNIFORM_ODDS: u64 = 16;
+const EVAL_NOISE: i32 = 16;
+const ROOT_NOISE: i32 = 8192;
 
-const VERIF_DEPTH: i32 = 6;
-const VERIF_MAX_SCORE: i32 = 1000;
+#[must_use]
+pub fn eval_noise() -> i32 {
+    rand::random_range(-EVAL_NOISE..=EVAL_NOISE)
+}
+
+#[must_use]
+pub fn move_noise() -> i32 {
+    rand::random_range(-ROOT_NOISE..=ROOT_NOISE)
+}
 
 const SOFT_NODES: usize = 10000;
 const HARD_NODES: usize = 8388608;
@@ -39,7 +46,16 @@ fn search(searcher: &mut Searcher, pos: &Position, key_history: &[u64], limits: 
         ..Default::default()
     };
 
-    searcher.start_search(pos, key_history, Instant::now(), limits, max_depth, &[], &options);
+    searcher.start_search(
+        pos,
+        key_history,
+        Instant::now(),
+        limits,
+        max_depth,
+        &[],
+        &HashSet::new(),
+        &options,
+    );
     searcher.wait();
 
     searcher.result()
@@ -77,80 +93,44 @@ fn check_terminal(pos: &Position, key_history: &[u64], prev_move: Move) -> Optio
     None
 }
 
-fn corner_opening(rng: &mut Sfc64) -> [Move; 2] {
-    let file = 5 * (rng.next_u64() & 1) as u32;
-    let rank = 5 * (rng.next_u64() & 1) as u32;
-    let inward = |x: u32| if x == 0 { 1 } else { 4 };
+const HUG: &[&str] = &[
+    "x6/x6/x6/x6/x6/2,1,x4 1 2",
+    "x6/x6/x6/x6/1,x5/2,x5 1 2",
+    "2,1,x4/x6/x6/x6/x6/x6 1 2",
+    "2,x5/1,x5/x6/x6/x6/x6 1 2",
+    "x4,1,2/x6/x6/x6/x6/x6 1 2",
+    "x5,2/x5,1/x6/x6/x6/x6 1 2",
+    "x6/x6/x6/x6/x6/x4,1,2 1 2",
+    "x6/x6/x6/x6/x5,1/x5,2 1 2",
+];
 
-    let reply = match rng.next_u64() % 6 {
-        0 | 1 => (5 - file, 5 - rank),
-        2 => (5 - file, rank),
-        3 => (file, 5 - rank),
-        4 => (inward(file), rank),
-        _ => (file, inward(rank)),
-    };
+const ADJACENT: &[&str] = &[
+    "x6/x6/x6/x6/x6/2,x4,1 1 2",
+    "1,x5/x6/x6/x6/x6/2,x5 1 2",
+    "2,x5/x6/x6/x6/x6/1,x5 1 2",
+    "2,x4,1/x6/x6/x6/x6/x6 1 2",
+    "1,x4,2/x6/x6/x6/x6/x6 1 2",
+    "x5,2/x6/x6/x6/x6/x5,1 1 2",
+    "x5,1/x6/x6/x6/x6/x5,2 1 2",
+    "x6/x6/x6/x6/x6/1,x4,2 1 2",
+];
 
-    [(file, rank), reply]
-        .map(|(file, rank)| Move::placement(PieceType::Flat, Square::from_file_rank(file, rank).unwrap()))
-}
-
-fn random_placement(rng: &mut Sfc64, pos: &Position) -> Move {
-    let sq = loop {
-        let sq = Square::from_raw((rng.next_u64() % Square::COUNT as u64) as u8).unwrap();
-        if pos.is_empty(sq) {
-            break sq;
-        }
-    };
-
-    let pt = loop {
-        match rng.next_u64() % 100 {
-            0..94 => break PieceType::Flat,
-            94..99 => break PieceType::Wall,
-            99 if pos.caps_in_hand(pos.stm()) > 0 => break PieceType::Capstone,
-            _ => {}
-        }
-    };
-
-    Move::placement(pt, sq)
-}
+const OPPOSITE: &[&str] = &[
+    "x5,1/x6/x6/x6/x6/2,x5 1 2",
+    "2,x5/x6/x6/x6/x6/x5,1 1 2",
+    "x5,2/x6/x6/x6/x6/1,x5 1 2",
+    "1,x5/x6/x6/x6/x6/x5,2 1 2",
+];
 
 #[must_use]
-fn start_game(key_history: &mut Vec<u64>, rng: &mut Sfc64, searcher: &mut Searcher) -> Position {
-    'games: loop {
-        let mut pos = Position::startpos();
-        key_history.clear();
-
-        let corner = corner_opening(rng);
-
-        let opening: &[Move] = if rng.next_u64().is_multiple_of(UNIFORM_ODDS) {
-            &[]
-        } else {
-            &corner
-        };
-
-        for &mv in opening {
-            key_history.push(pos.key());
-            pos = pos.apply_move(mv);
-        }
-
-        for _ in opening.len()..RANDOM_MOVES {
-            let mv = random_placement(rng, &pos);
-
-            key_history.push(pos.key());
-            pos = pos.apply_move(mv);
-
-            if check_terminal(&pos, key_history, mv).is_some() {
-                continue 'games;
-            }
-        }
-
-        let verif_score = search(searcher, &pos, key_history, Limits::new(Instant::now()), VERIF_DEPTH).score;
-
-        if verif_score.abs() <= VERIF_MAX_SCORE {
-            key_history.clear();
-            return pos;
-        }
-    }
+fn start_game(key_history: &mut Vec<u64>, half_komi: i8) -> Position {
+    let opening = [&HUG, &ADJACENT, &OPPOSITE][rand::random_range(0..3)];
+    let tps = opening[rand::random_range(0..opening.len())];
+    let parts: Vec<&str> = tps.split_whitespace().collect();
+    let mut pos = Position::from_tps_parts(&parts).unwrap();
+    pos.set_half_komi(half_komi);
+    key_history.clear();
+    pos
 }
 
 fn signal_error() {
@@ -158,7 +138,7 @@ fn signal_error() {
     ERROR.store(true, Ordering::Release);
 }
 
-fn run_thread(id: u32, seed: u64, out_dir: &Path) {
+fn run_thread(id: u32, out_dir: &Path, half_komi: i8) {
     let out_file = out_dir.join(format!("{}.sf", id));
 
     let file = match OpenOptions::new().create(true).append(true).open(&out_file) {
@@ -172,8 +152,6 @@ fn run_thread(id: u32, seed: u64, out_dir: &Path) {
     };
 
     let mut out = BufWriter::new(file);
-
-    let mut rng = Sfc64::new(seed);
 
     let mut searchers = [Searcher::new(TT_SIZE_MIB), Searcher::new(TT_SIZE_MIB)];
 
@@ -206,7 +184,7 @@ fn run_thread(id: u32, seed: u64, out_dir: &Path) {
     };
 
     while !STOP.load(Ordering::Acquire) {
-        let root_pos = start_game(&mut key_history, &mut rng, &mut searchers[0]);
+        let root_pos = start_game(&mut key_history, half_komi);
 
         scored_moves.clear();
 
@@ -281,7 +259,7 @@ pub fn run() -> i32 {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 3 {
-        eprintln!("usage: {} <threads> <out_dir>", args[0]);
+        eprintln!("usage: {} <threads> <out_dir> [half_komi]", args[0]);
         return 1;
     }
 
@@ -292,6 +270,17 @@ pub fn run() -> i32 {
             return 1;
         }
     };
+
+    let half_komi: i8 = match args.get(3).map(|arg| arg.parse::<i8>()) {
+        None => Position::DEFAULT_HALF_KOMI,
+        Some(Ok(half_komi)) if (0..=7).contains(&half_komi) => half_komi,
+        _ => {
+            eprintln!("invalid half komi '{}'", args[3]);
+            return 1;
+        }
+    };
+
+    println!("half komi: {}", half_komi);
 
     let out_dir = Path::new(&args[2]);
 
@@ -307,14 +296,10 @@ pub fn run() -> i32 {
         return 1;
     }
 
-    let base_seed = seed_from_entropy();
-    println!("base seed: {:016x}", base_seed);
-
     std::thread::scope(|s| {
         for id in 0..threads {
-            let seed = splitmix64(base_seed ^ id as u64);
             s.spawn(move || {
-                run_thread(id, seed, out_dir);
+                run_thread(id, out_dir, half_komi);
             });
         }
     });

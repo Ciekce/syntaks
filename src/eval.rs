@@ -39,6 +39,8 @@ fn adjust_static(eval: i32) -> Score {
 #[must_use]
 pub fn static_eval(nnue_state: &mut NnueState, pos: &Position) -> Score {
     let eval = nnue_state.evaluate(pos);
+    #[cfg(feature = "datagen")]
+    let eval = eval + crate::datagen::eval_noise();
     adjust_static(eval)
 }
 
