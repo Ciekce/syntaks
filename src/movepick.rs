@@ -273,7 +273,8 @@ impl<'a> Movepicker<'a> {
         }
     }
 
-    fn score_moves(&mut self) {
+    #[allow(unused)]
+    fn score_moves(&mut self, root: bool) {
         self.scores.clear();
         for &mv in self.moves.iter() {
             let mut score = self.history.score(mv);
@@ -292,6 +293,11 @@ impl<'a> Movepicker<'a> {
                 if self.pos.top_pt(mv.spread_dest()) == Some(PieceType::Wall) {
                     score += WALL_SMASH_BONUS;
                 }
+            }
+
+            #[cfg(feature = "datagen")]
+            if root {
+                score += crate::datagen::move_noise();
             }
 
             // scores have to be less than 2²⁰ to make the movepicking more efficient
@@ -319,7 +325,7 @@ impl<'a> Movepicker<'a> {
         self.moves[self.idx]
     }
 
-    pub fn next(&mut self) -> Option<Move> {
+    pub fn next(&mut self, root: bool) -> Option<Move> {
         while self.stage != Stage::End {
             match self.stage {
                 Stage::TtMove => {
@@ -341,7 +347,7 @@ impl<'a> Movepicker<'a> {
                 }
                 Stage::GenMoves => {
                     generate_moves(self.moves, self.pos);
-                    self.score_moves();
+                    self.score_moves(root);
                 }
                 Stage::Moves => {
                     while self.idx < self.moves.len() {

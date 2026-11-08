@@ -436,7 +436,7 @@ fn search<NT: NodeType>(
     let mut move_count = 0;
     let mut faillow_moves = arrayvec::ArrayVec::<Move, 32>::new();
 
-    while let Some(mv) = movepicker.next() {
+    while let Some(mv) = movepicker.next(NT::ROOT_NODE) {
         debug_assert!(pos.is_legal(mv));
 
         if NT::ROOT_NODE && !thread.is_legal_root_move(mv) {

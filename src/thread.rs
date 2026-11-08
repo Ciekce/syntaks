@@ -128,8 +128,11 @@ impl SharedContext {
     pub fn set_threads(&mut self, threads: u32) {
         self.nodes.resize(threads as usize);
 
-        let mut results = self.results.lock().unwrap();
-        *results = Vec::with_capacity(threads as usize);
+        #[cfg(not(feature = "datagen"))]
+        {
+            let mut results = self.results.lock().unwrap();
+            *results = Vec::with_capacity(threads as usize);
+        }
     }
 
     pub fn init_search(&mut self, options: &TeiOptions, start_time: Instant, limits: Limits, threads: u32) {
