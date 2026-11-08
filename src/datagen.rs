@@ -93,7 +93,7 @@ fn check_terminal(pos: &Position, key_history: &[u64], prev_move: Move) -> Optio
     None
 }
 
-const HUG: [&str; 8] = [
+const HUG: &[&str] = &[
     "x6/x6/x6/x6/x6/2,1,x4 1 2",
     "x6/x6/x6/x6/1,x5/2,x5 1 2",
     "2,1,x4/x6/x6/x6/x6/x6 1 2",
@@ -104,7 +104,7 @@ const HUG: [&str; 8] = [
     "x6/x6/x6/x6/x5,1/x5,2 1 2",
 ];
 
-const ADJACENT: [&str; 8] = [
+const ADJACENT: &[&str] = &[
     "x6/x6/x6/x6/x6/2,x4,1 1 2",
     "1,x5/x6/x6/x6/x6/2,x5 1 2",
     "2,x5/x6/x6/x6/x6/1,x5 1 2",
@@ -115,7 +115,7 @@ const ADJACENT: [&str; 8] = [
     "x6/x6/x6/x6/x6/1,x4,2 1 2",
 ];
 
-const OPPOSITE: [&str; 4] = [
+const OPPOSITE: &[&str] = &[
     "x5,1/x6/x6/x6/x6/2,x5 1 2",
     "2,x5/x6/x6/x6/x6/x5,1 1 2",
     "x5,2/x6/x6/x6/x6/1,x5 1 2",
@@ -124,8 +124,7 @@ const OPPOSITE: [&str; 4] = [
 
 #[must_use]
 fn start_game(key_history: &mut Vec<u64>, half_komi: i8) -> Position {
-    let openings: [&[&str]; 3] = [&HUG, &ADJACENT, &OPPOSITE];
-    let opening = openings[rand::random_range(0..openings.len())];
+    let opening = [&HUG, &ADJACENT, &OPPOSITE][rand::random_range(0..3)];
     let tps = opening[rand::random_range(0..opening.len())];
     let parts: Vec<&str> = tps.split_whitespace().collect();
     let mut pos = Position::from_tps_parts(&parts).unwrap();
