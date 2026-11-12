@@ -482,6 +482,9 @@ impl TeiHandler {
         let mut winc = None;
         let mut binc = None;
 
+        let mut hard_nodes = None;
+        let mut soft_nodes = None;
+
         let mut moves_to_search = Vec::new();
         let mut moves_to_exclude = HashSet::new();
 
@@ -511,17 +514,36 @@ impl TeiHandler {
                 "nodes" => {
                     i += 1;
                     if i >= args.len() {
-                        eprintln!("Warning: Missing node count");
+                        eprintln!("Warning: Missing hard node count");
                         return;
                     }
 
                     if let Ok(nodes) = args[i].parse() {
-                        if !(limits.set_soft_nodes(nodes) && limits.set_hard_nodes(nodes)) {
-                            eprintln!("Warning: Duplicate node limits");
+                        if hard_nodes.is_some() {
+                            eprintln!("Warning: Duplicate hard node limits");
                             return;
                         }
+                        hard_nodes = Some(nodes);
                     } else {
-                        eprintln!("Warning: Invalid node count '{}'", args[i]);
+                        eprintln!("Warning: Invalid hard node count '{}'", args[i]);
+                        return;
+                    }
+                }
+                "softnodes" => {
+                    i += 1;
+                    if i >= args.len() {
+                        eprintln!("Warning: Missing soft node count");
+                        return;
+                    }
+
+                    if let Ok(nodes) = args[i].parse() {
+                        if soft_nodes.is_some() {
+                            eprintln!("Warning: Duplicate soft node limits");
+                            return;
+                        }
+                        soft_nodes = Some(nodes);
+                    } else {
+                        eprintln!("Warning: Invalid soft node count '{}'", args[i]);
                         return;
                     }
                 }
@@ -617,6 +639,17 @@ impl TeiHandler {
             }
 
             i += 1;
+        }
+
+        if let Some(hard_nodes) = hard_nodes {
+            limits.set_hard_nodes(hard_nodes);
+        }
+
+        if let Some(soft_nodes) = soft_nodes.or(hard_nodes) {
+            if hard_nodes.is_none() {
+                println!("info string Warning: softnodes specified without nodes, beware of explosions");
+            }
+            limits.set_soft_nodes(soft_nodes);
         }
 
         let (our_time, our_inc) = match self.pos.stm() {

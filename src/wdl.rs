@@ -24,8 +24,8 @@
 use crate::core::{Color, PieceType, Score};
 use crate::position::Position;
 
-const WDL_A: f64 = 222.13;
-const WDL_B: f64 = 138.82;
+const WDL_A: f64 = 217.69;
+const WDL_B: f64 = 91.12;
 
 #[must_use]
 pub fn normalise_score(score: Score) -> Score {
