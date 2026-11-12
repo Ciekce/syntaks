@@ -11,6 +11,6 @@ default = []
 
 [dependencies]
 arrayvec = "0.7.6"
-atomic-wait = { git = "https://github.com/Sp00ph/atomic-wait", rev = "6c6db05" }
+atomic-wait = { git = "https://github.com/Ciekce/atomic-wait", rev = "d8ff526" }
 ctrlc = { version = "3.5.1", optional = true }
 inventory = { version = "0.3.25", optional = true }

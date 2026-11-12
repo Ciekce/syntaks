@@ -17,7 +17,7 @@ checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 [[package]]
 name = "atomic-wait"
 version = "1.1.0"
-source = "git+https://github.com/Sp00ph/atomic-wait?rev=6c6db05#6c6db05860a5dfbd748103f7dc0278b98eea473b"
+source = "git+https://github.com/Ciekce/atomic-wait?rev=d8ff526#d8ff5269e63635308592de94ee1d9f910028e3c8"
 dependencies = [
  "libc",
  "windows-sys",
