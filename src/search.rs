@@ -310,19 +310,6 @@ fn search<NT: NodeType>(
         tt_entry = ProbedEntry::default();
     } else {
         (tt_hit, tt_entry) = thread.shared().tt.probe(pos.key(), ply);
-
-        if !NT::PV_NODE
-            && tt_entry.depth >= depth
-            && (tt_entry.score <= alpha || expected_cutnode)
-            && match tt_entry.flag {
-                None => false,
-                Some(TtFlag::UpperBound) => tt_entry.score <= alpha,
-                Some(TtFlag::LowerBound) => tt_entry.score >= beta,
-                Some(TtFlag::Exact) => true,
-            }
-        {
-            return tt_entry.score;
-        }
     }
 
     let tt_move = if NT::ROOT_NODE && thread.root_depth > 1 {
@@ -355,9 +342,6 @@ fn search<NT: NodeType>(
 
     thread.stack[ply].static_eval = static_eval;
 
-    let improving = ply < 2 || static_eval > thread.stack[ply - 2].static_eval;
-    let opp_worsening = ply > 0 && static_eval > -thread.stack[ply - 1].static_eval;
-
     if !NT::PV_NODE && excluded.is_none() {
         let parent_reduction = thread.stack[ply - 1].reduction;
         let parent_static_eval = thread.stack[ply - 1].static_eval;
@@ -365,7 +349,26 @@ fn search<NT: NodeType>(
         if depth < MAX_DEPTH && parent_reduction >= 3 && static_eval + parent_static_eval <= 0 {
             depth += 1;
         }
+    }
 
+    if !NT::PV_NODE
+        && tt_hit
+        && tt_entry.depth >= depth
+        && (tt_entry.score <= alpha || expected_cutnode)
+        && match tt_entry.flag {
+            None => false,
+            Some(TtFlag::UpperBound) => tt_entry.score <= alpha,
+            Some(TtFlag::LowerBound) => tt_entry.score >= beta,
+            Some(TtFlag::Exact) => true,
+        }
+    {
+        return tt_entry.score;
+    }
+
+    let improving = ply < 2 || static_eval > thread.stack[ply - 2].static_eval;
+    let opp_worsening = ply > 0 && static_eval > -thread.stack[ply - 1].static_eval;
+
+    if !NT::PV_NODE && excluded.is_none() {
         tunable!(RFP_DEPTH_SCALE: i32 = 92; range(0, 256));
         tunable!(RFP_BASE: i32 = 154; range(0, 512));
         tunable!(RFP_CUTNODE: i32 = 101; range(0, 256));
