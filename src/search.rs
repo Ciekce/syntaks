@@ -518,8 +518,13 @@ fn search<NT: NodeType>(
                     extension += 1
                         + i32::from(!NT::PV_NODE && score < s_beta - SE_DEXT_MARGIN)
                         + i32::from(!NT::PV_NODE && score < s_beta - SE_TEXT_MARGIN);
-                } else if !NT::PV_NODE && score >= beta {
-                    return score;
+                } else if score >= beta {
+                    if score > static_eval {
+                        corrhist.update(s_depth, score, static_eval);
+                    }
+                    if !NT::PV_NODE {
+                        return score;
+                    }
                 } else if tt_entry.score >= beta {
                     extension -= 1;
                 } else if expected_cutnode {
