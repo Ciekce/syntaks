@@ -521,7 +521,7 @@ fn search<NT: NodeType>(
                 } else if !NT::PV_NODE && score >= beta {
                     return score;
                 } else if tt_entry.score >= beta {
-                    extension -= 1;
+                    extension -= 2;
                 } else if expected_cutnode {
                     extension -= 1;
                 }
