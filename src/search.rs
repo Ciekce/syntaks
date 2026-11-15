@@ -482,6 +482,7 @@ fn search<NT: NodeType>(
 
         move_count += 1;
 
+        let mut new_depth = depth - 1;
         let mut extension = 0;
 
         tunable!(SE_BETA_SCALE: i32 = 1391; range(0, 4096));
@@ -518,6 +519,7 @@ fn search<NT: NodeType>(
                     extension += 1
                         + i32::from(!NT::PV_NODE && score < s_beta - SE_DEXT_MARGIN)
                         + i32::from(!NT::PV_NODE && score < s_beta - SE_TEXT_MARGIN);
+                    depth += i32::from(extension > 1);
                 } else if !NT::PV_NODE && score >= beta {
                     return score;
                 } else if tt_entry.score >= beta {
@@ -563,6 +565,8 @@ fn search<NT: NodeType>(
             extension += 1;
         }
 
+        new_depth += extension;
+
         let nodes_before = thread.nodes();
 
         let score = if let Some(state) = thread.check_terminal_state(ply, &new_pos, mv) {
@@ -573,8 +577,6 @@ fn search<NT: NodeType>(
             }
         } else {
             let mut score = 0;
-
-            let new_depth = depth + extension - 1;
 
             if depth >= 2 && move_count >= 2 + usize::from(NT::ROOT_NODE) {
                 let mut r = LMR_REDUCTIONS.get(depth, move_count);
