@@ -33,6 +33,37 @@ impl Sfc64 {
         result
     }
 
+    pub const fn next_u32(&mut self) -> u32 {
+        (self.next_u64() >> 32) as u32
+    }
+
+    pub const fn next_u32_bounded(&mut self, bound: u32) -> u32 {
+        if bound == 0 {
+            return 0;
+        }
+
+        let mut x = self.next_u32();
+        let mut m = x as u64 * bound as u64;
+        let mut l = m as u32;
+
+        if l < bound {
+            let mut t = bound.wrapping_neg();
+            if t >= bound {
+                t -= bound;
+                if t >= bound {
+                    t %= bound;
+                }
+            }
+            while l < t {
+                x = self.next_u32();
+                m = x as u64 * bound as u64;
+                l = m as u32;
+            }
+        }
+
+        (m >> 32) as u32
+    }
+
     pub const fn fill(&mut self, values: &mut [u64]) {
         let mut idx = 0;
         while idx < values.len() {

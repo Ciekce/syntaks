@@ -23,8 +23,10 @@
 use crate::core::Color;
 use crate::eval::static_eval_once;
 use crate::limit::{Limits, MAX_MOVE_OVERHEAD_MS};
+use crate::movegen::generate_moves;
 use crate::perft::{perft, split_perft};
 use crate::position::*;
+use crate::prng::{Sfc64, seed_from_entropy};
 use crate::search::{MAX_THREADS, Searcher};
 use crate::ttable::{DEFAULT_TT_SIZE_MIB, MAX_TT_SIZE_MIB};
 use crate::wdl;
@@ -79,6 +81,7 @@ pub struct TeiOptions {
     pub silent: bool,
     pub move_overhead_ms: u64,
     pub double_black_stack: bool,
+    pub random_move_chance: u32,
 }
 
 impl Default for TeiOptions {
@@ -92,6 +95,7 @@ impl Default for TeiOptions {
             silent: false,
             move_overhead_ms: 10,
             double_black_stack: false,
+            random_move_chance: 0,
         }
     }
 }
@@ -101,6 +105,7 @@ struct TeiHandler {
     key_history: Vec<u64>,
     searcher: Searcher,
     options: TeiOptions,
+    prng: Sfc64,
     half_komi: i8,
 
     #[cfg(feature = "tune")]
@@ -115,6 +120,7 @@ impl TeiHandler {
             key_history: Vec::with_capacity(1024),
             searcher: Searcher::new(DEFAULT_TT_SIZE_MIB),
             options: TeiOptions::default(),
+            prng: Sfc64::new(seed_from_entropy()),
             half_komi: Position::DEFAULT_HALF_KOMI,
 
             #[cfg(feature = "tune")]
@@ -213,6 +219,10 @@ impl TeiHandler {
             default_options.move_overhead_ms, MAX_MOVE_OVERHEAD_MS
         );
         println!("option name DoubleBlackStack type check default false");
+        println!(
+            "option name RandomMoveChance type spin default {} min 0 max 1000",
+            default_options.random_move_chance
+        );
 
         #[cfg(feature = "tune")]
         for tunable in self.param_handler.tunables() {
@@ -381,6 +391,14 @@ impl TeiHandler {
                     DOUBLE_BLACK_STACK.store(double_black_stack, Ordering::Relaxed);
                 }
             }
+            "randommovechance" => {
+                if let Ok(chance) = value.parse::<u32>() {
+                    let chance = chance.clamp(0, 1000);
+                    self.options.random_move_chance = chance;
+                } else {
+                    invalid(&value);
+                }
+            }
             #[cfg(feature = "tune")]
             param if let Some(param) = self.param_handler.get(param) => {
                 if let Err(err) = unsafe { param.set(&value) } {
@@ -471,6 +489,19 @@ impl TeiHandler {
     fn handle_go(&mut self, args: &[&str], start_time: Instant) {
         if self.searcher.is_searching() {
             eprintln!("Warning: Search running (received 'go')");
+            return;
+        }
+
+        if self.options.random_move_chance > 0 && self.prng.next_u32_bounded(1000) < self.options.random_move_chance {
+            let mut moves = Vec::new();
+            generate_moves(&mut moves, &self.pos);
+
+            let idx = self.prng.next_u32_bounded(moves.len() as u32);
+            let mv = moves[idx as usize];
+
+            println!("info depth 1 time 0 nodes 1 nps 1 score cp 0 pv {}", mv);
+            println!("bestmove {}", mv);
+
             return;
         }
 
