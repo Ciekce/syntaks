@@ -23,10 +23,9 @@
 
 use crate::bitboard::Bitboard;
 use crate::core::{Direction, Square};
-use crate::hits::common::{generate_mask, pdep};
+use crate::hits::common::{generate_mask, pdep_const};
 use crate::hits::naive::find_hits_naive;
 use std::arch::x86_64::_pext_u64;
-use std::sync::LazyLock;
 
 #[derive(Copy, Clone, Debug)]
 struct SquareData {
@@ -64,20 +63,24 @@ const SQUARE_DATA: Data = {
     Data { squares, table_size }
 };
 
-static HITS: LazyLock<[super::Hits; SQUARE_DATA.table_size]> = LazyLock::new(|| {
+static HITS: [super::Hits; SQUARE_DATA.table_size] = {
     let mut result = [[(0, Square::A1); _]; _];
-
-    for sq in Square::all() {
-        let sq_data = &SQUARE_DATA.squares[sq];
+    let mut sq_idx = 0;
+    while sq_idx < Square::COUNT {
+        let sq = Square::from_raw(sq_idx as u8).unwrap();
+        let sq_data = &SQUARE_DATA.squares[sq_idx];
         let entries = 1 << sq_data.mask.count_ones();
-        for i in 0..entries {
-            let blockers = Bitboard::from_raw(pdep(i as u64, sq_data.mask));
-            result[sq_data.offset + i] = find_hits_naive(blockers, sq);
-        }
-    }
 
+        let mut i = 0;
+        while i < entries {
+            let blockers = Bitboard::from_raw(pdep_const(i as u64, sq_data.mask));
+            result[sq_data.offset + i] = find_hits_naive(blockers, sq);
+            i += 1;
+        }
+        sq_idx += 1;
+    }
     result
-});
+};
 
 #[must_use]
 pub fn find_hit_for_dir_pext(blockers: Bitboard, start: Square, dir: Direction) -> super::Hit {

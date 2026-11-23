@@ -23,9 +23,8 @@
 
 use crate::bitboard::Bitboard;
 use crate::core::{Direction, Square};
-use crate::hits::common::{generate_mask, pdep};
+use crate::hits::common::{generate_mask, pdep_const};
 use crate::hits::naive::find_hits_naive;
-use std::sync::LazyLock;
 
 #[rustfmt::skip]
 const MAGICS: [u64; Square::COUNT] = [
@@ -83,38 +82,43 @@ const SQUARE_DATA: Data = {
     Data { squares, table_size }
 };
 
-static HITS: LazyLock<[super::Hits; SQUARE_DATA.table_size]> = LazyLock::new(|| {
+static HITS: [super::Hits; SQUARE_DATA.table_size] = {
     let mut result = [[(0, Square::A1); _]; _];
     let mut filled = [false; SQUARE_DATA.table_size];
 
-    for sq in Square::all() {
-        let sq_data = &SQUARE_DATA.squares[sq];
+    let mut sq_idx = 0;
+    while sq_idx < Square::COUNT {
+        let sq = Square::from_raw(sq_idx as u8).unwrap();
+        let sq_data = &SQUARE_DATA.squares[sq_idx];
 
-        let magic = MAGICS[sq];
-        let shift = SHIFTS[sq];
+        let magic = MAGICS[sq_idx];
+        let shift = SHIFTS[sq_idx];
 
         let mask = !sq_data.inv_mask;
 
+        let mut i = 0;
         let max_entries = 1 << mask.count_ones();
-        for i in 0..max_entries {
-            let blockers = Bitboard::from_raw(pdep(i as u64, mask));
+        while i < max_entries {
+            let blockers = Bitboard::from_raw(pdep_const(i as u64, mask));
 
             let idx = sq_data.offset + calc_idx(blockers, sq_data.inv_mask, magic, shift);
 
             if filled[idx] {
+                i += 1;
                 continue;
             }
 
             result[idx] = find_hits_naive(blockers, sq);
             filled[idx] = true;
+            i += 1;
         }
+        sq_idx += 1;
     }
-
     result
-});
+};
 
 #[must_use]
-fn calc_idx(blockers: Bitboard, inv_mask: u64, magic: u64, shift: u32) -> usize {
+const fn calc_idx(blockers: Bitboard, inv_mask: u64, magic: u64, shift: u32) -> usize {
     ((blockers.raw() | inv_mask).wrapping_mul(magic) >> shift) as usize
 }
 
