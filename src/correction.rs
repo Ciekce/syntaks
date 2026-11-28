@@ -23,6 +23,7 @@
 
 use crate::core::{Color, Score};
 use crate::position::Position;
+use crate::tunable;
 use std::cell::Cell;
 use std::ops::Index;
 
@@ -167,31 +168,48 @@ pub struct CorrectionHistorySlice<'a> {
 
 impl<'a> CorrectionHistorySlice<'a> {
     pub fn get(&self) -> i32 {
+        tunable!(CORRHIST_BLOCKER_WEIGHT: i32 = 1024; range(0, 2048));
+        tunable!(CORRHIST_ROAD_WEIGHT: i32 = 1024; range(0, 2048));
+        tunable!(CORRHIST_TOP_WEIGHT: i32 = 1024; range(0, 2048));
+        tunable!(CORRHIST_RESERVE_WEIGHT: i32 = 1024; range(0, 2048));
+
+        tunable!(CORRHIST_CONT1_WEIGHT: i32 = 1024; range(0, 2048));
+        tunable!(CORRHIST_CONT2_WEIGHT: i32 = 1024; range(0, 2048));
+
         let mut correction = 0;
-        correction += self.blocker.get();
-        correction += self.road.get();
-        correction += self.tops.get();
-        correction += self.reserves.get();
 
-        correction += self.cont_1.map_or(0, Entry::get);
-        correction += self.cont_2.map_or(0, Entry::get);
+        correction += CORRHIST_BLOCKER_WEIGHT * self.blocker.get();
+        correction += CORRHIST_ROAD_WEIGHT * self.road.get();
+        correction += CORRHIST_TOP_WEIGHT * self.tops.get();
+        correction += CORRHIST_RESERVE_WEIGHT * self.reserves.get();
 
-        correction / 32
+        correction += CORRHIST_CONT1_WEIGHT * self.cont_1.map_or(0, Entry::get);
+        correction += CORRHIST_CONT2_WEIGHT * self.cont_2.map_or(0, Entry::get);
+
+        correction / 32768
     }
 
     pub fn update(&self, depth: i32, search_score: Score, static_eval: Score) {
+        tunable!(CORRHIST_BLOCKER_UPDATE_WEIGHT: i32 = 1024; range(0, 2048));
+        tunable!(CORRHIST_ROAD_UPDATE_WEIGHT: i32 = 1024; range(0, 2048));
+        tunable!(CORRHIST_TOP_UPDATE_WEIGHT: i32 = 1024; range(0, 2048));
+        tunable!(CORRHIST_RESERVE_UPDATE_WEIGHT: i32 = 1024; range(0, 2048));
+
+        tunable!(CORRHIST_CONT1_UPDATE_WEIGHT: i32 = 1024; range(0, 2048));
+        tunable!(CORRHIST_CONT2_UPDATE_WEIGHT: i32 = 1024; range(0, 2048));
+
         let bonus = ((search_score - static_eval) * depth / 8)
             .clamp(-CorrectionHistory::MAX_BONUS, CorrectionHistory::MAX_BONUS);
 
-        self.blocker.update(bonus);
-        self.road.update(bonus);
-        self.tops.update(bonus);
-        self.reserves.update(bonus);
+        self.blocker.update(bonus * CORRHIST_BLOCKER_UPDATE_WEIGHT / 1024);
+        self.road.update(bonus * CORRHIST_ROAD_UPDATE_WEIGHT / 1024);
+        self.tops.update(bonus * CORRHIST_TOP_UPDATE_WEIGHT / 1024);
+        self.reserves.update(bonus * CORRHIST_RESERVE_UPDATE_WEIGHT / 1024);
         if let Some(cont_1) = self.cont_1 {
-            cont_1.update(bonus);
+            cont_1.update(bonus * CORRHIST_CONT1_UPDATE_WEIGHT / 1024);
         }
         if let Some(cont_2) = self.cont_2 {
-            cont_2.update(bonus);
+            cont_2.update(bonus * CORRHIST_CONT2_UPDATE_WEIGHT / 1024);
         }
     }
 }
