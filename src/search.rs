@@ -1069,8 +1069,9 @@ fn select_thread(thread_results: &[RootMove]) -> usize {
         .unwrap();
 
     let thread_weight = |thread_idx: usize| {
+        tunable!(THREAD_WEIGHT_SCORE_OFFSET: i32 = 10; range(-20, 20));
         let thread = &thread_results[thread_idx];
-        (thread.score - lowest_root_score + 10) * thread.searched_depth
+        (thread.score - lowest_root_score + THREAD_WEIGHT_SCORE_OFFSET) * thread.searched_depth
     };
 
     let mut votes = HashMap::<u16, i32>::new();
