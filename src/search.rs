@@ -480,7 +480,7 @@ fn search<NT: NodeType>(
                     * (1024 + LMP_IMPROVING * i64::from(improving))
                     * (1024 + LMP_NOT_LOSING * i64::from(!losing))
                     * (1024 + LMP_PV_NODE * i64::from(NT::PV_NODE))
-                    / (1048576 * 1048576);
+                    / 1024i64.pow(4);
                 if move_count as i64 >= limit {
                     if tt_flag == TtFlag::UpperBound
                         && let Some(win) = spread_road_win(pos)
@@ -665,9 +665,13 @@ fn search<NT: NodeType>(
                     r += (1 - gain).clamp(0, 3) * SPREAD_GAIN_LMR;
                 }
 
-                r /= 1024;
+                tunable!(LMR_EXT_THRESHOLD: i32 = -1024; range(-4096, 0));
+                tunable!(LMR_PV_EXT_THRESHOLD: i32 = 0; range(-2048, 2048));
 
-                let reduced = (new_depth - r).max(1).min(new_depth);
+                let reduced = (new_depth - r / 1024)
+                    .max(1)
+                    .min(new_depth + i32::from(r < LMR_EXT_THRESHOLD))
+                    + i32::from(NT::PV_NODE && r <= LMR_PV_EXT_THRESHOLD);
 
                 thread.stack[ply].reduction = new_depth - reduced;
                 score = -search::<NonPvNode>(thread, child_data, &new_pos, reduced, ply + 1, -alpha - 1, -alpha, true);
