@@ -87,8 +87,8 @@ impl TimeManager {
         let stones_in_hand = pos.stones_in_hand(Color::Black) + pos.stones_in_hand(Color::White);
         let stones_on_board = MAX_STONES_IN_HAND.saturating_sub(stones_in_hand);
         let complexity = stone_complexity_scale * stones_on_board as f64 / MAX_STONES_IN_HAND as f64;
-        let base_time = remaining * (stone_complexity_base + complexity) * base_time_scale / 409600.0
-            + increment * inc_scale / 1024.0;
+        let base_time =
+            remaining * (stone_complexity_base + complexity) * base_time_scale / 400.0 + increment * inc_scale;
 
         let max_time = remaining * 0.8;
         let opt_time = (base_time * opt_time_scale).min(max_time);
