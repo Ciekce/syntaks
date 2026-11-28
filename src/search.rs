@@ -366,7 +366,9 @@ fn search<NT: NodeType>(
             depth += 1;
         }
 
-        if depth >= 2 && parent_reduction >= 2 && static_eval + parent_static_eval >= 200 {
+        tunable!(HINDSIGHT_REDUCTION_MARGIN: i32 = 200; range(20, 400));
+
+        if depth >= 2 && parent_reduction >= 2 && static_eval + parent_static_eval >= HINDSIGHT_REDUCTION_MARGIN {
             depth -= 1;
         }
 
