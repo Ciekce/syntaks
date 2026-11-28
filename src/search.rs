@@ -610,7 +610,7 @@ fn search<NT: NodeType>(
                     r += (1 - gain).clamp(0, 3) * SPREAD_GAIN_LMR;
                 }
 
-                let reduced = (new_depth - r / 1024).max(1).min(new_depth) + i32::from(NT::PV_NODE && r <= -512);
+                let reduced = (new_depth - r / 1024).max(1).min(new_depth) + i32::from(NT::PV_NODE && r <= 0);
 
                 thread.stack[ply].reduction = new_depth - reduced;
                 score = -search::<NonPvNode>(thread, child_data, &new_pos, reduced, ply + 1, -alpha - 1, -alpha, true);
