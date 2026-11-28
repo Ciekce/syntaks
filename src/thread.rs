@@ -271,6 +271,7 @@ pub struct StackEntry {
     pub static_eval: Score,
     pub excluded: Option<Move>,
     pub reduction: i32,
+    pub ttpv: bool,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

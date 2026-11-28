@@ -25,6 +25,8 @@ use crate::core::{Color, Score};
 use crate::position::Position;
 use crate::takmove::Move;
 use crate::thread::RootMove;
+use crate::tunable;
+use crate::tune::Val;
 use std::time::Instant;
 
 #[allow(unused)]
@@ -35,7 +37,27 @@ pub const MAX_MOVE_OVERHEAD_MS: u64 = 10000;
 const TIME_CHECK_INTERVAL: usize = 4096;
 
 const MAX_STONES_IN_HAND: u8 = 62;
-const STONE_COMPLEXITY_SCALE: f64 = 5.0;
+
+tunable!(BASE_TIME_SCALE: i32 = 1024; range(1, 4096));
+tunable!(INC_SCALE: i32 = 1024; range(1, 4096));
+
+tunable!(STONE_COMPLEXITY_SCALE: i32 = 5120; range(1, 10240));
+tunable!(STONE_COMPLEXITY_BASE: i32 = 17920; range(1, 32768));
+
+tunable!(OPT_TIME_SCALE: i32 = 614; range(256, 1536));
+
+tunable!(BM_STABILITY_MIN: i32 = 819; range(1, 2048));
+tunable!(BM_STABILITY_MAX: i32 = 2355; range(1024, 4096));
+tunable!(BM_STABILITY_SCALE: i32 = 8806; range(1024, 16384));
+tunable!(BM_STABILITY_OFFSET: i32 = 922; range(0, 4096));
+tunable!(BM_STABILITY_POWER: i32 = -2662; range(-4096, -1024));
+
+tunable!(SCORE_DROP_DIVISOR: i32 = 86016; range(32768, 131072));
+tunable!(SCORE_DROP_MAX: i32 = 1741; range(640, 3072));
+
+tunable!(NODE_TM_BASE: i32 = 2560; range(1536, 3072));
+tunable!(NODE_TM_SCALE: i32 = 2560; range(1536, 4096));
+tunable!(NODE_TM_MIN: i32 = 512; range(1, 1024));
 
 #[derive(Clone, Debug, Default)]
 pub struct TmContext {
@@ -52,15 +74,24 @@ struct TimeManager {
 
 impl TimeManager {
     fn new(remaining: f64, increment: f64, overhead: f64, pos: &Position) -> Self {
+        let base_time_scale = BASE_TIME_SCALE.val() as f64 / 1024.0;
+        let inc_scale = INC_SCALE.val() as f64 / 1024.0;
+
+        let stone_complexity_scale = STONE_COMPLEXITY_SCALE.val() as f64 / 1024.0;
+        let stone_complexity_base = STONE_COMPLEXITY_BASE.val() as f64 / 1024.0;
+
+        let opt_time_scale = OPT_TIME_SCALE.val() as f64 / 1024.0;
+
         let remaining = (remaining - overhead).max(0.001);
 
         let stones_in_hand = pos.stones_in_hand(Color::Black) + pos.stones_in_hand(Color::White);
         let stones_on_board = MAX_STONES_IN_HAND.saturating_sub(stones_in_hand);
-        let complexity_offset = STONE_COMPLEXITY_SCALE * stones_on_board as f64 / MAX_STONES_IN_HAND as f64;
-        let base_time = remaining * (17.5 + complexity_offset) / 400.0 + increment;
+        let complexity = stone_complexity_scale * stones_on_board as f64 / MAX_STONES_IN_HAND as f64;
+        let base_time = remaining * (stone_complexity_base + complexity) * base_time_scale / 409600.0
+            + increment * inc_scale / 1024.0;
 
         let max_time = remaining * 0.8;
-        let opt_time = (base_time * 0.6).min(max_time);
+        let opt_time = (base_time * opt_time_scale).min(max_time);
 
         Self { max_time, opt_time }
     }
@@ -73,6 +104,19 @@ impl TimeManager {
         total_nodes: usize,
         pv_move: &RootMove,
     ) -> bool {
+        let bm_stability_min = BM_STABILITY_MIN.val() as f64 / 1024.0;
+        let bm_stability_max = BM_STABILITY_MAX.val() as f64 / 1024.0;
+        let bm_stability_scale = BM_STABILITY_SCALE.val() as f64 / 1024.0;
+        let bm_stability_offset = BM_STABILITY_OFFSET.val() as f64 / 1024.0;
+        let bm_stability_power = BM_STABILITY_POWER.val() as f64 / 1024.0;
+
+        let score_drop_divisor = SCORE_DROP_DIVISOR.val() as f64 / 1024.0;
+        let score_drop_max = SCORE_DROP_MAX.val() as f64 / 1024.0;
+
+        let node_tm_base = NODE_TM_BASE.val() as f64 / 1024.0;
+        let node_tm_scale = NODE_TM_SCALE.val() as f64 / 1024.0;
+        let node_tm_min = NODE_TM_MIN.val() as f64 / 1024.0;
+
         let mut scale = 1.0;
 
         let score = pv_move.score;
@@ -97,15 +141,17 @@ impl TimeManager {
 
         if depth >= 5 {
             let stability = ctx.stability as f64;
-            scale *= (0.8 + 8.6 * (stability + 0.9).powf(-2.6)).min(2.3);
+            scale *= (bm_stability_min
+                + bm_stability_scale * (stability + bm_stability_offset).powf(bm_stability_power))
+            .min(bm_stability_max);
 
             let score_change = score - avg_score;
             if score_change < 0 {
-                scale *= (1.0 - score_change as f64 / 84.0).min(1.7);
+                scale *= (1.0 - score_change as f64 / score_drop_divisor).min(score_drop_max);
             }
 
             let best_move_nodes_fraction = pv_move.nodes as f64 / total_nodes as f64;
-            scale *= (2.5 - 2.5 * best_move_nodes_fraction).max(0.5);
+            scale *= (node_tm_base - node_tm_scale * best_move_nodes_fraction).max(node_tm_min);
         }
 
         time >= self.opt_time * scale

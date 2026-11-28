@@ -276,7 +276,30 @@ impl<'a> Movepicker<'a> {
     fn score_moves(&mut self) {
         self.scores.clear();
         for &mv in self.moves.iter() {
-            let mut score = self.history.score(mv);
+            let hist_score = {
+                tunable!(MOVEPICK_MAIN_HIST_ONLY_WEIGHT: i32 = 1024; range(0, 2048));
+                tunable!(MOVEPICK_MAIN_HIST_WEIGHT: i32 = 512; range(0, 2048));
+                tunable!(MOVEPICK_CAP_HIST_WEIGHT: i32 = 512; range(0, 2048));
+                tunable!(MOVEPICK_INFL_HIST_WEIGHT: i32 = 1024; range(0, 2048));
+                tunable!(MOVEPICK_CONT1_HIST_WEIGHT: i32 = 1024; range(0, 2048));
+
+                let mut hist_score = 0;
+
+                let main_hist = self.history.main_score(mv);
+                if let Some(capstone_hist) = self.history.capstone_score(mv) {
+                    hist_score += MOVEPICK_MAIN_HIST_WEIGHT * main_hist;
+                    hist_score += MOVEPICK_CAP_HIST_WEIGHT * capstone_hist;
+                } else {
+                    hist_score += MOVEPICK_MAIN_HIST_ONLY_WEIGHT * main_hist;
+                }
+
+                hist_score += MOVEPICK_INFL_HIST_WEIGHT * self.history.influence_score(mv);
+                hist_score += MOVEPICK_CONT1_HIST_WEIGHT * self.history.cont_score(mv);
+
+                hist_score / 1024
+            };
+
+            let mut score = hist_score;
 
             if self.killers.killers[1] == Some(mv) {
                 score += KILLER_MOVE_BONUS;

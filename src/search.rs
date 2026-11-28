@@ -162,6 +162,11 @@ impl PlyData {
     }
 }
 
+#[must_use]
+fn ilerp<const ONE: i32>(a: i32, b: i32, t: i32) -> i32 {
+    (a * (ONE - t) + b * t) / ONE
+}
+
 trait NodeType {
     const PV_NODE: bool;
     const ROOT_NODE: bool;
@@ -323,7 +328,11 @@ fn search<NT: NodeType>(
         {
             return tt_entry.score;
         }
+
+        thread.stack[ply].ttpv = NT::PV_NODE || tt_entry.pv;
     }
+
+    let ttpv = thread.stack[ply].ttpv;
 
     let tt_move = if NT::ROOT_NODE && thread.root_depth > 1 {
         Some(thread.root_moves[thread.pv_idx].mv())
@@ -346,7 +355,7 @@ fn search<NT: NodeType>(
     };
 
     if !tt_hit {
-        thread.shared().tt.store_static_eval(pos.key(), raw_eval);
+        thread.shared().tt.store_static_eval(pos.key(), raw_eval, ttpv);
     }
 
     let corrhist = thread.corrhist.slice(pos, &thread.key_history);
@@ -378,6 +387,8 @@ fn search<NT: NodeType>(
         tunable!(RFP_IMPROVING: i32 = 70; range(0, 512));
         tunable!(RFP_OPP_WORSENING: i32 = 32; range(0, 128));
 
+        tunable!(RFP_FAILFIRM_T: i32 = 512; range(0, 1024));
+
         // reverse futility pruning (rfp)
         let rfp_margin = (RFP_DEPTH_SCALE * depth + RFP_BASE
             - RFP_CUTNODE * i32::from(expected_cutnode)
@@ -386,7 +397,7 @@ fn search<NT: NodeType>(
         .max(0);
         if depth <= 10 && static_eval - rfp_margin >= beta {
             return if !is_decisive(static_eval) && !is_decisive(beta) {
-                (static_eval + beta) / 2
+                ilerp::<1024>(static_eval, beta, RFP_FAILFIRM_T.val())
             } else {
                 static_eval
             };
@@ -455,18 +466,22 @@ fn search<NT: NodeType>(
 
         #[allow(clippy::collapsible_if)]
         if !NT::ROOT_NODE && !is_loss(best_score) && (!NT::PV_NODE || !cfg!(feature = "datagen")) {
-            tunable!(LMP_LOSING_MARGIN: i32 = 146; range(0, 512));
-            tunable!(LMP_BASE: i32 = 1629; range(0, 2048));
-            tunable!(LMP_DEPTH_SCALE: i32 = 310; range(0, 1024));
+            tunable!(LMP_LOSING_MARGIN: i64 = 146; range(0, 512));
+            tunable!(LMP_BASE: i64 = 1629; range(0, 2048));
+            tunable!(LMP_DEPTH_SCALE: i64 = 310; range(0, 1024));
+
+            tunable!(LMP_IMPROVING: i64 = 1024; range(0, 2048));
+            tunable!(LMP_NOT_LOSING: i64 = 1024; range(0, 2048));
+            tunable!(LMP_PV_NODE: i64 = 1024; range(0, 2048));
 
             if depth <= 8 {
-                let losing = static_eval + LMP_LOSING_MARGIN <= alpha;
-                let limit = (LMP_BASE + LMP_DEPTH_SCALE * depth * depth)
-                    * (1 + i32::from(improving))
-                    * (1 + i32::from(!losing))
-                    * (1 + i32::from(NT::PV_NODE))
-                    / 1024;
-                if move_count as i32 >= limit {
+                let losing = static_eval as i64 + LMP_LOSING_MARGIN <= alpha as i64;
+                let limit = (LMP_BASE + LMP_DEPTH_SCALE * depth as i64 * depth as i64)
+                    * (1024 + LMP_IMPROVING * i64::from(improving))
+                    * (1024 + LMP_NOT_LOSING * i64::from(!losing))
+                    * (1024 + LMP_PV_NODE * i64::from(NT::PV_NODE))
+                    / (1048576 * 1048576);
+                if move_count as i64 >= limit {
                     if tt_flag == TtFlag::UpperBound
                         && let Some(win) = spread_road_win(pos)
                     {
@@ -490,9 +505,16 @@ fn search<NT: NodeType>(
 
         let mut extension = 0;
 
-        tunable!(SE_BETA_SCALE: i32 = 1391; range(0, 4096));
-        tunable!(SE_DEXT_MARGIN: i32 = 26; range(0, 128));
-        tunable!(SE_TEXT_MARGIN: i32 = 137; range(0, 256));
+        tunable!(S_BETA_BASE_MARGIN: i32 = 1391; range(0, 4096));
+        tunable!(S_BETA_PREV_PV_MARGIN: i32 = 0; range(0, 2048));
+
+        tunable!(SE_DEXT_BASE_MARGIN: i32 = 26; range(0, 128));
+        tunable!(SE_DEXT_PV_MARGIN: i32 = 256; range(0, 512));
+
+        tunable!(SE_TEXT_BASE_MARGIN: i32 = 137; range(0, 256));
+        tunable!(SE_TEXT_PV_MARGIN: i32 = 400; range(0, 1024));
+
+        tunable!(MULTICUT_FAILFIRM_T: i32 = 0; range(0, 1024));
 
         tunable!(LDSE_MARGIN: i32 = 26; range(1, 64));
         tunable!(LDSE_DOUBLE_MARGIN: i32 = 40; range(20, 120));
@@ -504,7 +526,9 @@ fn search<NT: NodeType>(
                 && tt_entry.flag != Some(TtFlag::UpperBound)
                 && !is_decisive(tt_entry.score)
             {
-                let s_beta = tt_entry.score - SE_BETA_SCALE * depth / 1024;
+                let s_beta_margin = S_BETA_BASE_MARGIN + S_BETA_PREV_PV_MARGIN * i32::from(ttpv && !NT::PV_NODE);
+                let s_beta = tt_entry.score - s_beta_margin * depth / 1024;
+
                 let s_depth = (depth - 1) / 2;
 
                 thread.stack[ply].excluded = Some(mv);
@@ -521,11 +545,17 @@ fn search<NT: NodeType>(
                 thread.stack[ply].excluded = None;
 
                 if score < s_beta {
-                    extension += 1
-                        + i32::from(!NT::PV_NODE && score < s_beta - SE_DEXT_MARGIN)
-                        + i32::from(!NT::PV_NODE && score < s_beta - SE_TEXT_MARGIN);
+                    let dext_margin = SE_DEXT_BASE_MARGIN + SE_DEXT_PV_MARGIN * i32::from(NT::PV_NODE);
+                    let text_margin = SE_TEXT_BASE_MARGIN + SE_TEXT_PV_MARGIN * i32::from(NT::PV_NODE);
+                    extension += 1 // meow
+                        + i32::from(score < s_beta - dext_margin) // awsdasdasdasdasdasdasd
+                        + i32::from(score < s_beta - text_margin);
                 } else if !NT::PV_NODE && score >= beta {
-                    return score;
+                    return if !is_decisive(score) && !is_decisive(beta) {
+                        ilerp::<1024>(score, beta, MULTICUT_FAILFIRM_T.val())
+                    } else {
+                        score
+                    };
                 } else if tt_entry.score >= beta {
                     extension -= 1;
                 } else if expected_cutnode {
@@ -583,20 +613,45 @@ fn search<NT: NodeType>(
             let new_depth = depth + extension - 1;
 
             if depth >= 2 && move_count >= 2 + usize::from(NT::ROOT_NODE) {
+                let lmr_history = {
+                    tunable!(LMR_MAIN_HIST_ONLY_WEIGHT: i32 = 1024; range(0, 2048));
+                    tunable!(LMR_MAIN_HIST_WEIGHT: i32 = 512; range(0, 2048));
+                    tunable!(LMR_CAP_HIST_WEIGHT: i32 = 512; range(0, 2048));
+                    tunable!(LMR_INFL_HIST_WEIGHT: i32 = 1024; range(0, 2048));
+                    tunable!(LMR_CONT1_HIST_WEIGHT: i32 = 1024; range(0, 2048));
+
+                    let mut hist_score = 0;
+
+                    let main_hist = history.main_score(mv);
+                    if let Some(capstone_hist) = history.capstone_score(mv) {
+                        hist_score += LMR_MAIN_HIST_WEIGHT * main_hist;
+                        hist_score += LMR_CAP_HIST_WEIGHT * capstone_hist;
+                    } else {
+                        hist_score += LMR_MAIN_HIST_ONLY_WEIGHT * main_hist;
+                    }
+
+                    hist_score += LMR_INFL_HIST_WEIGHT * history.influence_score(mv);
+                    hist_score += LMR_CONT1_HIST_WEIGHT * history.cont_score(mv);
+
+                    hist_score / 1024
+                };
+
                 let mut r = LMR_REDUCTIONS.get(depth, move_count);
 
                 tunable!(PV_NODE_LMR: i32 = 1263; range(0, 4096));
+                tunable!(TTPV_LMR: i32 = 0; range(0, 2048));
                 tunable!(CUTNODE_LMR: i32 = 2289; range(0, 4096));
                 tunable!(IMPROVING_LMR: i32 = 264; range(0, 4096));
-                tunable!(HIST_LMR: i32 = 925; range(0, 4096));
+                tunable!(HIST_LMR: i32 = 1233; range(0, 4096));
                 tunable!(CORR_LMR: i32 = 439; range(0, 2048));
                 tunable!(THREAT_LMR: i32 = 1001; range(0, 4096));
                 tunable!(SPREAD_GAIN_LMR: i32 = -603; range(-2048, 2048));
 
                 r += PV_NODE_LMR * i32::from(!NT::PV_NODE);
+                r -= TTPV_LMR * i32::from(ttpv);
                 r += CUTNODE_LMR * i32::from(expected_cutnode);
                 r += IMPROVING_LMR * i32::from(!improving);
-                r -= history.score(mv) * HIST_LMR / 24576;
+                r -= lmr_history * HIST_LMR / 32768;
                 r -= (correction.abs() * CORR_LMR / 64).min(1024);
 
                 let our_influence = new_pos.influence(pos.stm());
@@ -736,17 +791,17 @@ fn search<NT: NodeType>(
         tunable!(HIST_BONUS_SCALE: i32 = 482; range(0, 1024));
         tunable!(HIST_BONUS_OFFSET: i32 = 479; range(0, 1024));
         tunable!(HIST_BONUS_MAX: i32 = 3655; range(0, 4096));
-        tunable!(HIST_MALUS_SCALE: i32 = 482; range(0, 1024));
-        tunable!(HIST_MALUS_OFFSET: i32 = 512; range(0, 1024));
-        tunable!(HIST_MALUS_MAX: i32 = 3092; range(0, 4096));
+        tunable!(HIST_PENALTY_SCALE: i32 = 482; range(0, 1024));
+        tunable!(HIST_PENALTY_OFFSET: i32 = 512; range(0, 1024));
+        tunable!(HIST_PENALTY_MAX: i32 = 3092; range(0, 4096));
 
         let bonus = (HIST_BONUS_SCALE * depth - HIST_BONUS_OFFSET).clamp(0, HIST_BONUS_MAX.val());
-        let malus = (HIST_MALUS_SCALE * depth - HIST_MALUS_OFFSET).clamp(0, HIST_MALUS_MAX.val());
+        let penalty = (HIST_PENALTY_SCALE * depth - HIST_PENALTY_OFFSET).clamp(0, HIST_PENALTY_MAX.val());
 
         history.update(best_move, bonus);
 
         for &mv in faillow_moves.iter() {
-            history.update(mv, -malus);
+            history.update(mv, -penalty);
         }
 
         if best_score >= beta {
@@ -770,7 +825,7 @@ fn search<NT: NodeType>(
             thread
                 .shared()
                 .tt
-                .store(pos.key(), best_score, raw_eval, best_move, depth, ply, tt_flag);
+                .store(pos.key(), best_score, raw_eval, best_move, depth, ply, tt_flag, ttpv);
         }
     }
 
@@ -801,6 +856,8 @@ fn leaf<NT: NodeType>(
 
     let (tt_hit, tt_entry) = thread.shared().tt.probe(pos.key(), ply);
 
+    let ttpv = NT::PV_NODE || tt_entry.pv;
+
     if !NT::PV_NODE
         && match tt_entry.flag {
             None => false,
@@ -819,7 +876,7 @@ fn leaf<NT: NodeType>(
     };
 
     if !tt_hit {
-        thread.shared().tt.store_static_eval(pos.key(), raw_eval);
+        thread.shared().tt.store_static_eval(pos.key(), raw_eval, ttpv);
     }
 
     let correction = thread.corrhist.slice(pos, &thread.key_history).get();
