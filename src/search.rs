@@ -366,6 +366,10 @@ fn search<NT: NodeType>(
             depth += 1;
         }
 
+        if depth >= 2 && parent_reduction >= 2 && static_eval + parent_static_eval >= 200 {
+            depth -= 1;
+        }
+
         tunable!(RFP_DEPTH_SCALE: i32 = 92; range(0, 256));
         tunable!(RFP_BASE: i32 = 154; range(0, 512));
         tunable!(RFP_CUTNODE: i32 = 101; range(0, 256));
