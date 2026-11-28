@@ -666,12 +666,12 @@ fn search<NT: NodeType>(
                 }
 
                 tunable!(LMR_EXT_THRESHOLD: i32 = -1024; range(-4096, 0));
-                tunable!(LMR_PV_EXT_THRESHOLD: i32 = 0; range(-2048, 2048));
+                tunable!(LMR_PV_EXT_THRESHOLD: i32 = 1; range(-2048, 2048));
 
                 let reduced = (new_depth - r / 1024)
                     .max(1)
                     .min(new_depth + i32::from(r < LMR_EXT_THRESHOLD))
-                    + i32::from(NT::PV_NODE && r <= LMR_PV_EXT_THRESHOLD);
+                    + i32::from(NT::PV_NODE && r < LMR_PV_EXT_THRESHOLD);
 
                 thread.stack[ply].reduction = new_depth - reduced;
                 score = -search::<NonPvNode>(thread, child_data, &new_pos, reduced, ply + 1, -alpha - 1, -alpha, true);
